@@ -1,0 +1,22 @@
+# frozen_string_literal: true
+
+require 'faraday'
+require 'faraday/multipart'
+require 'stringio'
+
+require_relative 'assinafy/version'
+require_relative 'assinafy/errors'
+require_relative 'assinafy/null_logger'
+require_relative 'assinafy/configuration'
+require_relative 'assinafy/utils'
+require_relative 'assinafy/resources/base_resource'
+require_relative 'assinafy/resources/auth_resource'
+require_relative 'assinafy/resources/document_resource'
+require_relative 'assinafy/resources/signer_resource'
+require_relative 'assinafy/resources/signer_document_resource'
+require_relative 'assinafy/resources/assignment_resource'
+require_relative 'assinafy/resources/webhook_resource'
+require_relative 'assinafy/resources/template_resource'
+require_relative 'assinafy/resources/field_resource'
+require_relative 'assinafy/support/webhook_verifier'
+require_relative 'assinafy/client'

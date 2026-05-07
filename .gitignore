@@ -1,0 +1,10 @@
+*.gem
+*.lock
+.DS_Store
+.env
+.env.local
+coverage/
+pkg/
+vendor/bundle
+.bundle/
+.ruby-version
