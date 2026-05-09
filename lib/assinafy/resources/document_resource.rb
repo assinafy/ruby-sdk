@@ -78,7 +78,7 @@ module Assinafy
             end
           rescue ValidationError
             raise
-          rescue => e
+          rescue StandardError => e
             @logger.warn("Error checking document status: #{e.message}")
           end
 

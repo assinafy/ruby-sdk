@@ -1,12 +1,12 @@
 # frozen_string_literal: true
 
 RSpec.describe Assinafy::Resources::AssignmentResource do
-  let(:base_url)  { 'https://api.assinafy.com.br/v1' }
+  let(:base_url) { 'https://api.assinafy.com.br/v1' }
   let(:connection) { build_test_connection(base_url) }
 
   describe '.build_payload' do
     it 'normalises string signer ids into {id} hashes' do
-      body = described_class.build_payload(signers: ['a', 'b'])
+      body = described_class.build_payload(signers: %w[a b])
       expect(body).to eq({ 'method' => 'virtual', 'signers' => [{ 'id' => 'a' }, { 'id' => 'b' }] })
     end
 
@@ -75,7 +75,7 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
         .to_return(api_envelope({ 'id' => 'assignment-1' }))
 
       resource = described_class.new(connection, 'acc')
-      result   = resource.create('doc-1', { signers: ['s1', 's2'] })
+      result   = resource.create('doc-1', { signers: %w[s1 s2] })
 
       expect(result['id']).to eq('assignment-1')
       expect(

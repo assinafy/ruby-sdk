@@ -19,14 +19,14 @@ module Assinafy
       @connection = build_connection(config)
       @logger     = config.logger || NullLogger.new
 
-      @auth            = Resources::AuthResource.new(@connection, nil, @logger)
-      @documents       = Resources::DocumentResource.new(@connection, account_id, @logger)
-      @signers         = Resources::SignerResource.new(@connection, account_id, @logger)
+      @auth             = Resources::AuthResource.new(@connection, nil, @logger)
+      @documents        = Resources::DocumentResource.new(@connection, account_id, @logger)
+      @signers          = Resources::SignerResource.new(@connection, account_id, @logger)
       @signer_documents = Resources::SignerDocumentResource.new(@connection, nil, @logger)
-      @assignments     = Resources::AssignmentResource.new(@connection, account_id, @logger)
-      @webhooks        = Resources::WebhookResource.new(@connection, account_id, @logger)
-      @templates       = Resources::TemplateResource.new(@connection, account_id, @logger)
-      @fields          = Resources::FieldResource.new(@connection, account_id, @logger)
+      @assignments      = Resources::AssignmentResource.new(@connection, account_id, @logger)
+      @webhooks         = Resources::WebhookResource.new(@connection, account_id, @logger)
+      @templates        = Resources::TemplateResource.new(@connection, account_id, @logger)
+      @fields           = Resources::FieldResource.new(@connection, account_id, @logger)
       @webhook_verifier = Support::WebhookVerifier.new(webhook_secret)
     end
 
@@ -35,46 +35,38 @@ module Assinafy
     end
 
     def self.from_config(config)
-      h = config.transform_keys { |k| k.to_s }
+      from_hash(config)
+    end
+
+    def self.from_hash(config)
+      cfg = Configuration.from_hash(config)
       new(
-        api_key:        h['api_key'],
-        token:          h['token'] || h['access_token'],
-        account_id:     h['account_id'],
-        base_url:       h['base_url'] || Configuration::DEFAULT_BASE_URL,
-        webhook_secret: h['webhook_secret'],
-        timeout:        h['timeout'] ? h['timeout'].to_i : Configuration::DEFAULT_TIMEOUT,
-        logger:         h['logger']
+        api_key:        cfg.api_key,
+        token:          cfg.token,
+        account_id:     cfg.account_id,
+        base_url:       cfg.base_url,
+        webhook_secret: cfg.webhook_secret,
+        timeout:        cfg.timeout,
+        logger:         cfg.logger
       )
     end
 
     def upload_and_request_signatures(source:, signers:, message: nil,
-                                       wait_for_ready: true, expires_at: nil,
-                                       copy_receivers: nil, account_id: nil)
-      if signers.nil? || signers.empty?
-        raise ValidationError.new('At least one signer is required')
-      end
+                                      wait_for_ready: true, expires_at: nil,
+                                      copy_receivers: nil, account_id: nil)
+      raise ValidationError.new('At least one signer is required') if signers.nil? || signers.empty?
 
       @logger.info("Starting upload and signature workflow for #{signers.length} signer(s)")
 
-      upload_opts = {}
-      upload_opts[:account_id] = account_id if account_id
-
+      upload_opts = account_id ? { account_id: account_id } : {}
       document = @documents.upload(source, upload_opts)
       @documents.wait_until_ready(document['id']) if wait_for_ready
 
-      signer_ids = signers.map do |signer|
-        s = signer.transform_keys { |k| k.to_s }
-        payload = { full_name: s['full_name'] || s['name'], email: s['email'] }
-        phone = s['whatsapp_phone_number'] || s['phone']
-        payload[:whatsapp_phone_number] = phone if phone
-        @signers.create(payload, account_id)['id']
-      end
+      signer_ids = signers.map { |signer| @signers.create(signer, account_id)['id'] }
 
-      assignment_payload = { method: 'virtual', signers: signer_ids }
-      assignment_payload[:message]        = message        if message
-      assignment_payload[:expires_at]     = expires_at     if expires_at
-      assignment_payload[:copy_receivers] = copy_receivers if copy_receivers
-
+      assignment_payload = { method: 'virtual', signers: signer_ids,
+                             message: message, expires_at: expires_at,
+                             copy_receivers: copy_receivers }
       assignment = @assignments.create(document['id'], assignment_payload)
 
       @logger.info("Upload and signature workflow completed for document #{document['id']}")

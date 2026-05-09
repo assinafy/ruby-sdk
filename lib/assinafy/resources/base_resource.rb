@@ -3,6 +3,13 @@
 module Assinafy
   module Resources
     class BaseResource
+      PAGINATION_HEADERS = {
+        current_page: 'x-pagination-current-page',
+        per_page:     'x-pagination-per-page',
+        total:        'x-pagination-total-count',
+        last_page:    'x-pagination-page-count'
+      }.freeze
+
       def initialize(connection, default_account_id = nil, logger = nil)
         @connection         = connection
         @default_account_id = default_account_id
@@ -13,35 +20,29 @@ module Assinafy
 
       def account_id(explicit = nil)
         id = explicit || @default_account_id
-        unless id
-          raise ValidationError.new(
-            'Account ID is required. Provide it as a parameter or set a default in the client.'
-          )
-        end
-        id
+        return id if id
+
+        raise ValidationError.new(
+          'Account ID is required. Provide it as a parameter or set a default in the client.'
+        )
       end
 
       def require_id(value, name)
-        if value.nil? || value.to_s.strip.empty?
-          raise ValidationError.new("#{name} is required")
-        end
-        value
+        return value unless value.nil? || value.to_s.strip.empty?
+
+        raise ValidationError.new("#{name} is required")
       end
 
       def require_payload(payload, name = 'Payload')
-        unless payload.is_a?(Hash)
-          raise ValidationError.new("#{name} must be a Hash")
-        end
+        raise ValidationError.new("#{name} must be a Hash") unless payload.is_a?(Hash)
 
         payload
       end
 
       def require_array(value, name)
-        unless value.is_a?(Array) && !value.empty?
-          raise ValidationError.new("#{name} must be a non-empty Array")
-        end
+        return value if value.is_a?(Array) && !value.empty?
 
-        value
+        raise ValidationError.new("#{name} must be a non-empty Array")
       end
 
       def query_params(params)
@@ -76,72 +77,52 @@ module Assinafy
         end
       end
 
-      def call(label, &block)
-        response = yield
-        check_status!(response, label)
-        Utils.handle_assinafy_response(response.body)
-      rescue Faraday::ConnectionFailed, Faraday::TimeoutError => e
-        raise NetworkError.new("#{label}: #{e.message}")
-      rescue Assinafy::Error
-        raise
-      rescue => e
-        raise Assinafy::Error.new("#{label}: #{e.message}")
+      def call(label)
+        Utils.handle_assinafy_response(request(label) { yield }.body)
       end
 
-      def call_optional(label, &block)
-        call(label, &block)
+      def call_optional(label)
+        call(label) { yield }
       rescue ApiError => e
-        return nil if e.status_code == 404
-        raise
-      end
+        raise unless e.status_code == 404
 
-      def call_void(label, &block)
-        response = yield
-        check_status!(response, label)
         nil
-      rescue Faraday::ConnectionFailed, Faraday::TimeoutError => e
-        raise NetworkError.new("#{label}: #{e.message}")
-      rescue Assinafy::Error
-        raise
-      rescue => e
-        raise Assinafy::Error.new("#{label}: #{e.message}")
       end
 
-      def call_binary(label, &block)
-        response = yield
-        check_status!(response, label)
-        (response.body || '').b
-      rescue Faraday::ConnectionFailed, Faraday::TimeoutError => e
-        raise NetworkError.new("#{label}: #{e.message}")
-      rescue Assinafy::Error
-        raise
-      rescue => e
-        raise Assinafy::Error.new("#{label}: #{e.message}")
+      def call_void(label)
+        request(label) { yield }
+        nil
       end
 
-      def call_list(label, &block)
-        response = yield
-        check_status!(response, label)
+      def call_binary(label)
+        (request(label) { yield }.body || '').b
+      end
 
-        body = Utils.handle_assinafy_response(response.body)
-        data = extract_list_data(body)
-        meta = parse_pagination_meta(response.headers)
-
-        result = { data: data }
+      def call_list(label)
+        response = request(label) { yield }
+        body     = Utils.handle_assinafy_response(response.body)
+        result   = { data: extract_list_data(body) }
+        meta     = parse_pagination_meta(response.headers)
         result[:meta] = meta if meta
         result
-      rescue Faraday::ConnectionFailed, Faraday::TimeoutError => e
-        raise NetworkError.new("#{label}: #{e.message}")
-      rescue Assinafy::Error
-        raise
-      rescue => e
-        raise Assinafy::Error.new("#{label}: #{e.message}")
       end
 
       private
 
-      def check_status!(response, label)
-        return if response.status >= 200 && response.status < 300
+      def request(label)
+        response = yield
+        check_status!(response, label)
+        response
+      rescue Faraday::ConnectionFailed, Faraday::TimeoutError => e
+        raise NetworkError.new("#{label}: #{e.message}")
+      rescue Assinafy::Error
+        raise
+      rescue StandardError => e
+        raise Assinafy::Error.new("#{label}: #{e.message}")
+      end
+
+      def check_status!(response, _label)
+        return if (200..299).cover?(response.status)
 
         raise ApiError.from_response(response.status, response.body)
       end
@@ -157,23 +138,16 @@ module Assinafy
       def parse_pagination_meta(headers)
         return nil unless headers
 
-        current  = to_int(headers['x-pagination-current-page'])
-        per_page = to_int(headers['x-pagination-per-page'])
-        total    = to_int(headers['x-pagination-total-count'])
-        last     = to_int(headers['x-pagination-page-count'])
-
-        return nil if [current, per_page, total, last].all?(&:nil?)
-
-        meta = {}
-        meta[:current_page] = current  if current
-        meta[:per_page]     = per_page if per_page
-        meta[:total]        = total    if total
-        meta[:last_page]    = last     if last
-        meta
+        meta = PAGINATION_HEADERS.each_with_object({}) do |(key, header), acc|
+          value = to_int(headers[header])
+          acc[key] = value if value
+        end
+        meta.empty? ? nil : meta
       end
 
       def to_int(value)
         return nil if value.nil?
+
         Integer(value)
       rescue ArgumentError, TypeError
         nil

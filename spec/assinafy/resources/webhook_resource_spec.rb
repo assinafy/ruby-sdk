@@ -11,8 +11,8 @@ RSpec.describe Assinafy::Resources::WebhookResource do
 
       resource = described_class.new(connection, 'acc')
       resource.register(
-        url: 'https://example.com/webhook',
-        email: 'ops@example.com',
+        url:    'https://example.com/webhook',
+        email:  'ops@example.com',
         events: %w[document_ready document_prepared]
       )
 

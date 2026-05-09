@@ -89,7 +89,7 @@ RSpec.describe Assinafy::Resources::SignerResource do
         a_request(:put, "#{base_url}/documents/doc/signers/confirm-data")
           .with(
             query: hash_including('signer-access-code' => 'code'),
-            body: hash_including('has_accepted_terms' => true)
+            body:  hash_including('has_accepted_terms' => true)
           )
       ).to have_been_made
     end

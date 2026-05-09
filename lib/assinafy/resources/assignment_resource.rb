@@ -3,6 +3,8 @@
 module Assinafy
   module Resources
     class AssignmentResource < BaseResource
+      OPTIONAL_FIELDS = %i[message expires_at copy_receivers].freeze
+
       class << self
         def build_payload(payload, options = {})
           p       = payload.transform_keys(&:to_sym)
@@ -10,66 +12,60 @@ module Assinafy
           entries = p[:entries]
           method  = (p[:method] || 'virtual').to_s
 
-          if method == 'virtual' && signers.empty?
-            raise ValidationError.new(
-              'At least one signer is required',
-              { signers: p[:signers] || p[:signer_ids] || p[:signerIds] }
-            )
-          end
+          validate_method!(method, signers, entries, p)
 
-          if method == 'collect' && (!entries.is_a?(Array) || entries.empty?)
-            raise ValidationError.new('entries are required for collect assignments')
-          end
-
-          result = {
-            method:  method,
-            signers: signers.map { |ref| normalise_signer_ref(ref, options) }
-          }
-
-          result[:message]        = p[:message]        if p.key?(:message) && p[:message]
-          result[:expires_at]     = p[:expires_at]     if p.key?(:expires_at) && p[:expires_at]
-          result[:expiration]     = p[:expiration]     if p.key?(:expiration) && p[:expiration]
-          result[:copy_receivers] = p[:copy_receivers] if p.key?(:copy_receivers) && p[:copy_receivers]
-          result[:entries]        = entries            if entries
+          result = { method: method, signers: signers.map { |ref| normalise_signer_ref(ref, options) } }
+          OPTIONAL_FIELDS.each { |key| result[key] = p[key] if p[key] }
+          result[:entries] = entries if entries
           Utils.body_params(result)
         end
 
         private
 
-        def extract_signer_refs(payload)
-          if payload[:signers].is_a?(Array) && !payload[:signers].empty?
-            return payload[:signers]
+        def validate_method!(method, signers, entries, payload)
+          if method == 'virtual' && signers.empty?
+            raise ValidationError.new(
+              'At least one signer is required',
+              { signers: payload[:signers] || payload[:signer_ids] || payload[:signerIds] }
+            )
           end
+
+          return unless method == 'collect' && (!entries.is_a?(Array) || entries.empty?)
+
+          raise ValidationError.new('entries are required for collect assignments')
+        end
+
+        def extract_signer_refs(payload)
+          return payload[:signers] if payload[:signers].is_a?(Array) && !payload[:signers].empty?
 
           legacy = payload[:signer_ids] || payload[:signerIds]
           legacy.is_a?(Array) ? legacy : []
         end
 
         def normalise_signer_ref(ref, options)
-          if ref.is_a?(String)
-            raise ValidationError.new('Signer ID cannot be empty') if ref.empty?
+          return string_signer_ref(ref) if ref.is_a?(String)
+          return hash_signer_ref(ref, options) if ref.is_a?(Hash)
 
-            return { id: ref }
-          end
+          raise ValidationError.new('Invalid signer reference', { ref: ref })
+        end
 
-          if ref.is_a?(Hash)
-            r  = ref.transform_keys(&:to_sym)
-            id = r[:id] || r[:signer_id]
+        def string_signer_ref(ref)
+          raise ValidationError.new('Signer ID cannot be empty') if ref.empty?
 
-            normalised = {}
-            normalised[:id]                   = id if id
-            normalised[:verification_method]  = r[:verification_method]  if r[:verification_method]
-            normalised[:notification_methods] = r[:notification_methods] if r[:notification_methods]
+          { id: ref }
+        end
 
-            if id.is_a?(String) && !id.empty?
-              return normalised
-            end
+        def hash_signer_ref(ref, options)
+          r  = ref.transform_keys(&:to_sym)
+          id = r[:id] || r[:signer_id]
 
-            if options[:allow_signers_without_id]
-              normalised.delete(:id)
-              return normalised
-            end
-          end
+          normalised = {}
+          normalised[:id]                   = id                        if id
+          normalised[:verification_method]  = r[:verification_method]   if r[:verification_method]
+          normalised[:notification_methods] = r[:notification_methods]  if r[:notification_methods]
+
+          return normalised if id.is_a?(String) && !id.empty?
+          return normalised.tap { |h| h.delete(:id) } if options[:allow_signers_without_id]
 
           raise ValidationError.new('Invalid signer reference', { ref: ref })
         end

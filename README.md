@@ -1,12 +1,19 @@
 # Assinafy Ruby SDK
 
+[![CI](https://github.com/assinafy/ruby-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/assinafy/ruby-sdk/actions/workflows/ci.yml)
+[![Gem Version](https://img.shields.io/gem/v/assinafy.svg)](https://rubygems.org/gems/assinafy)
+
 Ruby SDK for the [Assinafy API](https://api.assinafy.com.br/v1/docs).
 
 The SDK maps to the documented Assinafy v1 API: authentication, documents, signers, signer document flows, assignments, templates, field definitions, and webhooks.
 
+- **Source:** <https://github.com/assinafy/ruby-sdk>
+- **Issues:** <https://github.com/assinafy/ruby-sdk/issues>
+- **API docs:** <https://api.assinafy.com.br/v1/docs>
+
 ## Requirements
 
-- Ruby 2.7+
+- Ruby 3.0+
 - Bundler
 
 ## Installation
@@ -135,6 +142,10 @@ end
 ```bash
 bundle exec rake spec
 ```
+
+## Contributing
+
+Pull requests and issues are welcome at <https://github.com/assinafy/ruby-sdk>.
 
 ## License
 

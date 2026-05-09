@@ -50,7 +50,7 @@ module Assinafy
 
         result = 0
         a.bytes.zip(b.bytes) { |x, y| result |= x ^ y }
-        result.zero?
+        result == 0
       end
     end
   end

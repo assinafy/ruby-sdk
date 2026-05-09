@@ -14,8 +14,8 @@ module Assinafy
           @connection.post(
             'authentication/social-login',
             body_params(
-              provider: provider,
-              token: token,
+              provider:           provider,
+              token:              token,
               has_accepted_terms: has_accepted_terms
             )
           )

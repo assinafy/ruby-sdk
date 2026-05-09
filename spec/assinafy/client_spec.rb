@@ -38,9 +38,9 @@ RSpec.describe Assinafy::Client do
 
     it 'strips trailing slash from base_url' do
       client = described_class.new(
-        api_key:  'k',
+        api_key:    'k',
         account_id: 'acc',
-        base_url: 'https://sandbox.assinafy.com.br/v1/'
+        base_url:   'https://sandbox.assinafy.com.br/v1/'
       )
       expect(client.faraday_connection.url_prefix.to_s.chomp('/')).to eq('https://sandbox.assinafy.com.br/v1')
     end

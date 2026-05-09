@@ -28,7 +28,7 @@ def build_test_connection(base_url = 'https://api.assinafy.com.br/v1', api_key =
     f.headers['X-Api-Key']     = api_key
     f.headers['Content-Type']  = 'application/json'
     f.headers['Accept']        = 'application/json'
-    f.adapter  :net_http
+    f.adapter :net_http
   end
 end
 

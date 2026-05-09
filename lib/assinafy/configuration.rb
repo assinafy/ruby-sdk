@@ -20,14 +20,14 @@ module Assinafy
     end
 
     def self.from_hash(hash)
-      h = hash.transform_keys { |k| k.to_s }
+      h = hash.transform_keys(&:to_s)
       new(
         api_key:        h['api_key'],
         token:          h['token'] || h['access_token'],
         account_id:     h['account_id'],
         base_url:       h['base_url'] || DEFAULT_BASE_URL,
         webhook_secret: h['webhook_secret'],
-        timeout:        h['timeout'] || DEFAULT_TIMEOUT,
+        timeout:        h['timeout'] ? h['timeout'].to_i : DEFAULT_TIMEOUT,
         logger:         h['logger']
       )
     end
@@ -35,6 +35,7 @@ module Assinafy
     def auth_headers
       return { 'X-Api-Key' => api_key } if api_key
       return { 'Authorization' => "Bearer #{token}" } if token
+
       {}
     end
   end

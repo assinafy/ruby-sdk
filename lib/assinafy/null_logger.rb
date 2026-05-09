@@ -1,8 +1,9 @@
+# frozen_string_literal: true
+
 module Assinafy
   class NullLogger
-    def debug(*); end
-    def info(*); end
-    def warn(*); end
-    def error(*); end
+    %i[debug info warn error fatal unknown].each do |level|
+      define_method(level) { |*, **| nil }
+    end
   end
 end

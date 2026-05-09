@@ -55,15 +55,14 @@ module Assinafy
 
       def find_by_email(email, account_id_override = nil)
         assert_email!(email.to_s)
-        lower = email.to_s.downcase
+        target = email.to_s.downcase
 
-        begin
-          result = list({ search: email, per_page: 100 }, account_id_override)
-          result[:data].find { |s| (s['email'] || '').downcase == lower }
-        rescue ApiError => e
-          return nil if e.status_code == 404
-          raise
-        end
+        result = list({ search: email, per_page: 100 }, account_id_override)
+        result[:data].find { |signer| signer['email'].to_s.downcase == target }
+      rescue ApiError => e
+        raise unless e.status_code == 404
+
+        nil
       end
 
       def self_data(signer_access_code:)
@@ -83,7 +82,7 @@ module Assinafy
           http_post(
             'verify',
             body_params(
-              verification_code: verification_code,
+              verification_code:  verification_code,
               signer_access_code: signer_access_code
             )
           )
@@ -100,7 +99,7 @@ module Assinafy
         end
       end
 
-      def upload_signature(content, type: 'signature', signer_access_code:, content_type: 'image/png')
+      def upload_signature(content, signer_access_code:, type: 'signature', content_type: 'image/png')
         sig_type = signature_type(type)
 
         call('Failed to upload signer signature') do
@@ -112,7 +111,7 @@ module Assinafy
         end
       end
 
-      def download_signature(type: 'signature', signer_access_code:)
+      def download_signature(signer_access_code:, type: 'signature')
         sig_type = signature_type(type)
 
         call_binary('Failed to download signer signature') do
@@ -130,7 +129,7 @@ module Assinafy
 
       def signer_payload(payload, require_full_name:)
         raw = require_payload(payload, 'Signer payload')
-        p   = raw.transform_keys { |key| key.to_s }
+        p   = raw.transform_keys(&:to_s)
 
         full_name = p['full_name'] || p['name']
         raise ValidationError.new('full_name is required') if require_full_name && full_name.to_s.strip.empty?
@@ -139,8 +138,8 @@ module Assinafy
         assert_email!(email) if email && !email.to_s.empty?
 
         body_params(
-          full_name: full_name,
-          email: email,
+          full_name:             full_name,
+          email:                 email,
           whatsapp_phone_number: p['whatsapp_phone_number'] || p['phone']
         )
       end

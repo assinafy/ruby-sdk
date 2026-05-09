@@ -57,8 +57,8 @@ module Assinafy
 
       def query_key_map
         {
-          'access_token' => 'access-token',
-          'per_page' => 'per-page',
+          'access_token'       => 'access-token',
+          'per_page'           => 'per-page',
           'signer_access_code' => 'signer-access-code'
         }
       end
@@ -66,7 +66,7 @@ module Assinafy
       def body_key_map
         {
           'signer_access_code' => 'signer-access-code',
-          'verification_code' => 'verification-code'
+          'verification_code'  => 'verification-code'
         }
       end
     end

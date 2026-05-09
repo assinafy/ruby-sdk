@@ -38,9 +38,9 @@ RSpec.describe Assinafy::Utils do
     it 'maps documented hyphenated query aliases without changing regular underscores' do
       expect(described_class.query_params(per_page: 20, signer_access_code: 'code',
                                           include_inactive: true)).to eq(
-                                            'per-page' => 20,
+                                            'per-page'           => 20,
                                             'signer-access-code' => 'code',
-                                            'include_inactive' => true
+                                            'include_inactive'   => true
                                           )
     end
   end
@@ -48,7 +48,7 @@ RSpec.describe Assinafy::Utils do
   describe '.body_params' do
     it 'maps only documented hyphenated body fields' do
       expect(described_class.body_params(full_name: 'John', signer_access_code: 'code')).to eq(
-        'full_name' => 'John',
+        'full_name'          => 'John',
         'signer-access-code' => 'code'
       )
     end

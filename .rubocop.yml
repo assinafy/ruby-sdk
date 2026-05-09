@@ -1,0 +1,111 @@
+plugins:
+  - rubocop-rspec
+
+AllCops:
+  TargetRubyVersion: 3.0
+  NewCops: enable
+  SuggestExtensions: false
+  Exclude:
+    - 'vendor/**/*'
+    - 'tmp/**/*'
+    - 'pkg/**/*'
+    - 'bin/**/*'
+
+Layout/LineLength:
+  Max: 120
+
+Layout/HashAlignment:
+  EnforcedHashRocketStyle: table
+  EnforcedColonStyle: table
+
+Layout/ExtraSpacing:
+  AllowForAlignment: true
+
+Layout/FirstHashElementIndentation:
+  EnforcedStyle: consistent
+
+Metrics/ClassLength:
+  Max: 250
+
+Metrics/MethodLength:
+  Max: 30
+
+Metrics/AbcSize:
+  Max: 35
+
+Metrics/CyclomaticComplexity:
+  Max: 12
+
+Metrics/PerceivedComplexity:
+  Max: 12
+
+Metrics/BlockLength:
+  Exclude:
+    - 'spec/**/*'
+    - 'assinafy.gemspec'
+
+Metrics/ParameterLists:
+  Max: 8
+  CountKeywordArgs: false
+
+Style/Documentation:
+  Enabled: false
+
+Style/RaiseArgs:
+  EnforcedStyle: compact
+
+Style/ExplicitBlockArgument:
+  Enabled: false
+
+Style/RescueStandardError:
+  EnforcedStyle: explicit
+
+Style/NumericPredicate:
+  EnforcedStyle: comparison
+
+Style/GuardClause:
+  Enabled: false
+
+Style/IfUnlessModifier:
+  Enabled: false
+
+Naming/AccessorMethodName:
+  Exclude:
+    - 'lib/assinafy/resources/auth_resource.rb'
+
+Naming/PredicateMethod:
+  Enabled: false
+
+Naming/PredicatePrefix:
+  Exclude:
+    - 'lib/assinafy/resources/document_resource.rb'
+
+Naming/MethodParameterName:
+  AllowedNames:
+    - p
+    - r
+    - h
+    - a
+    - b
+    - e
+
+Gemspec/DevelopmentDependencies:
+  Enabled: false
+
+Gemspec/RequireMFA:
+  Enabled: false
+
+RSpec/ExampleLength:
+  Max: 25
+
+RSpec/MultipleExpectations:
+  Max: 10
+
+RSpec/NestedGroups:
+  Max: 4
+
+RSpec/MessageSpies:
+  Enabled: false
+
+RSpec/AnyInstance:
+  Enabled: false
