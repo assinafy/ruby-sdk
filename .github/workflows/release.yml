@@ -1,0 +1,93 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  verify:
+    name: Verify tag matches gem version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+
+      - name: Compare tag and Assinafy::VERSION
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          gem_version="$(ruby -Ilib -rassinafy/version -e 'print Assinafy::VERSION')"
+          if [ "$tag" != "$gem_version" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match Assinafy::VERSION ($gem_version)"
+            exit 1
+          fi
+          echo "Tag matches gem version: $gem_version"
+
+      - name: Run RSpec
+        run: bundle exec rake spec
+
+      - name: Run RuboCop
+        run: bundle exec rubocop --no-color
+
+      - name: Run bundler-audit
+        run: bundle exec bundler-audit check --update
+
+  publish-github-packages:
+    name: Publish to GitHub Packages
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+
+      - name: Build gem
+        run: gem build assinafy.gemspec
+
+      - name: Push to GitHub Packages
+        env:
+          GEM_HOST_API_KEY: "Bearer ${{ secrets.GITHUB_TOKEN }}"
+        run: |
+          gem push --host "https://rubygems.pkg.github.com/assinafy" assinafy-*.gem
+
+  publish-rubygems:
+    name: Publish to RubyGems.org
+    needs: verify
+    runs-on: ubuntu-latest
+    if: ${{ vars.PUBLISH_TO_RUBYGEMS != 'false' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+
+      - name: Build gem
+        run: gem build assinafy.gemspec
+
+      - name: Push to RubyGems.org
+        env:
+          GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
+        run: gem push assinafy-*.gem

@@ -27,3 +27,9 @@ All notable changes to the `assinafy` Ruby gem are documented here.
 
 - Documented `signer-access-code` and pagination handling are now consistent
   across every resource.
+
+### Release
+
+- Added a tag-triggered release workflow that publishes to both GitHub
+  Packages (`rubygems.pkg.github.com/assinafy`) and RubyGems.org. The verify
+  job blocks publishing when the git tag does not match `Assinafy::VERSION`.

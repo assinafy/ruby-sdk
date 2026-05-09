@@ -18,12 +18,28 @@ The SDK maps to the documented Assinafy v1 API: authentication, documents, signe
 
 ## Installation
 
+From RubyGems.org:
+
 ```ruby
 gem 'assinafy'
 ```
 
 ```bash
 bundle install
+```
+
+From GitHub Packages (mirror):
+
+```ruby
+source 'https://rubygems.pkg.github.com/assinafy' do
+  gem 'assinafy'
+end
+```
+
+You'll need a personal access token with `read:packages` scope, configured via:
+
+```bash
+bundle config https://rubygems.pkg.github.com/assinafy USERNAME:TOKEN
 ```
 
 ## Quick Start

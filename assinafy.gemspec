@@ -17,10 +17,11 @@ Gem::Specification.new do |spec|
 
   spec.required_ruby_version = '>= 3.0'
 
-  spec.metadata['source_code_uri']   = 'https://github.com/assinafy/ruby-sdk'
-  spec.metadata['bug_tracker_uri']   = 'https://github.com/assinafy/ruby-sdk/issues'
-  spec.metadata['changelog_uri']     = 'https://github.com/assinafy/ruby-sdk/blob/main/CHANGELOG.md'
-  spec.metadata['documentation_uri'] = 'https://api.assinafy.com.br/v1/docs'
+  spec.metadata['source_code_uri']       = 'https://github.com/assinafy/ruby-sdk'
+  spec.metadata['bug_tracker_uri']       = 'https://github.com/assinafy/ruby-sdk/issues'
+  spec.metadata['changelog_uri']         = 'https://github.com/assinafy/ruby-sdk/blob/main/CHANGELOG.md'
+  spec.metadata['documentation_uri']     = 'https://api.assinafy.com.br/v1/docs'
+  spec.metadata['github_repo']           = 'ssh://github.com/assinafy/ruby-sdk'
   spec.metadata['rubygems_mfa_required'] = 'true'
 
   spec.files         = Dir['lib/**/*.rb', 'CHANGELOG.md', 'LICENSE', 'README.md']
