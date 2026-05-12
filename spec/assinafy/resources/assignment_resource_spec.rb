@@ -130,6 +130,59 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
     end
   end
 
+  describe '#sign' do
+    it 'maps snake_case item keys to the camelCase keys the API expects' do
+      stub_request(:post, "#{base_url}/documents/doc/assignments/asg")
+        .with(query: hash_including('signer-access-code' => 'code'))
+        .to_return(api_envelope([]))
+
+      resource = described_class.new(connection, 'acc')
+      resource.sign(
+        'doc',
+        'asg',
+        [{ item_id: 'i1', field_id: 'f1', page_id: 'p1', value: 'v1' }],
+        signer_access_code: 'code'
+      )
+
+      expect(
+        a_request(:post, "#{base_url}/documents/doc/assignments/asg")
+          .with(
+            query: hash_including('signer-access-code' => 'code'),
+            body:  [{ 'itemId' => 'i1', 'fieldId' => 'f1', 'pageId' => 'p1', 'value' => 'v1' }]
+          )
+      ).to have_been_made
+    end
+
+    it 'passes through already-camelCase item keys unchanged' do
+      stub_request(:post, "#{base_url}/documents/doc/assignments/asg")
+        .with(query: hash_including('signer-access-code' => 'code'))
+        .to_return(api_envelope([]))
+
+      resource = described_class.new(connection, 'acc')
+      resource.sign(
+        'doc',
+        'asg',
+        [{ 'itemId' => 'i1', 'fieldId' => 'f1', 'pageId' => 'p1', 'value' => 'v1' }],
+        signer_access_code: 'code'
+      )
+
+      expect(
+        a_request(:post, "#{base_url}/documents/doc/assignments/asg")
+          .with(
+            query: hash_including('signer-access-code' => 'code'),
+            body:  [{ 'itemId' => 'i1', 'fieldId' => 'f1', 'pageId' => 'p1', 'value' => 'v1' }]
+          )
+      ).to have_been_made
+    end
+
+    it 'requires at least one assignment item' do
+      resource = described_class.new(connection, 'acc')
+      expect do
+        resource.sign('doc', 'asg', [], signer_access_code: 'code')
+      end.to raise_error(Assinafy::ValidationError)
+    end
+  end
+
   describe '#decline' do
     it 'calls the documented reject endpoint' do
       stub_request(:put, "#{base_url}/documents/doc/assignments/asg/reject")

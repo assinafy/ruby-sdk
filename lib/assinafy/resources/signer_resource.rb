@@ -2,10 +2,27 @@
 
 module Assinafy
   module Resources
+    # Signer management. Covers both:
+    #
+    # - Account-scoped CRUD on signers (authenticated as a workspace user).
+    # - Signer self-service endpoints (authenticated via `signer-access-code`).
+    #
+    # See https://api.assinafy.com.br/v1/docs#signer for the full
+    # documentation of these endpoints.
     class SignerResource < BaseResource
-      EMAIL_REGEX = /\A[^\s@]+@[^\s@]+\.[^\s@]+\z/
+      EMAIL_REGEX     = /\A[^\s@]+@[^\s@]+\.[^\s@]+\z/
       SIGNATURE_TYPES = %w[signature initial].freeze
 
+      # Create a signer in the workspace.
+      #
+      # @param payload [Hash]
+      # @option payload [String] :full_name             required
+      # @option payload [String] :email                 optional, validated when present
+      # @option payload [String] :whatsapp_phone_number optional
+      # @option payload [String] :phone                 alias for :whatsapp_phone_number
+      # @param account_id_override [String, nil]
+      # @return [Hash] signer object
+      # @see POST /accounts/{account_id}/signers
       def create(payload, account_id_override = nil)
         body   = signer_payload(payload, require_full_name: true)
         acc_id = account_id(account_id_override)
@@ -17,6 +34,12 @@ module Assinafy
         end
       end
 
+      # Fetch a signer by ID.
+      #
+      # @param signer_id           [String]
+      # @param account_id_override [String, nil]
+      # @return [Hash]
+      # @see GET /accounts/{account_id}/signers/{signer_id}
       def get(signer_id, account_id_override = nil)
         acc_id = account_id(account_id_override)
         sid    = require_id(signer_id, 'Signer ID')
@@ -26,6 +49,12 @@ module Assinafy
         end
       end
 
+      # List signers in the workspace, with pagination metadata.
+      #
+      # @param params [Hash] query parameters (`search`, `sort`, `page`, `per_page`, ...)
+      # @param account_id_override [String, nil]
+      # @return [Hash{Symbol=>Array,Hash}] `{ data: [...], meta: { ... } }`
+      # @see GET /accounts/{account_id}/signers
       def list(params = {}, account_id_override = nil)
         acc_id = account_id(account_id_override)
 
@@ -34,6 +63,13 @@ module Assinafy
         end
       end
 
+      # Update a signer. Same payload shape as {#create} but with no required fields.
+      #
+      # @param signer_id           [String]
+      # @param payload             [Hash]
+      # @param account_id_override [String, nil]
+      # @return [Hash]
+      # @see PUT /accounts/{account_id}/signers/{signer_id}
       def update(signer_id, payload, account_id_override = nil)
         acc_id = account_id(account_id_override)
         sid    = require_id(signer_id, 'Signer ID')
@@ -44,6 +80,12 @@ module Assinafy
         end
       end
 
+      # Delete a signer.
+      #
+      # @param signer_id           [String]
+      # @param account_id_override [String, nil]
+      # @return [nil]
+      # @see DELETE /accounts/{account_id}/signers/{signer_id}
       def delete(signer_id, account_id_override = nil)
         acc_id = account_id(account_id_override)
         sid    = require_id(signer_id, 'Signer ID')
@@ -53,6 +95,13 @@ module Assinafy
         end
       end
 
+      # Convenience: find a signer by email using the documented `search` query
+      # parameter, then do a case-insensitive client-side match. Returns `nil`
+      # when no match is found (including on 404).
+      #
+      # @param email               [String]
+      # @param account_id_override [String, nil]
+      # @return [Hash, nil]
       def find_by_email(email, account_id_override = nil)
         assert_email!(email.to_s)
         target = email.to_s.downcase
@@ -65,18 +114,34 @@ module Assinafy
         nil
       end
 
+      # Fetch the authenticated signer's own profile (signer-access-code auth).
+      #
+      # @param signer_access_code [String]
+      # @return [Hash]
+      # @see GET /signers/self
       def self_data(signer_access_code:)
         call('Failed to fetch signer self') do
           http_get('signers/self', signer_access_code: signer_access_code)
         end
       end
 
+      # Accept the platform's terms of use as the signer.
+      #
+      # @param signer_access_code [String]
+      # @return [Hash]
+      # @see PUT /signers/accept-terms
       def accept_terms(signer_access_code:)
         call('Failed to accept signer terms') do
           http_put('signers/accept-terms', body_params(signer_access_code: signer_access_code))
         end
       end
 
+      # Verify the signer's email with a one-time verification code.
+      #
+      # @param verification_code  [String]
+      # @param signer_access_code [String]
+      # @return [Hash]
+      # @see POST /verify
       def verify_email(verification_code:, signer_access_code:)
         call('Failed to verify signer email') do
           http_post(
@@ -89,6 +154,14 @@ module Assinafy
         end
       end
 
+      # Confirm signer data (email/phone/terms) before signing a virtual assignment.
+      #
+      # @param document_id        [String]
+      # @param payload            [Hash] `:email`, `:whatsapp_phone_number`,
+      #                             `:has_accepted_terms` (all conditional)
+      # @param signer_access_code [String]
+      # @return [Hash]
+      # @see PUT /documents/{documentId}/signers/confirm-data
       def confirm_data(document_id, payload, signer_access_code:)
         doc_id = require_id(document_id, 'Document ID')
         body   = body_params(require_payload(payload))
@@ -99,6 +172,14 @@ module Assinafy
         end
       end
 
+      # Upload the signer's signature image. The request body is raw image bytes.
+      #
+      # @param content            [String] raw image bytes
+      # @param signer_access_code [String]
+      # @param type               [String] `signature` or `initial`
+      # @param content_type       [String] e.g. `image/png`
+      # @return [Hash]
+      # @see POST /signature
       def upload_signature(content, signer_access_code:, type: 'signature', content_type: 'image/png')
         sig_type = signature_type(type)
 
@@ -111,6 +192,12 @@ module Assinafy
         end
       end
 
+      # Download the signer's signature image as raw bytes.
+      #
+      # @param signer_access_code [String]
+      # @param type               [String] `signature` or `initial`
+      # @return [String] binary image body
+      # @see GET /signature/{type}
       def download_signature(signer_access_code:, type: 'signature')
         sig_type = signature_type(type)
 

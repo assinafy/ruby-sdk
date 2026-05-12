@@ -2,6 +2,10 @@
 
 module Assinafy
   module Resources
+    # Shared plumbing for every resource: a Faraday connection, an optional
+    # default account ID, parameter normalisation, response-envelope handling,
+    # pagination header parsing, and a single `request`/`call` pipeline that
+    # wraps Faraday and Assinafy errors into the SDK's own error hierarchy.
     class BaseResource
       PAGINATION_HEADERS = {
         current_page: 'x-pagination-current-page',
@@ -10,6 +14,9 @@ module Assinafy
         last_page:    'x-pagination-page-count'
       }.freeze
 
+      # @param connection         [Faraday::Connection]
+      # @param default_account_id [String, nil] used by `account_id` when no override is passed
+      # @param logger             [Logger, nil]
       def initialize(connection, default_account_id = nil, logger = nil)
         @connection         = connection
         @default_account_id = default_account_id

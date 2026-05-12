@@ -109,3 +109,8 @@ RSpec/MessageSpies:
 
 RSpec/AnyInstance:
   Enabled: false
+
+# api_coverage_spec.rb covers the whole API surface, not a single class.
+RSpec/SpecFilePathFormat:
+  Exclude:
+    - 'spec/api_coverage_spec.rb'

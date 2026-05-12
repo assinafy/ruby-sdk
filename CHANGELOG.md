@@ -2,7 +2,31 @@
 
 All notable changes to the `assinafy` Ruby gem are documented here.
 
-## Unreleased
+## 1.3.0
+
+### Added
+
+- YARD documentation for every public method on `Client`, `Configuration`,
+  every `Resources::*` class, `Support::WebhookVerifier`, and the SDK's
+  error hierarchy.
+- `spec/api_coverage_spec.rb` — an explicit, version-controlled matrix that
+  asserts every documented endpoint at
+  https://api.assinafy.com.br/v1/docs has a corresponding SDK method.
+
+### Fixed
+
+- `AssignmentResource#sign` now translates snake_case keys (`item_id`,
+  `field_id`, `page_id`, `value`) to the camelCase keys (`itemId`, `fieldId`,
+  `pageId`, `value`) that the `POST /documents/{documentId}/assignments/{assignmentId}`
+  endpoint expects — the only place the API deviates from snake_case.
+  Already-camelCase input is passed through unchanged.
+
+### Changed
+
+- README expanded with one runnable example per resource matching the
+  documented Assinafy v1 surface area.
+
+## 1.2.0
 
 ### Changed
 

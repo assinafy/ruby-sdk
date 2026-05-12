@@ -2,7 +2,23 @@
 
 module Assinafy
   module Resources
+    # Webhook subscription, event-type catalog, delivery history, and retries.
+    #
+    # See https://api.assinafy.com.br/v1/docs#webhooks for the full
+    # documentation of these endpoints.
     class WebhookResource < BaseResource
+      # Create or replace the account's webhook subscription. The API uses
+      # `PUT subscriptions` for both create and update semantics, hence the
+      # name `register` (with an `update` alias).
+      #
+      # @param payload [Hash]
+      # @option payload [String]        :url       endpoint that will receive events
+      # @option payload [String]        :email     contact email for delivery health
+      # @option payload [Array<String>] :events    event-type IDs (see {#list_event_types})
+      # @option payload [Boolean]       :is_active default `true` when omitted
+      # @param account_id_override [String, nil]
+      # @return [Hash]
+      # @see PUT /accounts/{account_id}/webhooks/subscriptions
       def register(payload, account_id_override = nil)
         p = require_payload(payload, 'Webhook payload').transform_keys(&:to_sym)
 
@@ -28,6 +44,12 @@ module Assinafy
 
       alias update register
 
+      # Fetch the current webhook subscription. Returns `nil` on 404
+      # (no subscription configured yet).
+      #
+      # @param account_id_override [String, nil]
+      # @return [Hash, nil]
+      # @see GET /accounts/{account_id}/webhooks/subscriptions
       def get(account_id_override = nil)
         acc_id = account_id(account_id_override)
 
@@ -36,6 +58,11 @@ module Assinafy
         end
       end
 
+      # Delete the account's webhook subscription.
+      #
+      # @param account_id_override [String, nil]
+      # @return [nil]
+      # @see DELETE /accounts/{account_id}/webhooks/subscriptions
       def delete(account_id_override = nil)
         acc_id = account_id(account_id_override)
 
@@ -46,6 +73,12 @@ module Assinafy
         end
       end
 
+      # Inactivate (but keep) the account's webhook subscription. Stops
+      # deliveries without losing the configured event set.
+      #
+      # @param account_id_override [String, nil]
+      # @return [Hash]
+      # @see PUT /accounts/{account_id}/webhooks/inactivate
       def inactivate(account_id_override = nil)
         acc_id = account_id(account_id_override)
 
@@ -56,12 +89,22 @@ module Assinafy
         end
       end
 
+      # Catalogue of supported event-type identifiers.
+      #
+      # @return [Array<Hash>]
+      # @see GET /webhooks/event-types
       def list_event_types
         call('Failed to list webhook event types') do
           http_get('webhooks/event-types')
         end
       end
 
+      # List webhook delivery attempts (dispatches) with pagination metadata.
+      #
+      # @param params [Hash] `event`, `delivered`, `from`, `to`, `page`, `per_page`
+      # @param account_id_override [String, nil]
+      # @return [Hash{Symbol=>Array,Hash}] `{ data: [...], meta: { ... } }`
+      # @see GET /accounts/{account_id}/webhooks
       def list_dispatches(params = {}, account_id_override = nil)
         acc_id = account_id(account_id_override)
 
@@ -70,6 +113,12 @@ module Assinafy
         end
       end
 
+      # Force a single dispatch to be re-attempted.
+      #
+      # @param dispatch_id [String]
+      # @param account_id_override [String, nil]
+      # @return [Hash] the freshly created dispatch entry
+      # @see POST /accounts/{account_id}/webhooks/{dispatch_id}/retry
       def retry_dispatch(dispatch_id, account_id_override = nil)
         acc_id = account_id(account_id_override)
         did    = require_id(dispatch_id, 'Dispatch ID')

@@ -2,12 +2,28 @@
 
 module Assinafy
   module Resources
+    # Document upload, retrieval, download, lifecycle, and verification.
+    #
+    # See https://api.assinafy.com.br/v1/docs#document for the full
+    # documentation of these endpoints.
     class DocumentResource < BaseResource
       MAX_UPLOAD_BYTES = 25 * 1024 * 1024
       READY_STATUSES   = %w[metadata_ready pending_signature certificated].freeze
       FAILED_STATUSES  = %w[failed rejected_by_signer rejected_by_user expired].freeze
       ARTIFACT_TYPES   = %w[original certificated certificate-page bundle].freeze
 
+      # Upload a PDF and create a document.
+      #
+      # @param source [String, Hash] either a path to a PDF on disk, or a
+      #   Hash with `:file_path` (path) **or** `:buffer` + `:file_name` (raw bytes).
+      # @param options [Hash]
+      # @option options [String] :name       optional display name for the document
+      # @option options [String] :account_id override the client default
+      # @return [Hash] document object
+      # @raise [Assinafy::ValidationError] on invalid input or empty/non-PDF file
+      # @raise [Assinafy::ApiError]        on a non-2xx response
+      #
+      # @see POST /accounts/{account_id}/documents
       def upload(source, options = {})
         buffer, file_name = load_source(source)
         validate_upload!(buffer, file_name)
@@ -32,6 +48,13 @@ module Assinafy
         document
       end
 
+      # List documents for an account.
+      #
+      # @param params [Hash] query parameters (`status`, `method`, `search`, `sort`, `page`, `per_page`)
+      # @param account_id_override [String, nil]
+      # @return [Hash{Symbol=>Array,Hash}] `{ data: [...], meta: { current_page:, per_page:, total:, last_page: } }`
+      #
+      # @see GET /accounts/{account_id}/documents
       def list(params = {}, account_id_override = nil)
         acc_id = account_id(account_id_override)
 
@@ -40,12 +63,21 @@ module Assinafy
         end
       end
 
+      # List the catalog of document status codes.
+      #
+      # @return [Array<Hash>]
+      # @see GET /documents/statuses
       def statuses
         call('Failed to list document statuses') do
           http_get('documents/statuses')
         end
       end
 
+      # Fetch a document by ID.
+      #
+      # @param document_id [String]
+      # @return [Hash]
+      # @see GET /documents/{document_id}
       def details(document_id)
         doc_id = require_id(document_id, 'Document ID')
 
@@ -56,6 +88,14 @@ module Assinafy
 
       alias get details
 
+      # Poll {#details} until the document reaches a {READY_STATUSES ready} status,
+      # raising if it reaches a {FAILED_STATUSES failed} status or the deadline elapses.
+      #
+      # @param document_id           [String]
+      # @param max_wait_seconds      [Integer] total deadline (default: 30)
+      # @param poll_interval_seconds [Integer] (default: 2)
+      # @return [Hash] the document once it is ready
+      # @raise [Assinafy::ValidationError] on timeout or terminal failed status
       def wait_until_ready(document_id, max_wait_seconds: 30, poll_interval_seconds: 2)
         doc_id   = require_id(document_id, 'Document ID')
         deadline = Time.now + max_wait_seconds
@@ -91,6 +131,13 @@ module Assinafy
         )
       end
 
+      # Download a document artifact as raw bytes.
+      #
+      # @param document_id   [String]
+      # @param artifact_name [String] one of {ARTIFACT_TYPES} (default `certificated`)
+      # @return [String] binary PDF body
+      # @raise [Assinafy::ValidationError] on unknown artifact type
+      # @see GET /documents/{document_id}/download/{artifact_name}
       def download(document_id, artifact_name = 'certificated')
         doc_id = require_id(document_id, 'Document ID')
         art    = artifact_type(artifact_name)
@@ -100,6 +147,11 @@ module Assinafy
         end
       end
 
+      # Download the document thumbnail (PNG/JPEG bytes).
+      #
+      # @param document_id [String]
+      # @return [String] binary image body
+      # @see GET /documents/{document_id}/thumbnail
       def thumbnail(document_id)
         doc_id = require_id(document_id, 'Document ID')
 
@@ -108,6 +160,12 @@ module Assinafy
         end
       end
 
+      # Download a single page artifact.
+      #
+      # @param document_id [String]
+      # @param page_id     [String]
+      # @return [String] binary image body
+      # @see GET /documents/{document_id}/pages/{page_id}/download
       def download_page(document_id, page_id)
         doc_id = require_id(document_id, 'Document ID')
         pid    = require_id(page_id, 'Page ID')
@@ -117,6 +175,11 @@ module Assinafy
         end
       end
 
+      # List the activity log for a document.
+      #
+      # @param document_id [String]
+      # @return [Array<Hash>]
+      # @see GET /documents/{documentId}/activities
       def activities(document_id)
         doc_id = require_id(document_id, 'Document ID')
 
@@ -127,6 +190,11 @@ module Assinafy
         result || []
       end
 
+      # Permanently delete a document. Only allowed for "deletable" statuses.
+      #
+      # @param document_id [String]
+      # @return [nil]
+      # @see DELETE /documents/{documentId}
       def delete(document_id)
         doc_id = require_id(document_id, 'Document ID')
 
@@ -135,6 +203,17 @@ module Assinafy
         end
       end
 
+      # Create a document from a template, optionally creating its virtual assignment.
+      #
+      # @param template_id          [String]
+      # @param signers_or_payload   [Array<Hash>, Hash] signer references (`role_id` + `id`)
+      #   or a full payload Hash. When a Hash is passed, `options` is merged into it.
+      # @param options              [Hash] additional body fields (`name`, `message`,
+      #   `editor_fields`, `expires_at`, ...)
+      # @param account_id_override  [String, nil]
+      # @return [Hash] document object
+      #
+      # @see POST /accounts/{account_id}/templates/{template_id}/documents
       def create_from_template(template_id, signers_or_payload, options = {}, account_id_override = nil)
         tmpl_id = require_id(template_id, 'Template ID')
         acc_id  = account_id(account_id_override)
@@ -147,6 +226,14 @@ module Assinafy
         end
       end
 
+      # Estimate the cost of creating a document from a template without consuming credits.
+      #
+      # @param template_id          [String]
+      # @param signers_or_payload   [Array<Hash>, Hash] same shape as #create_from_template
+      # @param account_id_override  [String, nil]
+      # @return [Hash] cost breakdown
+      #
+      # @see POST /accounts/{account_id}/templates/{template_id}/documents/estimate-cost
       def estimate_cost_from_template(template_id, signers_or_payload, account_id_override = nil)
         tmpl_id = require_id(template_id, 'Template ID')
         acc_id  = account_id(account_id_override)
@@ -157,6 +244,11 @@ module Assinafy
         end
       end
 
+      # Verify a certificated document by its signature hash.
+      #
+      # @param hash [String]
+      # @return [Hash]
+      # @see GET /documents/{signature_hash}/verify
       def verify(hash)
         h = require_id(hash, 'Signature hash')
 
@@ -165,6 +257,11 @@ module Assinafy
         end
       end
 
+      # Fetch the unauthenticated, public-facing metadata of a document.
+      #
+      # @param document_id [String]
+      # @return [Hash]
+      # @see GET /public/documents/{document_id}
       def public_info(document_id)
         doc_id = require_id(document_id, 'Document ID')
 
@@ -173,6 +270,13 @@ module Assinafy
         end
       end
 
+      # Send a 6-digit access token for the document to a signer (public endpoint).
+      #
+      # @param document_id [String]
+      # @param recipient   [String] email address or WhatsApp phone number
+      # @param channel     [String] `email` or `whatsapp`
+      # @return [Hash]
+      # @see PUT /public/documents/{document_id}/send-token
       def send_token(document_id, recipient:, channel:)
         doc_id = require_id(document_id, 'Document ID')
 
@@ -182,6 +286,11 @@ module Assinafy
         end
       end
 
+      # Convenience: true when the document is `certificated`, or when the
+      # embedded assignment summary reports all signers complete.
+      #
+      # @param document_id [String]
+      # @return [Boolean]
       def fully_signed?(document_id)
         doc = details(document_id)
         return true if doc['status'] == 'certificated'
@@ -194,6 +303,11 @@ module Assinafy
         end
       end
 
+      # Convenience: derive a {signed, total, pending, percentage} progress
+      # Hash from the document's assignment summary.
+      #
+      # @param document_id [String]
+      # @return [Hash{Symbol=>Integer,Float}]
       def signing_progress(document_id)
         doc     = details(document_id)
         summary = doc.dig('assignment', 'summary')
