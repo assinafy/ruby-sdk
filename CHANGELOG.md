@@ -2,6 +2,20 @@
 
 All notable changes to the `assinafy` Ruby gem are documented here.
 
+## 1.3.1
+
+### Added
+
+- `Client#tags` and `Resources::TagResource` for the documented workspace tag
+  endpoints.
+- Document tag helpers on `Resources::DocumentResource`: `list_tags`,
+  `replace_tags`, `append_tags`, and `detach_tag`.
+
+### Fixed
+
+- Assignment signer payloads now preserve the documented `step` field for
+  sequential signing.
+
 ## 1.3.0
 
 ### Added

@@ -27,6 +27,11 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
       expect(body['signers']).to eq([{ 'id' => 'a' }, { 'id' => 'b' }])
     end
 
+    it 'preserves documented sequential signing steps' do
+      body = described_class.build_payload(signers: [{ id: 'a', step: 1 }])
+      expect(body['signers']).to eq([{ 'id' => 'a', 'step' => 1 }])
+    end
+
     it 'allows estimation payloads without signer ids when methods are supplied' do
       body = described_class.build_payload(
         { signers: [{ verification_method: 'Whatsapp' }, {}] },

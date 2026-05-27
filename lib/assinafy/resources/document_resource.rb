@@ -286,6 +286,73 @@ module Assinafy
         end
       end
 
+      # List tags attached to a document.
+      #
+      # @param document_id [String]
+      # @param account_id_override [String, nil]
+      # @return [Array<Hash>]
+      # @see GET /accounts/{account_id}/documents/{document_id}/tags
+      def list_tags(document_id, account_id_override = nil)
+        acc_id = account_id(account_id_override)
+        doc_id = require_id(document_id, 'Document ID')
+
+        call('Failed to list document tags') do
+          http_get("accounts/#{acc_id}/documents/#{doc_id}/tags")
+        end
+      end
+
+      # Replace the document's full tag set. Passing an empty array detaches
+      # all tags from the document.
+      #
+      # @param document_id [String]
+      # @param tags [Array<String>] tag names
+      # @param account_id_override [String, nil]
+      # @return [Array<Hash>]
+      # @see PUT /accounts/{account_id}/documents/{document_id}/tags
+      def replace_tags(document_id, tags, account_id_override = nil)
+        acc_id = account_id(account_id_override)
+        doc_id = require_id(document_id, 'Document ID')
+
+        call('Failed to replace document tags') do
+          http_put("accounts/#{acc_id}/documents/#{doc_id}/tags",
+                   body_params(tags: tag_names(tags, allow_empty: true)))
+        end
+      end
+
+      # Attach additional tags to a document without removing existing tags.
+      #
+      # @param document_id [String]
+      # @param tags [Array<String>] tag names
+      # @param account_id_override [String, nil]
+      # @return [Array<Hash>]
+      # @see POST /accounts/{account_id}/documents/{document_id}/tags
+      def append_tags(document_id, tags, account_id_override = nil)
+        acc_id = account_id(account_id_override)
+        doc_id = require_id(document_id, 'Document ID')
+
+        call('Failed to append document tags') do
+          http_post("accounts/#{acc_id}/documents/#{doc_id}/tags",
+                    body_params(tags: tag_names(tags)))
+        end
+      end
+
+      # Detach a single tag from a document. The tag itself is not deleted.
+      #
+      # @param document_id [String]
+      # @param tag_id [String]
+      # @param account_id_override [String, nil]
+      # @return [Hash]
+      # @see DELETE /accounts/{account_id}/documents/{document_id}/tags/{tag_id}
+      def detach_tag(document_id, tag_id, account_id_override = nil)
+        acc_id = account_id(account_id_override)
+        doc_id = require_id(document_id, 'Document ID')
+        tid    = require_id(tag_id, 'Tag ID')
+
+        call('Failed to detach document tag') do
+          http_delete("accounts/#{acc_id}/documents/#{doc_id}/tags/#{tid}")
+        end
+      end
+
       # Convenience: true when the document is `certificated`, or when the
       # embedded assignment summary reports all signers complete.
       #
@@ -370,6 +437,24 @@ module Assinafy
         end
 
         body_params(body)
+      end
+
+      def tag_names(tags, allow_empty: false)
+        unless tags.is_a?(Array)
+          raise ValidationError.new('Tags must be an Array')
+        end
+
+        if tags.empty? && !allow_empty
+          raise ValidationError.new('Tags must be a non-empty Array')
+        end
+
+        tags.each do |tag|
+          next unless tag.to_s.strip.empty?
+
+          raise ValidationError.new('Tag names cannot be empty')
+        end
+
+        tags
       end
 
       def artifact_type(artifact_name)

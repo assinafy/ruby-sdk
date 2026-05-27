@@ -10,7 +10,7 @@ Gem::Specification.new do |spec|
 
   spec.summary     = 'Ruby SDK for the Assinafy digital signature API'
   spec.description = 'Ruby SDK for Assinafy. Covers the documented authentication, ' \
-                     'document, signer, assignment, webhook, template, and field APIs, plus the high-level ' \
+                     'document, signer, assignment, webhook, template, tag, and field APIs, plus the high-level ' \
                      'upload_and_request_signatures helper.'
   spec.homepage    = 'https://github.com/assinafy/ruby-sdk'
   spec.license     = 'MIT'
@@ -27,7 +27,7 @@ Gem::Specification.new do |spec|
   spec.files         = Dir['lib/**/*.rb', 'CHANGELOG.md', 'LICENSE', 'README.md']
   spec.require_paths = ['lib']
 
-  spec.add_dependency 'faraday', '>= 1.10', '< 3.0'
+  spec.add_dependency 'faraday', '>= 2.14.2', '< 3.0'
   spec.add_dependency 'faraday-multipart', '>= 1.0', '< 2.0'
 
   spec.add_development_dependency 'bundler-audit', '~> 0.9'

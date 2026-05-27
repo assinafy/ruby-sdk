@@ -152,4 +152,54 @@ RSpec.describe Assinafy::Resources::DocumentResource do
       expect(resource.public_info('doc-1')['id']).to eq('doc-1')
     end
   end
+
+  describe '#list_tags' do
+    it 'calls the document tags endpoint' do
+      stub_request(:get, "#{base_url}/accounts/acc/documents/doc-1/tags")
+        .to_return(api_envelope([{ 'id' => 'tag-1', 'name' => 'Contracts' }]))
+
+      expect(resource.list_tags('doc-1').first['id']).to eq('tag-1')
+    end
+  end
+
+  describe '#replace_tags' do
+    it 'allows an empty array to detach every tag' do
+      stub_request(:put, "#{base_url}/accounts/acc/documents/doc-1/tags")
+        .to_return(api_envelope([]))
+
+      expect(resource.replace_tags('doc-1', [])).to eq([])
+      expect(
+        a_request(:put, "#{base_url}/accounts/acc/documents/doc-1/tags")
+          .with(body: { 'tags' => [] })
+      ).to have_been_made
+    end
+  end
+
+  describe '#append_tags' do
+    it 'posts tag names to the append endpoint' do
+      stub_request(:post, "#{base_url}/accounts/acc/documents/doc-1/tags")
+        .to_return(api_envelope([{ 'id' => 'tag-1', 'name' => 'Urgent' }]))
+
+      result = resource.append_tags('doc-1', ['Urgent'])
+
+      expect(result.first['name']).to eq('Urgent')
+      expect(
+        a_request(:post, "#{base_url}/accounts/acc/documents/doc-1/tags")
+          .with(body: { 'tags' => ['Urgent'] })
+      ).to have_been_made
+    end
+
+    it 'rejects empty tag names' do
+      expect { resource.append_tags('doc-1', ['']) }.to raise_error(Assinafy::ValidationError)
+    end
+  end
+
+  describe '#detach_tag' do
+    it 'calls the detach endpoint' do
+      stub_request(:delete, "#{base_url}/accounts/acc/documents/doc-1/tags/tag-1")
+        .to_return(api_envelope({ 'detached' => true }))
+
+      expect(resource.detach_tag('doc-1', 'tag-1')['detached']).to be true
+    end
+  end
 end

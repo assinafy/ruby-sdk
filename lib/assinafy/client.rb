@@ -31,6 +31,8 @@ module Assinafy
     attr_reader :templates
     # @return [Resources::FieldResource]
     attr_reader :fields
+    # @return [Resources::TagResource]
+    attr_reader :tags
     # @return [Support::WebhookVerifier]
     attr_reader :webhook_verifier
 
@@ -65,6 +67,7 @@ module Assinafy
       @webhooks         = Resources::WebhookResource.new(@connection, account_id, @logger)
       @templates        = Resources::TemplateResource.new(@connection, account_id, @logger)
       @fields           = Resources::FieldResource.new(@connection, account_id, @logger)
+      @tags             = Resources::TagResource.new(@connection, account_id, @logger)
       @webhook_verifier = Support::WebhookVerifier.new(webhook_secret)
     end
 

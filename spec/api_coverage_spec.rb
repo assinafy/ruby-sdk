@@ -85,6 +85,14 @@ RSpec.describe Assinafy::Client, type: :coverage_matrix do
        'DocumentResource#public_info'],
       ['PUT',    '/public/documents/{document_id}/send-token',
        'DocumentResource#send_token'],
+      ['GET',    '/accounts/{account_id}/documents/{document_id}/tags',
+       'DocumentResource#list_tags'],
+      ['PUT',    '/accounts/{account_id}/documents/{document_id}/tags',
+       'DocumentResource#replace_tags'],
+      ['POST',   '/accounts/{account_id}/documents/{document_id}/tags',
+       'DocumentResource#append_tags'],
+      ['DELETE', '/accounts/{account_id}/documents/{document_id}/tags/{tag_id}',
+       'DocumentResource#detach_tag'],
 
       # Templates
       ['GET',    '/accounts/{account_id}/templates',
@@ -95,6 +103,16 @@ RSpec.describe Assinafy::Client, type: :coverage_matrix do
        'TemplateResource#create'],
       ['PUT',    '/accounts/{account_id}/templates/{template_id}',
        'TemplateResource#update'],
+
+      # Tags
+      ['GET',    '/accounts/{account_id}/tags',
+       'TagResource#list'],
+      ['POST',   '/accounts/{account_id}/tags',
+       'TagResource#create'],
+      ['PUT',    '/accounts/{account_id}/tags/{tag_id}',
+       'TagResource#update'],
+      ['DELETE', '/accounts/{account_id}/tags/{tag_id}',
+       'TagResource#delete'],
 
       # Assignments
       ['POST',   '/documents/{documentId}/assignments',

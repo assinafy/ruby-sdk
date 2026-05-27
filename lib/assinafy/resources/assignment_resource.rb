@@ -22,7 +22,7 @@ module Assinafy
         # shape the API expects. Accepts:
         #
         # - `signers: ['id1', 'id2']` — bare IDs
-        # - `signers: [{ id:, verification_method:, notification_methods: }]`
+        # - `signers: [{ id:, verification_method:, notification_methods:, step: }]`
         # - Legacy `signer_ids:`/`signerIds:` arrays of IDs
         #
         # @param payload [Hash]
@@ -88,6 +88,7 @@ module Assinafy
           normalised[:id]                   = id                        if id
           normalised[:verification_method]  = r[:verification_method]   if r[:verification_method]
           normalised[:notification_methods] = r[:notification_methods]  if r[:notification_methods]
+          normalised[:step]                 = r[:step]                  unless r[:step].nil?
 
           return normalised if id.is_a?(String) && !id.empty?
           return normalised.tap { |h| h.delete(:id) } if options[:allow_signers_without_id]

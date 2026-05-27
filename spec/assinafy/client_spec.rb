@@ -18,6 +18,7 @@ RSpec.describe Assinafy::Client do
       expect(client.webhooks).to        be_a(Assinafy::Resources::WebhookResource)
       expect(client.templates).to       be_a(Assinafy::Resources::TemplateResource)
       expect(client.fields).to          be_a(Assinafy::Resources::FieldResource)
+      expect(client.tags).to            be_a(Assinafy::Resources::TagResource)
       expect(client.webhook_verifier).to be_a(Assinafy::Support::WebhookVerifier)
     end
 

@@ -89,7 +89,7 @@ client = Assinafy::Client.new(
 
 ## Resources
 
-The eight resource accessors on `Assinafy::Client` cover every documented endpoint:
+The nine resource accessors on `Assinafy::Client` cover every documented endpoint:
 
 | Accessor                    | What it covers                                                 |
 | --------------------------- | -------------------------------------------------------------- |
@@ -99,6 +99,7 @@ The eight resource accessors on `Assinafy::Client` cover every documented endpoi
 | `client.signer_documents`   | Signer-authenticated multi-document operations                 |
 | `client.assignments`        | Create/sign/decline/resend/estimate assignments                |
 | `client.templates`          | Template CRUD                                                  |
+| `client.tags`               | Workspace tags                                                 |
 | `client.fields`             | Field definitions + validation + type catalog                  |
 | `client.webhooks`           | Subscription, event-type catalog, dispatch history, retries    |
 | `client.webhook_verifier`   | Optional HMAC-SHA256 verifier for signed deliveries            |
@@ -133,6 +134,10 @@ client.documents.delete('document-id')
 client.documents.verify('signature-hash')
 client.documents.public_info('document-id')
 client.documents.send_token('document-id', recipient: 'alice@example.com', channel: 'email')
+client.documents.list_tags('document-id')
+client.documents.replace_tags('document-id', ['Contracts', '2026-Q1'])
+client.documents.append_tags('document-id', ['Urgent'])
+client.documents.detach_tag('document-id', 'tag-id')
 
 # Template-driven creation
 client.documents.create_from_template(
@@ -183,7 +188,7 @@ client.signers.download_signature(signer_access_code: 'code', type: 'signature')
 client.assignments.create(
   'document-id',
   method:         'virtual',
-  signers:        [{ id: 'signer-1', verification_method: 'Email', notification_methods: ['Email'] }],
+  signers:        [{ id: 'signer-1', verification_method: 'Email', notification_methods: ['Email'], step: 1 }],
   message:        'Please sign',
   expires_at:     '2026-12-31T23:59:00Z',
   copy_receivers: ['cc-signer-id']
@@ -234,6 +239,16 @@ client.templates.list(status: 'ready', per_page: 25)
 client.templates.get('template-id')
 client.templates.create(name: 'My template', message: 'Please sign')
 client.templates.update('template-id', name: 'Renamed template')
+```
+
+### Tags
+
+```ruby
+client.tags.list(search: 'contract')
+client.tags.create(name: 'Contracts', color: 'ff8800')
+client.tags.update('tag-id', name: 'Sales Contracts', color: nil)
+client.tags.delete('tag-id')              # fails with 409 if the tag is in use
+client.tags.delete('tag-id', force: true) # detaches from documents/templates first
 ```
 
 ### Fields
