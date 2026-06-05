@@ -34,10 +34,16 @@ module Assinafy
         )
       end
 
-      def require_id(value, name)
+      # Ensure a required scalar argument is present (not nil/blank).
+      # `require_id` is kept as an intention-revealing alias for path IDs.
+      def require_present(value, name)
         return value unless value.nil? || value.to_s.strip.empty?
 
         raise ValidationError.new("#{name} is required")
+      end
+
+      def require_id(value, name)
+        require_present(value, name)
       end
 
       def require_payload(payload, name = 'Payload')
@@ -121,11 +127,13 @@ module Assinafy
         check_status!(response, label)
         response
       rescue Faraday::ConnectionFailed, Faraday::TimeoutError => e
-        raise NetworkError.new("#{label}: #{e.message}")
+        raise NetworkError.new("#{label}: #{e.message}", { cause: e.class.name })
       rescue Assinafy::Error
         raise
       rescue StandardError => e
-        raise Assinafy::Error.new("#{label}: #{e.message}")
+        # Preserve the original class for debugging; Ruby keeps the original
+        # exception accessible via #cause since we re-raise inside the rescue.
+        raise Assinafy::Error.new("#{label}: #{e.message}", { cause: e.class.name })
       end
 
       def check_status!(response, _label)

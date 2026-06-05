@@ -45,6 +45,10 @@ module Assinafy
     # @param webhook_secret [String, nil] secret for {Support::WebhookVerifier}
     # @param timeout        [Integer] Faraday read/open timeout in seconds
     # @param logger         [Logger, nil] receives info-level lifecycle messages
+    #
+    # @example Build a client and reach a resource accessor (no network call)
+    #   client = Assinafy::Client.new(api_key: 'sk_live_...', account_id: '102d25a489f34a275d31a16045fd')
+    #   client.documents #=> #<Assinafy::Resources::DocumentResource ...>
     def initialize(api_key: nil, token: nil, account_id: nil,
                    base_url: Configuration::DEFAULT_BASE_URL,
                    webhook_secret: nil,
@@ -77,6 +81,10 @@ module Assinafy
     # @param account_id [String]
     # @param options    [Hash] forwarded to {#initialize}
     # @return [Client]
+    #
+    # @example Construct with positional credentials and an optional webhook secret
+    #   client = Assinafy::Client.create('sk_live_...', '102d25a489f34a275d31a16045fd', webhook_secret: 'whsec_...')
+    #   client #=> #<Assinafy::Client ...>
     def self.create(api_key, account_id, **options)
       new(api_key: api_key, account_id: account_id, **options)
     end
@@ -86,6 +94,11 @@ module Assinafy
     #
     # @param config [Hash]
     # @return [Client]
+    #
+    # @example Build from a credentials Hash loaded from YAML/JSON (string or symbol keys both work)
+    #   creds  = YAML.load_file('config/assinafy.yml') # { 'api_key' => '...', 'account_id' => '...' }
+    #   client = Assinafy::Client.from_config(creds)
+    #   client #=> #<Assinafy::Client ...>
     def self.from_config(config)
       from_hash(config)
     end
@@ -94,6 +107,10 @@ module Assinafy
     #
     # @param config [Hash]
     # @return [Client]
+    #
+    # @example Build from a symbol-keyed Hash
+    #   client = Assinafy::Client.from_hash(api_key: 'sk_live_...', account_id: '102d25a489f34a275d31a16045fd')
+    #   client #=> #<Assinafy::Client ...>
     def self.from_hash(config)
       cfg = Configuration.from_hash(config)
       new(
@@ -118,7 +135,49 @@ module Assinafy
     # @param expires_at     [String, nil]    ISO 8601 expiration for the assignment
     # @param copy_receivers [Array<String>, nil] signer IDs that only receive copies
     # @param account_id     [String, nil]    override the client default
-    # @return [Hash{Symbol=>Object}] `{ document:, assignment:, signer_ids: [...] }`
+    # @return [Hash{Symbol=>Object}] `{ document: {Hash}, assignment: {Hash}, signer_ids: [String, ...] }`
+    #   where `document` is the (unwrapped) document payload, `assignment` is the (unwrapped) virtual
+    #   assignment, and `signer_ids` lists the IDs of the signers created during the workflow.
+    #
+    # @example Upload a PDF and request a virtual signature from one signer
+    #   result = client.upload_and_request_signatures(
+    #     source:  '/path/to/contract.pdf',
+    #     signers: [{ full_name: 'Audit Bill A2', email: 'bill@febacapital.com' }],
+    #     message: 'SDK audit E2E - please ignore'
+    #   )
+    #
+    #   # Under the hood the SDK uploads the file, then POSTs this JSON body to
+    #   # POST /documents/{document_id}/assignments (nil optional fields are dropped):
+    #   #   {
+    #   #     "method": "virtual",
+    #   #     "signers": [{ "id": "19e6b92e7895332ed9708535d8c" }],
+    #   #     "message": "SDK audit E2E - please ignore"
+    #   #   }
+    #
+    #   # Returned (unwrapped) Hash:
+    #   result
+    #   #=> {
+    #   #     document: {
+    #   #       "resource" => "document", "id" => "1032009d72b364f377ff270405cc",
+    #   #       "account_id" => "102d25a489f34a275d31a16045fd", "name" => "contract.pdf",
+    #   #       "status" => "metadata_ready",
+    #   #       "artifacts" => { "original" => "https://.../download/original", "thumbnail" => "https://..." },
+    #   #       "tags" => [], "pages" => [{ "id" => "...", "number" => 1, "height" => 1651, "width" => 1275 }]
+    #   #       # ... (see docs for full shape)
+    #   #     },
+    #   #     assignment: {
+    #   #       "resource" => "assignment", "id" => "19e99aa0633e32ac13f845c08db",
+    #   #       "sender_email" => "bill@febacapital.com", "method" => "virtual",
+    #   #       "expires_at" => nil, "message" => "SDK audit E2E - please ignore",
+    #   #       "signers" => [{ "id" => "19e6b92e7895332ed9708535d8c", "full_name" => "Audit Bill A2",
+    #   #                       "email" => "bill@febacapital.com", "completed" => false, "step" => 1 }],
+    #   #       "copy_receivers" => [], "items" => [{ "id" => "103200a43e372db16f48a6f0f2d4", "completed" => false }],
+    #   #       "summary" => { "signer_count" => 1, "completed_count" => 0 },
+    #   #       "signing_urls" => [{ "signer_id" => "19e6b92e7895332ed9708535d8c", "url" => "https://.../sign/..." }]
+    #   #       # ... (see docs for full shape)
+    #   #     },
+    #   #     signer_ids: ["19e6b92e7895332ed9708535d8c"]
+    #   #   }
     def upload_and_request_signatures(source:, signers:, message: nil,
                                       wait_for_ready: true, expires_at: nil,
                                       copy_receivers: nil, account_id: nil)
@@ -130,7 +189,10 @@ module Assinafy
       document = @documents.upload(source, upload_opts)
       @documents.wait_until_ready(document['id']) if wait_for_ready
 
-      signer_ids = signers.map { |signer| @signers.create(signer, account_id)['id'] }
+      signer_ids = signers.map do |signer|
+        created = @signers.create(signer, account_id)
+        created['id'] || raise(ApiError.new('Signer created but the API returned no ID', 502, created))
+      end
 
       assignment_payload = { method: 'virtual', signers: signer_ids,
                              message: message, expires_at: expires_at,
@@ -146,6 +208,10 @@ module Assinafy
     # such as adding middleware or inspecting headers in tests).
     #
     # @return [Faraday::Connection]
+    #
+    # @example Inspect the auth header the SDK sends
+    #   client = Assinafy::Client.new(api_key: 'sk_live_...', account_id: 'acc')
+    #   client.faraday_connection.headers['X-Api-Key'] #=> "sk_live_..."
     def faraday_connection
       @connection
     end

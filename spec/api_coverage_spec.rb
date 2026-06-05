@@ -103,6 +103,10 @@ RSpec.describe Assinafy::Client, type: :coverage_matrix do
        'TemplateResource#create'],
       ['PUT',    '/accounts/{account_id}/templates/{template_id}',
        'TemplateResource#update'],
+      ['DELETE', '/accounts/{account_id}/templates/{template_id}',
+       'TemplateResource#delete'],
+      ['GET',    '/accounts/{account_id}/templates/{template_id}/pages/{page_id}/download',
+       'TemplateResource#download_page'],
 
       # Tags
       ['GET',    '/accounts/{account_id}/tags',
@@ -182,6 +186,28 @@ RSpec.describe Assinafy::Client, type: :coverage_matrix do
     ]
   end
 
+  # Public methods that intentionally do NOT map 1:1 to a documented endpoint:
+  # convenience helpers (computed client-side) and documented aliases.
+  let(:non_endpoint_methods) do
+    {
+      'DocumentResource'       => %i[get fully_signed? signing_progress wait_until_ready],
+      'SignerResource'         => %i[find_by_email],
+      'SignerDocumentResource' => %i[document],
+      'AuthResource'           => %i[api_key],
+      'WebhookResource'        => %i[update]
+    }
+  end
+
+  # Aliases asserted to resolve to their canonical method, so alias drift fails CI.
+  let(:aliases) do
+    {
+      'DocumentResource'       => { get: :details },
+      'SignerDocumentResource' => { document: :current },
+      'AuthResource'           => { api_key: :get_api_key },
+      'WebhookResource'        => { update: :register }
+    }
+  end
+
   it 'covers every documented endpoint with a single SDK method' do
     aggregate_failures do
       endpoints.each do |(verb, path, mapping)|
@@ -191,6 +217,42 @@ RSpec.describe Assinafy::Client, type: :coverage_matrix do
           include(method_name.to_sym),
           "#{verb} #{path} -> missing #{mapping}"
         )
+      end
+    end
+  end
+
+  it 'has no public endpoint wrapper missing from the coverage matrix' do
+    by_class = endpoints.each_with_object(Hash.new { |h, k| h[k] = [] }) do |(_, _, m), acc|
+      klass, meth = m.split('#')
+      acc[klass] << meth.to_sym
+    end
+
+    aggregate_failures do
+      Assinafy::Resources.constants.map(&:to_s).reject { |c| c == 'BaseResource' }.each do |class_name|
+        klass     = Assinafy::Resources.const_get(class_name)
+        mapped    = by_class[class_name]
+        allowed   = non_endpoint_methods.fetch(class_name, [])
+        unmapped  = klass.public_instance_methods(false) - mapped - allowed
+
+        expect(unmapped).to(
+          be_empty,
+          "#{class_name} has public methods absent from the coverage matrix " \
+          "(add a matrix row or list as a helper/alias): #{unmapped.inspect}"
+        )
+      end
+    end
+  end
+
+  it 'keeps documented aliases pointing at their canonical methods' do
+    aggregate_failures do
+      aliases.each do |class_name, pairs|
+        klass = Assinafy::Resources.const_get(class_name)
+        pairs.each do |alias_name, canonical|
+          expect(klass.instance_method(alias_name)).to(
+            eq(klass.instance_method(canonical)),
+            "#{class_name}##{alias_name} should alias ##{canonical}"
+          )
+        end
       end
     end
   end

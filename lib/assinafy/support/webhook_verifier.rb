@@ -16,9 +16,14 @@ module Assinafy
     # @example Verify and dispatch a webhook
     #   verifier = Assinafy::Support::WebhookVerifier.new(ENV['WEBHOOK_SECRET'])
     #   raw_body = request.body.read
-    #   if verifier.verify(raw_body, request.headers['X-Assinafy-Signature'])
+    #   # NOTE: the header below is one YOUR gateway injects (e.g. Cloudflare /
+    #   # API Gateway). Assinafy v1 does not send a signature header itself.
+    #   if verifier.verify(raw_body, request.headers['X-Webhook-Signature'])
     #     event = verifier.extract_event(raw_body)
-    #     puts verifier.event_type(event), verifier.event_data(event)
+    #     verifier.event_type(event)    # => "assignment_created"
+    #     verifier.event_payload(event) # => { "user_name" => "John", ... } (or nil)
+    #     verifier.event_object(event)  # => { "id" => "doc2", "type" => "Document", ... }
+    #     verifier.event_subject(event) # => { "id" => "...", "type" => "User", ... }
     #   end
     class WebhookVerifier
       # @param webhook_secret [String, nil] shared secret. When nil/empty,
@@ -59,26 +64,63 @@ module Assinafy
         nil
       end
 
-      # Pull the event-type code from a parsed event Hash. Supports both the
-      # documented `event` and the legacy `type` key.
+      # Pull the event-type code from a parsed event Hash. The canonical key in
+      # the Assinafy v1 delivery envelope is `event` (e.g. `assignment_created`).
       #
       # @param event [Hash, nil]
       # @return [String, nil]
+      # @example
+      #   verifier.event_type({ 'event' => 'document_ready' }) # => "document_ready"
       def event_type(event)
         return nil unless event.is_a?(Hash)
 
-        event['event'] || event['type']
+        event['event']
       end
 
-      # Pull the event payload (Hash) from a parsed event. Supports the
-      # documented top-level `data`/`object` keys.
+      # The event-specific data snapshot (the documented top-level `payload`).
+      # May be `nil` for events that carry no extra params (e.g.
+      # `document_uploaded`).
+      #
+      # @param event [Hash, nil]
+      # @return [Hash, nil]
+      def event_payload(event)
+        return nil unless event.is_a?(Hash)
+
+        event['payload']
+      end
+
+      # The entity the event acted on (the documented top-level `object`),
+      # e.g. the Document. Includes a `type` discriminator.
+      #
+      # @param event [Hash, nil]
+      # @return [Hash]
+      def event_object(event)
+        return {} unless event.is_a?(Hash)
+
+        event['object'] || {}
+      end
+
+      # The actor that triggered the event (the documented top-level `subject`),
+      # e.g. the User. Includes a `type` discriminator.
+      #
+      # @param event [Hash, nil]
+      # @return [Hash]
+      def event_subject(event)
+        return {} unless event.is_a?(Hash)
+
+        event['subject'] || {}
+      end
+
+      # @deprecated Prefer {#event_payload} (event params) and {#event_object}
+      #   (acted-on entity). The Assinafy envelope has no top-level `data` key;
+      #   this returns `payload` and falls back to `object` for convenience.
       #
       # @param event [Hash, nil]
       # @return [Hash]
       def event_data(event)
         return {} unless event.is_a?(Hash)
 
-        event['data'] || event['object'] || {}
+        event['payload'] || event['object'] || {}
       end
 
       private

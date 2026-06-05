@@ -17,8 +17,30 @@ module Assinafy
       # @option payload [Array<String>] :events    event-type IDs (see {#list_event_types})
       # @option payload [Boolean]       :is_active default `true` when omitted
       # @param account_id_override [String, nil]
-      # @return [Hash]
+      # @return [Hash] the subscription object: { events:, is_active:, url:, email:, updated_at: }
       # @see PUT /accounts/{account_id}/webhooks/subscriptions
+      # @example Register (or replace) the subscription
+      #   client.webhooks.register(
+      #     url:    'https://example.com/webhook',
+      #     email:  'ops@example.com',
+      #     events: %w[document_ready document_prepared]
+      #   )
+      #   # PUT /accounts/{account_id}/webhooks/subscriptions
+      #   # request body sent by the SDK:
+      #   # {
+      #   #   "url":       "https://example.com/webhook",
+      #   #   "email":     "ops@example.com",
+      #   #   "events":    ["document_ready", "document_prepared"],
+      #   #   "is_active": true
+      #   # }
+      #   # => unwrapped data payload returned:
+      #   # {
+      #   #   events:     ["document_ready", "document_prepared"],
+      #   #   is_active:  true,
+      #   #   url:        "https://example.com/webhook",
+      #   #   email:      "ops@example.com",
+      #   #   updated_at: "2026-06-05T21:13:24Z"
+      #   # }
       def register(payload, account_id_override = nil)
         p = require_payload(payload, 'Webhook payload').transform_keys(&:to_sym)
 
@@ -48,8 +70,19 @@ module Assinafy
       # (no subscription configured yet).
       #
       # @param account_id_override [String, nil]
-      # @return [Hash, nil]
+      # @return [Hash, nil] subscription object, or `nil` when none is configured (404)
       # @see GET /accounts/{account_id}/webhooks/subscriptions
+      # @example Fetch the current subscription
+      #   client.webhooks.get
+      #   # GET /accounts/{account_id}/webhooks/subscriptions
+      #   # => unwrapped data payload returned (nil if no subscription exists):
+      #   # {
+      #   #   events:     ["document_ready", "signer_signed_document"],
+      #   #   is_active:  false,
+      #   #   url:        "https://example.com/sdk-smoke-webhook",
+      #   #   email:      "sdk-smoke@assinafy.dev",
+      #   #   updated_at: "2026-06-05T21:13:24Z"
+      #   # }
       def get(account_id_override = nil)
         acc_id = account_id(account_id_override)
 
@@ -61,8 +94,12 @@ module Assinafy
       # Delete the account's webhook subscription.
       #
       # @param account_id_override [String, nil]
-      # @return [nil]
+      # @return [nil] no body is returned; the call resolves to `nil` on success
       # @see DELETE /accounts/{account_id}/webhooks/subscriptions
+      # @example Delete the subscription
+      #   client.webhooks.delete
+      #   # DELETE /accounts/{account_id}/webhooks/subscriptions
+      #   # => nil  (envelope carries only { status:, message: }, no data payload)
       def delete(account_id_override = nil)
         acc_id = account_id(account_id_override)
 
@@ -77,8 +114,19 @@ module Assinafy
       # deliveries without losing the configured event set.
       #
       # @param account_id_override [String, nil]
-      # @return [Hash]
+      # @return [Hash] the subscription object with `is_active: false`; the event set is preserved
       # @see PUT /accounts/{account_id}/webhooks/inactivate
+      # @example Inactivate without losing the configured events
+      #   client.webhooks.inactivate
+      #   # PUT /accounts/{account_id}/webhooks/inactivate  (no request body)
+      #   # => unwrapped data payload returned:
+      #   # {
+      #   #   events:     ["document_ready", "document_prepared"],
+      #   #   is_active:  false,
+      #   #   url:        "https://example.com/webhook",
+      #   #   email:      "ops@example.com",
+      #   #   updated_at: "2026-06-05T21:13:24Z"
+      #   # }
       def inactivate(account_id_override = nil)
         acc_id = account_id(account_id_override)
 
@@ -91,8 +139,23 @@ module Assinafy
 
       # Catalogue of supported event-type identifiers.
       #
-      # @return [Array<Hash>]
+      # @return [Array<Hash>] each entry is { id:, description: } (15 event types available)
       # @see GET /webhooks/event-types
+      # @example List subscribable event types
+      #   client.webhooks.list_event_types
+      #   # GET /webhooks/event-types
+      #   # => unwrapped data payload returned (15 entries):
+      #   # [
+      #   #   { id: "document_uploaded",        description: "Triggered when the User has uploaded a Document" },
+      #   #   { id: "document_metadata_ready",  description: "Triggered when the document is ready to be prepared..." },
+      #   #   { id: "document_prepared",        description: "Triggered when the User prepares a Document." },
+      #   #   { id: "assignment_created",       description: "Triggered when the User created an assignment..." },
+      #   #   { id: "signature_requested",      description: "Triggered when the User requested signature..." },
+      #   #   { id: "document_ready",           description: "Triggered when the last Signer signs the Document..." },
+      #   #   { id: "signer_created",           description: "Triggered when the User created a Signer" },
+      #   #   { id: "signer_email_verified",    description: "Triggered when Signer's email has been verified..." }
+      #   #   # ... (see docs for the full 15-event catalogue)
+      #   # ]
       def list_event_types
         call('Failed to list webhook event types') do
           http_get('webhooks/event-types')
@@ -103,8 +166,31 @@ module Assinafy
       #
       # @param params [Hash] `event`, `delivered`, `from`, `to`, `page`, `per_page`
       # @param account_id_override [String, nil]
-      # @return [Hash{Symbol=>Array,Hash}] `{ data: [...], meta: { ... } }`
+      # @return [Hash{Symbol=>Array,Hash}] `{ data: [dispatch, ...], meta: { current_page:, per_page:, total:,
+      #   last_page: } }`
       # @see GET /accounts/{account_id}/webhooks
+      # @example List delivery attempts, filtered to undelivered
+      #   client.webhooks.list_dispatches(delivered: false, 'per-page': 20)
+      #   # GET /accounts/{account_id}/webhooks?delivered=false&per-page=20
+      #   # => unwrapped data payload returned (pagination from x-pagination-* headers):
+      #   # {
+      #   #   data: [
+      #   #     {
+      #   #       id:            "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
+      #   #       event:         "document_ready",
+      #   #       activity_id:   456,
+      #   #       endpoint:      "https://example.com/webhook",
+      #   #       payload:       { event: "document_ready", id: 456, object: {}, subject: {} },
+      #   #       delivered:     true,
+      #   #       http_status:   200,
+      #   #       response_body: "OK",
+      #   #       error:         nil,
+      #   #       created_at:    1705312200
+      #   #     }
+      #   #     # ... (see docs for full dispatch shape)
+      #   #   ],
+      #   #   meta: { current_page: 1, per_page: 20, total: 2, last_page: 1 }
+      #   # }
       def list_dispatches(params = {}, account_id_override = nil)
         acc_id = account_id(account_id_override)
 
@@ -117,8 +203,25 @@ module Assinafy
       #
       # @param dispatch_id [String]
       # @param account_id_override [String, nil]
-      # @return [Hash] the freshly created dispatch entry
+      # @return [Hash] the freshly created dispatch entry (same shape as {#list_dispatches}, plus `resource`)
       # @see POST /accounts/{account_id}/webhooks/{dispatch_id}/retry
+      # @example Force a single dispatch to be re-attempted
+      #   client.webhooks.retry_dispatch('a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')
+      #   # POST /accounts/{account_id}/webhooks/a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6/retry  (no request body)
+      #   # => unwrapped data payload returned:
+      #   # {
+      #   #   resource:      "activity_dispatching_history",
+      #   #   id:            "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
+      #   #   event:         "document_ready",
+      #   #   activity_id:   456,
+      #   #   endpoint:      "https://example.com/webhook",
+      #   #   payload:       { event: "document_ready", id: 456, object: {}, subject: {} },
+      #   #   delivered:     true,
+      #   #   http_status:   200,
+      #   #   response_body: "OK",
+      #   #   error:         nil,
+      #   #   created_at:    1705312200
+      #   # }
       def retry_dispatch(dispatch_id, account_id_override = nil)
         acc_id = account_id(account_id_override)
         did    = require_id(dispatch_id, 'Dispatch ID')

@@ -58,6 +58,18 @@ RSpec.describe Assinafy::Resources::TagResource do
           .with(body: { 'color' => nil })
       ).to have_been_made
     end
+
+    it 'raises and makes no request for an empty payload' do
+      expect { resource.update('tag-1', {}) }.to raise_error(Assinafy::ValidationError)
+
+      expect(a_request(:put, "#{base_url}/accounts/acc/tags/tag-1")).not_to have_been_made
+    end
+
+    it 'raises and makes no request for a blank name' do
+      expect { resource.update('tag-1', name: '') }.to raise_error(Assinafy::ValidationError)
+
+      expect(a_request(:put, "#{base_url}/accounts/acc/tags/tag-1")).not_to have_been_made
+    end
   end
 
   describe '#delete' do

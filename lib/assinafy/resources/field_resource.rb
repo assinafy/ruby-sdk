@@ -16,8 +16,27 @@ module Assinafy
       # @option payload [Boolean] :is_required default `true`
       # @option payload [Boolean] :is_active   default `true`
       # @param account_id_override [String, nil]
-      # @return [Hash]
+      # @return [Hash] the created field definition (envelope `data` unwrapped)
       # @see POST /accounts/{accountId}/fields
+      # @example Create a text field
+      #   field = client.fields.create(type: 'text', name: 'audit-field-1780694479')
+      #
+      #   # Request body the SDK sends:
+      #   #   { "type": "text", "name": "audit-field-1780694479" }
+      #
+      #   # => {
+      #   #   "resource"       => "field_definition",
+      #   #   "id"             => "1032009e858cc1f859ccf3a61229",
+      #   #   "name"           => "audit-field-1780694479",
+      #   #   "type"           => "text",
+      #   #   "regex"          => nil,
+      #   #   "is_pre_defined" => false,
+      #   #   "is_active"      => true,
+      #   #   "is_required"    => true,
+      #   #   "is_standard"    => false,
+      #   #   "is_read_only"   => false,
+      #   #   "is_visible"     => true
+      #   # }
       def create(payload, account_id_override = nil)
         acc_id = account_id(account_id_override)
         body   = body_params(require_payload(payload))
@@ -27,12 +46,36 @@ module Assinafy
         end
       end
 
-      # List field definitions with pagination metadata.
+      # List field definitions.
+      #
+      # NOTE: this endpoint does not send pagination headers, so `meta` is always
+      # `nil` here (unlike other list endpoints which return a pagination Hash).
       #
       # @param params [Hash] `include_inactive`, `include_standard`, `page`, `per_page`
       # @param account_id_override [String, nil]
-      # @return [Hash{Symbol=>Array,Hash}] `{ data: [...], meta: { ... } }`
+      # @return [Hash{Symbol=>Array,nil}] `{ data: [...], meta: nil }`
       # @see GET /accounts/{accountId}/fields
+      # @example List including inactive fields
+      #   result = client.fields.list(include_inactive: true)
+      #
+      #   # => {
+      #   #   data: [
+      #   #     {
+      #   #       "id"             => "102d25a48bec03ebcf3b5f651998",
+      #   #       "name"           => "Nome",
+      #   #       "type"           => "personName",
+      #   #       "regex"          => nil,
+      #   #       "is_pre_defined" => true,
+      #   #       "is_active"      => true,
+      #   #       "is_required"    => false,
+      #   #       "is_standard"    => false,
+      #   #       "is_read_only"   => false,
+      #   #       "is_visible"     => true
+      #   #     }
+      #   #     # ... (one Hash per field definition)
+      #   #   ],
+      #   #   meta: nil # this endpoint sends no pagination headers
+      #   # }
       def list(params = {}, account_id_override = nil)
         acc_id = account_id(account_id_override)
 
@@ -45,8 +88,24 @@ module Assinafy
       #
       # @param field_id            [String]
       # @param account_id_override [String, nil]
-      # @return [Hash]
+      # @return [Hash] the field definition (envelope `data` unwrapped)
       # @see GET /accounts/{accountId}/fields/{field_id}
+      # @example Fetch one field definition
+      #   field = client.fields.get('1032009e858cc1f859ccf3a61229')
+      #
+      #   # => {
+      #   #   "resource"       => "field_definition",
+      #   #   "id"             => "1032009e858cc1f859ccf3a61229",
+      #   #   "name"           => "audit-field-1780694479",
+      #   #   "type"           => "text",
+      #   #   "regex"          => nil,
+      #   #   "is_pre_defined" => false,
+      #   #   "is_active"      => true,
+      #   #   "is_required"    => true,
+      #   #   "is_standard"    => false,
+      #   #   "is_read_only"   => false,
+      #   #   "is_visible"     => true
+      #   # }
       def get(field_id, account_id_override = nil)
         acc_id = account_id(account_id_override)
         fid    = require_id(field_id, 'Field ID')
@@ -61,8 +120,27 @@ module Assinafy
       # @param field_id            [String]
       # @param payload             [Hash] same fields as {#create}
       # @param account_id_override [String, nil]
-      # @return [Hash]
+      # @return [Hash] the updated field definition (envelope `data` unwrapped)
       # @see PUT /accounts/{account_id}/fields/{field_id}
+      # @example Rename a field definition
+      #   field = client.fields.update('1032009e858cc1f859ccf3a61229', name: 'New Field Name')
+      #
+      #   # Request body the SDK sends:
+      #   #   { "name": "New Field Name" }
+      #
+      #   # => {
+      #   #   "resource"       => "field_definition",
+      #   #   "id"             => "1032009e858cc1f859ccf3a61229",
+      #   #   "name"           => "New Field Name",
+      #   #   "type"           => "text",
+      #   #   "regex"          => nil,
+      #   #   "is_pre_defined" => false,
+      #   #   "is_active"      => true,
+      #   #   "is_required"    => true,
+      #   #   "is_standard"    => false,
+      #   #   "is_read_only"   => false,
+      #   #   "is_visible"     => true
+      #   # }
       def update(field_id, payload, account_id_override = nil)
         acc_id = account_id(account_id_override)
         fid    = require_id(field_id, 'Field ID')
@@ -77,8 +155,11 @@ module Assinafy
       #
       # @param field_id            [String]
       # @param account_id_override [String, nil]
-      # @return [nil]
+      # @return [nil] the API returns `data: []`; the SDK normalizes this to `nil`
       # @see DELETE /accounts/{account_id}/fields/{field_id}
+      # @example Delete a field definition
+      #   client.fields.delete('1032009e858cc1f859ccf3a61229')
+      #   # => nil
       def delete(field_id, account_id_override = nil)
         acc_id = account_id(account_id_override)
         fid    = require_id(field_id, 'Field ID')
@@ -97,8 +178,19 @@ module Assinafy
       # @param value                [Object]
       # @param account_id_override  [String, nil]
       # @param signer_access_code   [String, nil]
-      # @return [Hash]
+      # @return [Hash{String=>Object}] `{ "type" =>, "success" =>, "error_message" => }`
       # @see POST /accounts/{accountId}/fields/{field_id}/validate
+      # @example Validate a value (workspace auth)
+      #   result = client.fields.validate('1032009e858cc1f859ccf3a61229', 'Some text')
+      #
+      #   # Request body the SDK sends:
+      #   #   { "value": "Some text" }
+      #
+      #   # => { "type" => "text", "success" => true, "error_message" => "" }
+      #
+      # @example Validate as a signer (signer-access-code auth, sent as a query param)
+      #   client.fields.validate('field-id', '400.676.228-36', signer_access_code: 'hAvmvk6Urzus...')
+      #   # => { "type" => "cpf", "success" => false, "error_message" => "Invalid CPF." }
       def validate(field_id, value, account_id_override = nil, signer_access_code: nil)
         acc_id = account_id(account_id_override)
         fid    = require_id(field_id, 'Field ID')
@@ -114,8 +206,26 @@ module Assinafy
       # @param values               [Array<Hash>]
       # @param account_id_override  [String, nil]
       # @param signer_access_code   [String, nil]
-      # @return [Array<Hash>]
+      # @return [Array<Hash>] one validation Hash per input, each carrying its `field_id`
       # @see POST /accounts/{accountId}/fields/validate-multiple
+      # @example Validate several values at once
+      #   results = client.fields.validate_multiple([
+      #     { field_id: '63488ffb7adf435aba319787', value: '1111111111111' },
+      #     { field_id: '63488ffb0461cebb70775497', value: 'user@example.com' }
+      #   ])
+      #
+      #   # Request body the SDK sends (an array, not an object):
+      #   #   [
+      #   #     { "field_id": "63488ffb7adf435aba319787", "value": "1111111111111" },
+      #   #     { "field_id": "63488ffb0461cebb70775497", "value": "user@example.com" }
+      #   #   ]
+      #
+      #   # => [
+      #   #   { "field_id" => "63488ffb7adf435aba319787", "type" => "cpf",
+      #   #     "success" => false, "error_message" => "Invalid CPF." },
+      #   #   { "field_id" => "63488ffb0461cebb70775497", "type" => "email",
+      #   #     "success" => true, "error_message" => "" }
+      #   # ]
       def validate_multiple(values, account_id_override = nil, signer_access_code: nil)
         acc_id = account_id(account_id_override)
         list   = require_array(values, 'Field values')
@@ -129,8 +239,23 @@ module Assinafy
 
       # List the catalog of supported field types.
       #
-      # @return [Array<Hash>]
+      # @return [Array<Hash{String=>String}>] each entry is `{ "type" =>, "name" => }`
       # @see GET /field-types
+      # @example List supported field types
+      #   types = client.fields.types
+      #
+      #   # => [
+      #   #   { "type" => "personName",  "name" => "Nome" },
+      #   #   { "type" => "cpf",         "name" => "CPF" },
+      #   #   { "type" => "phoneNumber", "name" => "Número de Telefone" },
+      #   #   { "type" => "postalCode",  "name" => "CEP" },
+      #   #   { "type" => "email",       "name" => "E-mail" },
+      #   #   { "type" => "cnpj",        "name" => "CNPJ" },
+      #   #   { "type" => "companyName", "name" => "Nome da empresa" },
+      #   #   { "type" => "text",        "name" => "Texto" },
+      #   #   { "type" => "number",      "name" => "Número" },
+      #   #   { "type" => "date",        "name" => "Data" }
+      #   # ]
       def types
         call('Failed to list field types') do
           http_get('field-types')

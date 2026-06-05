@@ -20,7 +20,7 @@ jobs:
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: "3.3"
+          ruby-version: .ruby-version
           bundler-cache: true
 
       - name: Compare tag and Assinafy::VERSION
@@ -57,7 +57,7 @@ jobs:
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: "3.3"
+          ruby-version: .ruby-version
           bundler-cache: true
 
       - name: Build gem
@@ -81,7 +81,7 @@ jobs:
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: "3.3"
+          ruby-version: .ruby-version
           bundler-cache: true
 
       - name: Build gem

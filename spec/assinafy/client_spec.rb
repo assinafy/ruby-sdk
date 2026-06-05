@@ -65,4 +65,97 @@ RSpec.describe Assinafy::Client do
       expect(client.documents).to be_a(Assinafy::Resources::DocumentResource)
     end
   end
+
+  describe '#upload_and_request_signatures' do
+    let(:base_url) { 'https://api.assinafy.com.br/v1' }
+    let(:client)   { described_class.new(api_key: 'test-key', account_id: 'acc', base_url: base_url) }
+    let(:signers)  { [{ full_name: 'Audit Bill', email: 'bill@febacapital.com' }] }
+
+    def stub_upload
+      stub_request(:post, "#{base_url}/accounts/acc/documents")
+        .to_return(api_envelope({ 'id' => 'doc-1', 'status' => 'uploaded' }))
+    end
+
+    def stub_ready
+      stub_request(:get, "#{base_url}/documents/doc-1")
+        .to_return(api_envelope({ 'id' => 'doc-1', 'status' => 'metadata_ready' }))
+    end
+
+    def stub_signers
+      stub_request(:post, "#{base_url}/accounts/acc/signers")
+        .to_return(api_envelope({ 'id' => 'signer-1', 'full_name' => 'Audit Bill' }))
+    end
+
+    def stub_assignment
+      stub_request(:post, "#{base_url}/documents/doc-1/assignments")
+        .to_return(api_envelope({ 'id' => 'asg-1', 'method' => 'virtual' }))
+    end
+
+    it 'returns the document, assignment, and created signer IDs' do
+      stub_upload
+      stub_ready
+      stub_signers
+      stub_assignment
+
+      result = client.upload_and_request_signatures(
+        source: { buffer: '%PDF-1.4', file_name: 'contract.pdf' }, signers: signers, message: 'Please sign'
+      )
+
+      expect(result[:document]['id']).to   eq('doc-1')
+      expect(result[:assignment]['id']).to eq('asg-1')
+      expect(result[:signer_ids]).to       eq(['signer-1'])
+    end
+
+    it 'posts the virtual assignment body with signer refs and message' do
+      stub_upload
+      stub_ready
+      stub_signers
+      stub_assignment
+
+      client.upload_and_request_signatures(
+        source: { buffer: '%PDF-1.4', file_name: 'contract.pdf' }, signers: signers, message: 'Please sign'
+      )
+
+      expect(
+        a_request(:post, "#{base_url}/documents/doc-1/assignments").with(
+          body: hash_including('method' => 'virtual', 'signers' => [{ 'id' => 'signer-1' }], 'message' => 'Please sign')
+        )
+      ).to have_been_made
+    end
+
+    it 'creates a signer for each entry via the account signers endpoint' do
+      stub_upload
+      stub_ready
+      stub_signers
+      stub_assignment
+
+      client.upload_and_request_signatures(
+        source: { buffer: '%PDF-1.4', file_name: 'contract.pdf' }, signers: signers
+      )
+
+      expect(
+        a_request(:post, "#{base_url}/accounts/acc/signers")
+          .with(body: hash_including('full_name' => 'Audit Bill', 'email' => 'bill@febacapital.com'))
+      ).to have_been_made
+    end
+
+    it 'raises ValidationError when no signers are given' do
+      expect do
+        client.upload_and_request_signatures(source: { buffer: '%PDF-1.4', file_name: 'contract.pdf' }, signers: [])
+      end.to raise_error(Assinafy::ValidationError)
+    end
+
+    it 'does not fetch document details when wait_for_ready is false' do
+      stub_upload
+      ready = stub_ready
+      stub_signers
+      stub_assignment
+
+      client.upload_and_request_signatures(
+        source: { buffer: '%PDF-1.4', file_name: 'contract.pdf' }, signers: signers, wait_for_ready: false
+      )
+
+      expect(ready).not_to have_been_requested
+    end
+  end
 end

@@ -2,7 +2,7 @@ plugins:
   - rubocop-rspec
 
 AllCops:
-  TargetRubyVersion: 3.0
+  TargetRubyVersion: 3.2
   NewCops: enable
   SuggestExtensions: false
   Exclude:
@@ -49,6 +49,11 @@ Metrics/ParameterLists:
   CountKeywordArgs: false
 
 Style/Documentation:
+  Enabled: false
+
+# Named `**options` / `*args` splats are clearer for a public SDK and are
+# referenced by YARD `@param` docs; prefer them over anonymous forwarding.
+Style/ArgumentsForwarding:
   Enabled: false
 
 Style/RaiseArgs:

@@ -66,6 +66,22 @@ RSpec.describe Assinafy::Resources::SignerResource do
     end
   end
 
+  describe '#get' do
+    it 'raises when signer ID is empty' do
+      expect { resource.get('') }.to raise_error(Assinafy::ValidationError)
+    end
+
+    it 'fetches a signer by ID and returns the unwrapped data' do
+      stub_request(:get, "#{base_url}/accounts/test-account/signers/sig-1")
+        .to_return(api_envelope({ 'id' => 'sig-1', 'full_name' => 'John' }))
+
+      result = resource.get('sig-1')
+
+      expect(a_request(:get, "#{base_url}/accounts/test-account/signers/sig-1")).to have_been_made
+      expect(result['id']).to eq('sig-1')
+    end
+  end
+
   describe '#self_data' do
     it 'uses signer-access-code as a query parameter' do
       stub_request(:get, "#{base_url}/signers/self")
@@ -73,7 +89,43 @@ RSpec.describe Assinafy::Resources::SignerResource do
         .to_return(api_envelope({ 'id' => 'signer' }))
 
       result = resource.self_data(signer_access_code: 'code')
+
+      expect(
+        a_request(:get, "#{base_url}/signers/self")
+          .with(query: hash_including('signer-access-code' => 'code'))
+      ).to have_been_made
       expect(result['id']).to eq('signer')
+    end
+  end
+
+  describe '#accept_terms' do
+    it 'puts signer-access-code in the request body' do
+      stub_request(:put, "#{base_url}/signers/accept-terms")
+        .to_return(api_envelope({ 'has_accepted_terms' => true }))
+
+      resource.accept_terms(signer_access_code: 'code')
+
+      expect(
+        a_request(:put, "#{base_url}/signers/accept-terms")
+          .with(body: hash_including('signer-access-code' => 'code'))
+      ).to have_been_made
+    end
+  end
+
+  describe '#verify_email' do
+    it 'posts hyphenated verification-code and signer-access-code in the body' do
+      stub_request(:post, "#{base_url}/verify")
+        .to_return(json_response({ 'message' => 'Code verified successfully' }))
+
+      resource.verify_email(verification_code: '123456', signer_access_code: 'code')
+
+      expect(
+        a_request(:post, "#{base_url}/verify")
+          .with(body: hash_including(
+            'verification-code'  => '123456',
+            'signer-access-code' => 'code'
+          ))
+      ).to have_been_made
     end
   end
 
@@ -92,6 +144,43 @@ RSpec.describe Assinafy::Resources::SignerResource do
             body:  hash_including('has_accepted_terms' => true)
           )
       ).to have_been_made
+    end
+  end
+
+  describe '#upload_signature' do
+    it 'posts raw bytes with Content-Type and type + signer-access-code query params' do
+      stub_request(:post, "#{base_url}/signature")
+        .with(query: hash_including('signer-access-code' => 'code', 'type' => 'signature'))
+        .to_return(api_envelope([]))
+
+      result = resource.upload_signature('rawbytes', signer_access_code: 'code', content_type: 'image/png')
+
+      expect(
+        a_request(:post, "#{base_url}/signature")
+          .with(
+            query:   hash_including('signer-access-code' => 'code', 'type' => 'signature'),
+            body:    'rawbytes',
+            headers: { 'Content-Type' => 'image/png' }
+          )
+      ).to have_been_made
+      expect(result).to eq([])
+    end
+  end
+
+  describe '#download_signature' do
+    it 'gets the typed signature path and returns the raw binary bytes' do
+      stub_request(:get, "#{base_url}/signature/initial")
+        .with(query: hash_including('signer-access-code' => 'code'))
+        .to_return(status: 200, body: 'PNGBYTES', headers: { 'Content-Type' => 'image/png' })
+
+      result = resource.download_signature(signer_access_code: 'code', type: 'initial')
+
+      expect(
+        a_request(:get, "#{base_url}/signature/initial")
+          .with(query: hash_including('signer-access-code' => 'code'))
+      ).to have_been_made
+      expect(result).to eq('PNGBYTES')
+      expect(result.encoding).to eq(Encoding::ASCII_8BIT)
     end
   end
 
@@ -141,12 +230,17 @@ RSpec.describe Assinafy::Resources::SignerResource do
       expect(resource.find_by_email('nobody@example.com')).to be_nil
     end
 
-    it 'returns the matching signer (case-insensitive comparison)' do
+    it 'requests per-page 50 and returns the matching signer (case-insensitive)' do
       stub_request(:get, "#{base_url}/accounts/test-account/signers")
-        .with(query: hash_including('search' => 'john@example.com'))
+        .with(query: hash_including('search' => 'john@example.com', 'per-page' => '50'))
         .to_return(api_envelope([{ 'id' => '1', 'full_name' => 'John', 'email' => 'JOHN@EXAMPLE.COM' }]))
 
       result = resource.find_by_email('john@example.com')
+
+      expect(
+        a_request(:get, "#{base_url}/accounts/test-account/signers")
+          .with(query: hash_including('search' => 'john@example.com', 'per-page' => '50'))
+      ).to have_been_made
       expect(result['id']).to eq('1')
     end
   end

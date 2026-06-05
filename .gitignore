@@ -1,5 +1,8 @@
 *.gem
-*.lock
+# Gemfile.lock is intentionally not committed: this is a published gem, and the
+# convention is to resolve dependencies fresh against each supported Ruby in CI
+# (Bundler's own guidance for gems). Applications consuming the gem keep their own lock.
+Gemfile.lock
 .DS_Store
 .env
 .env.local
@@ -7,4 +10,3 @@ coverage/
 pkg/
 vendor/bundle
 .bundle/
-.ruby-version

@@ -9,12 +9,36 @@ module Assinafy
     class AuthResource < BaseResource
       # Authenticate with email and password.
       #
+      # The returned `access_token` is a JWT that typically expires in one hour. For long-lived
+      # back-end integrations, prefer an API key (see #create_api_key) over the access token.
+      #
       # @param email    [String]
       # @param password [String]
-      # @return [Hash] payload containing an `access_token` and user info
+      # @return [Hash] unwrapped payload: { "access_token" => String, "user" => Hash, "accounts" => Array<Hash> }
       # @raise [Assinafy::ApiError] on a non-2xx response
       #
       # @see POST /login
+      #
+      # @example Request and response
+      #   resource.login(email: 'user@example.com', password: 'secret')
+      #   # Request body sent by the SDK:
+      #   #   { "email": "user@example.com", "password": "secret" }
+      #   #
+      #   # Returns the unwrapped data payload (envelope { status, message, data } stripped):
+      #   # {
+      #   #   "access_token" => "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1Ni...",
+      #   #   "user" => {
+      #   #     "id" => "bgjazeo5r9v2lq7l36dx48np", "name" => "John Smith",
+      #   #     "email" => "user@example.com", "telephone" => "17989206641",
+      #   #     "government_id" => "15774136604", "is_email_verified" => false,
+      #   #     "has_accepted_terms" => true, "created_at" => "2023-03-03T11:51:34Z",
+      #   #     "to_be_deleted_at" => nil
+      #   #   },
+      #   #   "accounts" => [
+      #   #     { "id" => "6401df46d6a6b0c692d9ec49", "name" => "JS", "roles" => ["owner"],
+      #   #       "is_delete_allowed" => true, "created_at" => "2023-03-03T11:51:34Z" }
+      #   #   ]
+      #   # }
       def login(email:, password:)
         call('Failed to login') do
           @connection.post('login', body_params(email: email, password: password))
@@ -23,12 +47,29 @@ module Assinafy
 
       # Authenticate with a third-party identity provider token.
       #
-      # @param provider           [String] e.g. `google`, `apple`
-      # @param token              [String] provider-issued OAuth/OIDC token
+      # Currently the only supported provider is `google`. Returns the same shape as #login.
+      #
+      # @param provider           [String] the provider type; currently only `google`
+      # @param token              [String] provider-issued OAuth/OIDC access or ID token
       # @param has_accepted_terms [Boolean]
-      # @return [Hash]
+      # @return [Hash] unwrapped payload: { "access_token" => String, "user" => Hash, "accounts" => Array<Hash> }
       #
       # @see POST /authentication/social-login
+      #
+      # @example Request and response
+      #   resource.social_login(provider: 'google', token: 'yOTUvImV4cCI...', has_accepted_terms: true)
+      #   # Request body sent by the SDK:
+      #   #   { "provider": "google", "token": "yOTUvImV4cCI...", "has_accepted_terms": true }
+      #   #
+      #   # Returns the unwrapped data payload (envelope stripped); same shape as #login:
+      #   # {
+      #   #   "access_token" => "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1Ni...",
+      #   #   "user" => { "id" => "bgjazeo5r9v2lq7l36dx48np", "name" => "John Smith", ... },
+      #   #   "accounts" => [
+      #   #     { "id" => "6401df46d6a6b0c692d9ec49", "name" => "JS", "roles" => ["owner"],
+      #   #       "is_delete_allowed" => true, "created_at" => "2023-03-03T11:51:34Z" }
+      #   #   ]
+      #   # }
       def social_login(provider:, token:, has_accepted_terms:)
         call('Failed to login with social provider') do
           @connection.post(
@@ -44,10 +85,22 @@ module Assinafy
 
       # Generate a new API key for the authenticated user.
       #
+      # The returned key is shown in full only once, here; afterwards #get_api_key returns a masked
+      # version. IMPORTANT: generating a new key deletes (invalidates) the previous one. Send the key
+      # via the `X-Api-Key` header and never expose it in a front-end application.
+      #
       # @param password [String] the user's current password
-      # @return [Hash] payload containing the new `api_key`
+      # @return [Hash] unwrapped payload: { "api_key" => String } (the new key, in full)
       #
       # @see POST /users/api-keys
+      #
+      # @example Request and response
+      #   resource.create_api_key(password: 'secret')
+      #   # Request body sent by the SDK:
+      #   #   { "password": "secret" }
+      #   #
+      #   # Returns the unwrapped data payload (envelope stripped):
+      #   # { "api_key" => "mIpe_zdJfKUpMK9Va3XuYgzPXMxz49fIaRCWXseVkpVAX608A9j3i_D67qU5qW3M" }
       def create_api_key(password:)
         call('Failed to create API key') do
           @connection.post('users/api-keys', body_params(password: password))
@@ -56,8 +109,22 @@ module Assinafy
 
       # Retrieve the active API key for the authenticated user.
       #
-      # @return [Hash]
+      # For security the key is returned MASKED (only the last 4 characters are visible); the full key
+      # is only available once, at #create_api_key time. Returns `nil` if no key has been generated yet.
+      # This endpoint works with `X-Api-Key` authentication (verified live), not only a Bearer token.
+      #
+      # @return [Hash, nil] unwrapped payload: { "api_key" => String } (masked), or nil if no key exists yet
       # @see GET /users/api-keys
+      #
+      # @example Request and response (key exists)
+      #   resource.get_api_key
+      #   # No request body (GET).
+      #   #
+      #   # Returns the unwrapped data payload (envelope stripped):
+      #   # { "api_key" => "************************************************************9Jdr" }
+      #
+      # @example Response when no key has been generated yet
+      #   resource.get_api_key # => nil
       def get_api_key
         call('Failed to get API key') do
           @connection.get('users/api-keys')
@@ -68,8 +135,18 @@ module Assinafy
 
       # Delete the API key of the authenticated user.
       #
+      # The SDK ignores the response body and always returns `nil` on success. (The API itself
+      # responds with an empty `data` payload.)
+      #
       # @return [nil]
       # @see DELETE /users/api-keys
+      #
+      # @example Request and response
+      #   resource.delete_api_key
+      #   # No request body (DELETE).
+      #   #
+      #   # Returns nil on success (the API's empty `data` payload is discarded).
+      #   # => nil
       def delete_api_key
         call_void('Failed to delete API key') do
           @connection.delete('users/api-keys')
@@ -80,10 +157,18 @@ module Assinafy
       #
       # @param email        [String]
       # @param password     [String] current password
-      # @param new_password [String]
-      # @return [Hash]
+      # @param new_password [String] the new password to set
+      # @return [Hash] unwrapped payload: { "email" => String }
       #
       # @see PUT /authentication/change-password
+      #
+      # @example Request and response
+      #   resource.change_password(email: 'user@example.com', password: 'X3$_!456aTa', new_password: 'X3$_!456aT')
+      #   # Request body sent by the SDK:
+      #   #   { "email": "user@example.com", "password": "X3$_!456aTa", "new_password": "X3$_!456aT" }
+      #   #
+      #   # Returns the unwrapped data payload (envelope stripped):
+      #   # { "email" => "user@example.com" }
       def change_password(email:, password:, new_password:)
         call('Failed to change password') do
           @connection.put(
@@ -95,10 +180,21 @@ module Assinafy
 
       # Trigger a password-reset email for the given account.
       #
+      # Used when the user forgot their password or has not set one yet. An email with a reset token
+      # is sent; pass that token to #reset_password to complete the flow.
+      #
       # @param email [String]
-      # @return [Hash]
+      # @return [Hash] unwrapped payload: { "email" => String }
       #
       # @see PUT /authentication/request-password-reset
+      #
+      # @example Request and response
+      #   resource.request_password_reset(email: 'user@example.com')
+      #   # Request body sent by the SDK:
+      #   #   { "email": "user@example.com" }
+      #   #
+      #   # Returns the unwrapped data payload (envelope stripped):
+      #   # { "email" => "user@example.com" }
       def request_password_reset(email:)
         call('Failed to request password reset') do
           @connection.put('authentication/request-password-reset', body_params(email: email))
@@ -108,11 +204,19 @@ module Assinafy
       # Reset the password using the token sent via #request_password_reset.
       #
       # @param email        [String]
-      # @param new_password [String]
-      # @param token        [String, nil] reset token from the email
-      # @return [Hash]
+      # @param new_password [String] the new password to set
+      # @param token        [String, nil] reset token from the email; omitted from the body when nil
+      # @return [Hash] unwrapped payload: { "email" => String }
       #
       # @see PUT /authentication/reset-password
+      #
+      # @example Request and response
+      #   resource.reset_password(email: 'user@example.com', new_password: '62b3ac64d6c55', token: 'b3ac64d6c55...')
+      #   # Request body sent by the SDK (nil token would be omitted by body_params):
+      #   #   { "email": "user@example.com", "token": "b3ac64d6c55...", "new_password": "62b3ac64d6c55" }
+      #   #
+      #   # Returns the unwrapped data payload (envelope stripped):
+      #   # { "email" => "user@example.com" }
       def reset_password(email:, new_password:, token: nil)
         call('Failed to reset password') do
           @connection.put(

@@ -2,6 +2,52 @@
 
 All notable changes to the `assinafy` Ruby gem are documented here.
 
+## 1.4.0
+
+This release is the result of a full audit of the SDK against the live Assinafy
+v1 API (verified end-to-end against the sandbox) and the published documentation
+at <https://api.assinafy.com.br/v1/docs>.
+
+### Added
+
+- `Resources::TemplateResource#delete` (`DELETE /accounts/{account_id}/templates/{template_id}`)
+  and `#download_page` (`GET /accounts/{account_id}/templates/{template_id}/pages/{page_id}/download`)
+  — both verified against the live API.
+- `Support::WebhookVerifier#event_payload`, `#event_object`, and `#event_subject`,
+  matching the real delivery envelope (top-level `payload`/`object`/`subject` keys).
+- `ApiError#error_name` and `ApiError#error_code` expose the API's `name`/`code`
+  error fields; `ApiError.from_response` now also falls back to `name` for the message.
+- YARD `@example` blocks with full request **and** response payloads on every public
+  method, sourced from the live API and the docs.
+- Behavioral coverage: `spec/api_coverage_spec.rb` now also fails CI when a public
+  endpoint wrapper is missing a matrix row, and asserts documented aliases still
+  resolve to their canonical methods. Behavioral WebMock specs were added for the
+  previously untested methods and for `Client#upload_and_request_signatures`.
+
+### Fixed
+
+- `AssignmentResource#reset_expiration` now sends `expires_at` verbatim, so an
+  explicit `nil` is serialized as JSON `null` ("no expiration") instead of being
+  dropped from the body (the field is required by the API). Verified live.
+- `Support::WebhookVerifier#event_data`/`#event_type` corrected to the real envelope:
+  `event_type` reads `event` (the fabricated `type` fallback was removed), and
+  `event_data` is deprecated in favor of `#event_payload`/`#event_object`.
+- `DocumentResource#send_token` validates `recipient`/`channel` before the request.
+- `SignerResource#find_by_email` now paginates through all result pages instead of
+  relying on a single oversized page (the API clamps `per-page` to its own maximum —
+  observed as 50 on the sandbox).
+- `Client#upload_and_request_signatures` raises a clear `ApiError` if a created
+  signer comes back without an ID, rather than building an assignment with `nil` IDs.
+- `TagResource#update` rejects an empty payload or a blank name before issuing a no-op PUT.
+
+### Changed
+
+- **Minimum Ruby is now 3.2** (3.0 and 3.1 are end-of-life). CI tests 3.2, 3.3, 3.4,
+  4.0, and head. `.ruby-version` is committed (3.4.8) and drives the lint/audit/release jobs.
+- `SignerDocumentResource#list` accepts an optional `signer_access_code:` (the endpoint
+  also supports workspace `X-Api-Key` auth); the class auth documentation was corrected.
+- CI gained a `concurrency` group to cancel superseded runs.
+
 ## 1.3.1
 
 ### Added
