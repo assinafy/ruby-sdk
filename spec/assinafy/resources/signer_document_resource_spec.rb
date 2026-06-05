@@ -30,6 +30,19 @@ RSpec.describe Assinafy::Resources::SignerDocumentResource do
           .with(query: hash_including('signer-access-code' => 'code'))
       ).to have_been_made
     end
+
+    it 'omits the access code from the query when authenticating via header' do
+      stub_request(:get, "#{base_url}/signers/signer-1/documents")
+        .with(query: hash_including('status' => 'pending_signature'))
+        .to_return(api_envelope([]))
+
+      resource.list('signer-1', { status: 'pending_signature' })
+
+      expect(
+        a_request(:get, "#{base_url}/signers/signer-1/documents")
+          .with(query: hash_excluding('signer-access-code'))
+      ).to have_been_made
+    end
   end
 
   describe '#sign_multiple' do
@@ -40,6 +53,27 @@ RSpec.describe Assinafy::Resources::SignerDocumentResource do
     end
   end
 
+  describe '#decline_multiple' do
+    it 'puts the document IDs and decline reason to the decline-multiple endpoint' do
+      stub_request(:put, "#{base_url}/signers/documents/decline-multiple")
+        .with(
+          query: hash_including('signer-access-code' => 'code'),
+          body:  hash_including('document_ids' => %w[doc-1 doc-2], 'decline_reason' => 'Unfavorable terms.')
+        )
+        .to_return(api_envelope([]))
+
+      resource.decline_multiple(%w[doc-1 doc-2], decline_reason: 'Unfavorable terms.', signer_access_code: 'code')
+
+      expect(
+        a_request(:put, "#{base_url}/signers/documents/decline-multiple")
+          .with(
+            query: hash_including('signer-access-code' => 'code'),
+            body:  hash_including('document_ids' => %w[doc-1 doc-2], 'decline_reason' => 'Unfavorable terms.')
+          )
+      ).to have_been_made
+    end
+  end
+
   describe '#download' do
     it 'calls the signer document download endpoint' do
       stub_request(:get, "#{base_url}/signers/signer-1/documents/doc-1/download/original")
@@ -47,6 +81,20 @@ RSpec.describe Assinafy::Resources::SignerDocumentResource do
         .to_return(status: 200, body: 'PDF', headers: { 'Content-Type' => 'application/pdf' })
 
       expect(resource.download('signer-1', 'doc-1', 'original', signer_access_code: 'code')).to eq('PDF')
+    end
+
+    it 'gets the artifact path and returns the raw binary body' do
+      stub_request(:get, "#{base_url}/signers/signer-1/documents/doc-1/download/certificated")
+        .with(query: hash_including('signer-access-code' => 'code'))
+        .to_return(status: 200, body: 'PDFBYTES', headers: { 'Content-Type' => 'application/pdf' })
+
+      result = resource.download('signer-1', 'doc-1', 'certificated', signer_access_code: 'code')
+
+      expect(result).to eq('PDFBYTES')
+      expect(
+        a_request(:get, "#{base_url}/signers/signer-1/documents/doc-1/download/certificated")
+          .with(query: hash_including('signer-access-code' => 'code'))
+      ).to have_been_made
     end
   end
 end

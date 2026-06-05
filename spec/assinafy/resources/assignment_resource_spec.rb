@@ -105,6 +105,67 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
       resource = described_class.new(connection, 'acc')
       expect { resource.resend_notification('d', 'a', '') }.to raise_error(Assinafy::ValidationError)
     end
+
+    it 'puts to the documented signer resend endpoint' do
+      path = "#{base_url}/documents/doc/assignments/asg/signers/sig/resend"
+      stub_request(:put, path).to_return(api_envelope({ 'is_sent' => true }))
+
+      resource = described_class.new(connection, 'acc')
+      result   = resource.resend_notification('doc', 'asg', 'sig')
+
+      expect(result['is_sent']).to be(true)
+      expect(a_request(:put, path)).to have_been_made
+    end
+  end
+
+  describe '#estimate_resend_cost' do
+    it 'posts to the signer estimate-resend-cost endpoint' do
+      path = "#{base_url}/documents/doc/assignments/asg/signers/sig/estimate-resend-cost"
+      stub_request(:post, path).to_return(api_envelope({ 'total' => 0.2 }))
+
+      resource = described_class.new(connection, 'acc')
+      result   = resource.estimate_resend_cost('doc', 'asg', 'sig')
+
+      expect(result['total']).to eq(0.2)
+      expect(a_request(:post, path)).to have_been_made
+    end
+  end
+
+  describe '#reset_expiration' do
+    it 'sends the new expiration timestamp in the body' do
+      path = "#{base_url}/documents/doc/assignments/asg/reset-expiration"
+      stub_request(:put, path).to_return(api_envelope({ 'id' => 'asg' }))
+
+      resource = described_class.new(connection, 'acc')
+      resource.reset_expiration('doc', 'asg', '2026-12-31T23:59:00Z')
+
+      expect(
+        a_request(:put, path).with(body: { 'expires_at' => '2026-12-31T23:59:00Z' })
+      ).to have_been_made
+    end
+
+    it 'sends nil as an explicit JSON null rather than dropping the key' do
+      path = "#{base_url}/documents/doc/assignments/asg/reset-expiration"
+      stub_request(:put, path).to_return(api_envelope({ 'id' => 'asg' }))
+
+      resource = described_class.new(connection, 'acc')
+      resource.reset_expiration('doc', 'asg', nil)
+
+      expect(a_request(:put, path).with(body: { 'expires_at' => nil })).to have_been_made
+    end
+  end
+
+  describe '#whatsapp_notifications' do
+    it 'gets the documented whatsapp-notifications endpoint' do
+      path = "#{base_url}/documents/doc/assignments/asg/whatsapp-notifications"
+      stub_request(:get, path).to_return(api_envelope([{ 'signer_id' => 'sig' }]))
+
+      resource = described_class.new(connection, 'acc')
+      result   = resource.whatsapp_notifications('doc', 'asg')
+
+      expect(result.first['signer_id']).to eq('sig')
+      expect(a_request(:get, path)).to have_been_made
+    end
   end
 
   describe '#estimate_cost' do
@@ -132,6 +193,9 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
       result = resource.signer_document(signer_access_code: 'code')
 
       expect(result['id']).to eq('doc-1')
+      expect(
+        a_request(:get, "#{base_url}/sign").with(query: hash_including('signer-access-code' => 'code'))
+      ).to have_been_made
     end
   end
 

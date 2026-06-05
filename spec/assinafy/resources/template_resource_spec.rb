@@ -59,4 +59,36 @@ RSpec.describe Assinafy::Resources::TemplateResource do
       expect(a_request(:put, "#{base_url}/accounts/acc/templates/tmpl-1")).to have_been_made
     end
   end
+
+  describe '#delete' do
+    it 'calls DELETE /accounts/{id}/templates/{id} and returns nil' do
+      stub_request(:delete, "#{base_url}/accounts/acc/templates/tmpl-1")
+        .to_return(api_envelope({}))
+
+      expect(resource.delete('tmpl-1')).to be_nil
+      expect(a_request(:delete, "#{base_url}/accounts/acc/templates/tmpl-1")).to have_been_made
+    end
+
+    it 'raises ApiError on a 404 envelope' do
+      stub_request(:delete, "#{base_url}/accounts/acc/templates/missing")
+        .to_return(json_response({ status: 404, message: 'Template não encontrado.' }, status: 404))
+
+      expect { resource.delete('missing') }.to raise_error(Assinafy::ApiError)
+      expect(a_request(:delete, "#{base_url}/accounts/acc/templates/missing")).to have_been_made
+    end
+  end
+
+  describe '#download_page' do
+    it 'calls the page download endpoint and returns binary bytes' do
+      stub_request(:get, "#{base_url}/accounts/acc/templates/tmpl-1/pages/page-1/download")
+        .to_return(status: 200, body: 'PNGBYTES', headers: { 'Content-Type' => 'image/png' })
+
+      result = resource.download_page('tmpl-1', 'page-1')
+
+      expect(result).to eq('PNGBYTES')
+      expect(
+        a_request(:get, "#{base_url}/accounts/acc/templates/tmpl-1/pages/page-1/download")
+      ).to have_been_made
+    end
+  end
 end

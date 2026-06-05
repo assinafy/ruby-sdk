@@ -24,6 +24,33 @@ module Assinafy
       # @raise [Assinafy::ApiError]        on a non-2xx response
       #
       # @see POST /accounts/{account_id}/documents
+      # @example Upload a PDF from disk
+      #   # Request: POST /accounts/{account_id}/documents (multipart/form-data)
+      #   # Body: file=<binary application/pdf>, name="assinafy_audit_test.pdf"
+      #   client.documents.upload('/tmp/contract.pdf', name: 'assinafy_audit_test.pdf')
+      #
+      #   # Response (unwrapped data payload):
+      #   {
+      #     'resource' => 'document',
+      #     'id' => '1032009d72b364f377ff270405cc',
+      #     'account_id' => '102d25a489f34a275d31a16045fd',
+      #     'template_id' => nil,
+      #     'name' => 'assinafy_audit_test.pdf',
+      #     'status' => 'uploaded',
+      #     'artifacts' => {
+      #       'original' => 'https://sandbox.assinafy.com.br/v1/documents/<id>/download/original'
+      #     },
+      #     'is_closed' => false,
+      #     'signing_url' => 'https://app-sandbox.assinafy.com.br/sign/1032009d72b364f377ff270405cc',
+      #     'decline_reason' => nil,
+      #     'declined_by' => nil,
+      #     'tags' => [],
+      #     'created_at' => '2026-06-05T21:21:12Z',
+      #     'updated_at' => '2026-06-05T21:21:13Z',
+      #     'pages' => []
+      #   }
+      # @example Upload raw bytes from memory
+      #   client.documents.upload(buffer: pdf_bytes, file_name: 'in_memory.pdf')
       def upload(source, options = {})
         buffer, file_name = load_source(source)
         validate_upload!(buffer, file_name)
@@ -55,6 +82,40 @@ module Assinafy
       # @return [Hash{Symbol=>Array,Hash}] `{ data: [...], meta: { current_page:, per_page:, total:, last_page: } }`
       #
       # @see GET /accounts/{account_id}/documents
+      # @example List the first page of documents
+      #   # Request: GET /accounts/{account_id}/documents?per_page=3
+      #   client.documents.list(per_page: 3)
+      #
+      #   # Response (unwrapped data payload):
+      #   {
+      #     data: [
+      #       {
+      #         'id' => '1031ff847e1aecdcf848f579cc77',
+      #         'account_id' => '102d25a489f34a275d31a16045fd',
+      #         'template_id' => nil,
+      #         'name' => 'audit.pdf',
+      #         'status' => 'metadata_ready',
+      #         'artifacts' => {
+      #           'original' => 'https://sandbox.assinafy.com.br/v1/documents/1031ff84.../download/original',
+      #           'thumbnail' => 'https://sandbox.assinafy.com.br/v1/documents/1031ff84.../thumbnail'
+      #         },
+      #         'is_closed' => false,
+      #         'signing_url' => 'https://app-sandbox.assinafy.com.br/sign/1031ff847e1aecdcf848f579cc77',
+      #         'decline_reason' => nil,
+      #         'declined_by' => nil,
+      #         'tags' => [],
+      #         'assignment' => nil,
+      #         'pages' => [
+      #           { 'id' => '1031ff84c23f85c38503ff0324d6', 'number' => 1, 'height' => 1651,
+      #             'width' => 1275, 'download_url' => 'https://sandbox.assinafy.com.br/v1/documents/.../download' }
+      #         ],
+      #         'created_at' => '2026-06-05T20:50:31Z',
+      #         'updated_at' => '2026-06-05T20:50:34Z'
+      #       }
+      #       # ... (one Hash per document)
+      #     ],
+      #     meta: { current_page: 1, per_page: 3, total: 14, last_page: 5 }
+      #   }
       def list(params = {}, account_id_override = nil)
         acc_id = account_id(account_id_override)
 
@@ -65,8 +126,26 @@ module Assinafy
 
       # List the catalog of document status codes.
       #
-      # @return [Array<Hash>]
+      # @return [Array<Hash>] each entry has `code` and a `deletable` flag
       # @see GET /documents/statuses
+      # @example List status codes
+      #   # Request: GET /documents/statuses
+      #   client.documents.statuses
+      #
+      #   # Response (unwrapped data payload):
+      #   [
+      #     { 'code' => 'uploading', 'deletable' => false },
+      #     { 'code' => 'uploaded', 'deletable' => false },
+      #     { 'code' => 'metadata_processing', 'deletable' => false },
+      #     { 'code' => 'metadata_ready', 'deletable' => true },
+      #     { 'code' => 'expired', 'deletable' => true },
+      #     { 'code' => 'certificating', 'deletable' => false },
+      #     { 'code' => 'certificated', 'deletable' => false },
+      #     { 'code' => 'rejected_by_signer', 'deletable' => true },
+      #     { 'code' => 'pending_signature', 'deletable' => true },
+      #     { 'code' => 'rejected_by_user', 'deletable' => true },
+      #     { 'code' => 'failed', 'deletable' => true }
+      #   ]
       def statuses
         call('Failed to list document statuses') do
           http_get('documents/statuses')
@@ -76,8 +155,37 @@ module Assinafy
       # Fetch a document by ID.
       #
       # @param document_id [String]
-      # @return [Hash]
+      # @return [Hash] document object (includes `assignment` once one exists, else nil)
       # @see GET /documents/{document_id}
+      # @example Fetch a document
+      #   # Request: GET /documents/{document_id}
+      #   client.documents.details('1032009d72b364f377ff270405cc')
+      #
+      #   # Response (unwrapped data payload):
+      #   {
+      #     'resource' => 'document',
+      #     'id' => '1032009d72b364f377ff270405cc',
+      #     'account_id' => '102d25a489f34a275d31a16045fd',
+      #     'template_id' => nil,
+      #     'name' => 'assinafy_audit_test.pdf',
+      #     'status' => 'metadata_ready',
+      #     'artifacts' => {
+      #       'original' => 'https://sandbox.assinafy.com.br/v1/documents/1032009d.../download/original',
+      #       'thumbnail' => 'https://sandbox.assinafy.com.br/v1/documents/1032009d.../thumbnail'
+      #     },
+      #     'is_closed' => false,
+      #     'signing_url' => 'https://app-sandbox.assinafy.com.br/sign/1032009d72b364f377ff270405cc',
+      #     'decline_reason' => nil,
+      #     'declined_by' => nil,
+      #     'tags' => [],
+      #     'assignment' => nil,
+      #     'pages' => [
+      #       { 'id' => '1032009db961c327b101a7fea34d', 'number' => 1, 'height' => 1651,
+      #         'width' => 1275, 'download_url' => 'https://sandbox.assinafy.com.br/v1/documents/.../download' }
+      #     ],
+      #     'created_at' => '2026-06-05T21:21:12Z',
+      #     'updated_at' => '2026-06-05T21:21:15Z'
+      #   }
       def details(document_id)
         doc_id = require_id(document_id, 'Document ID')
 
@@ -96,6 +204,17 @@ module Assinafy
       # @param poll_interval_seconds [Integer] (default: 2)
       # @return [Hash] the document once it is ready
       # @raise [Assinafy::ValidationError] on timeout or terminal failed status
+      # @example Block until a freshly uploaded document is processed
+      #   # Polls GET /documents/{document_id} every 2s until status is ready.
+      #   client.documents.wait_until_ready('1032009d72b364f377ff270405cc', max_wait_seconds: 30)
+      #
+      #   # Response (unwrapped data payload): same shape as #details, with a ready status:
+      #   {
+      #     'resource' => 'document',
+      #     'id' => '1032009d72b364f377ff270405cc',
+      #     'status' => 'metadata_ready', # one of READY_STATUSES
+      #     # ... (see #details for the full document shape)
+      #   }
       def wait_until_ready(document_id, max_wait_seconds: 30, poll_interval_seconds: 2)
         doc_id   = require_id(document_id, 'Document ID')
         deadline = Time.now + max_wait_seconds
@@ -138,6 +257,14 @@ module Assinafy
       # @return [String] binary PDF body
       # @raise [Assinafy::ValidationError] on unknown artifact type
       # @see GET /documents/{document_id}/download/{artifact_name}
+      # @example Download the original upload and save it to disk
+      #   # Request: GET /documents/{document_id}/download/original
+      #   bytes = client.documents.download('1032009d72b364f377ff270405cc', 'original')
+      #
+      #   # Response: raw bytes of the PDF (NOT a JSON envelope), e.g. a 607-byte String:
+      #   bytes.class      # => String
+      #   bytes.bytesize   # => 607
+      #   File.binwrite('original.pdf', bytes)
       def download(document_id, artifact_name = 'certificated')
         doc_id = require_id(document_id, 'Document ID')
         art    = artifact_type(artifact_name)
@@ -152,6 +279,14 @@ module Assinafy
       # @param document_id [String]
       # @return [String] binary image body
       # @see GET /documents/{document_id}/thumbnail
+      # @example Download the thumbnail and save it
+      #   # Request: GET /documents/{document_id}/thumbnail
+      #   bytes = client.documents.thumbnail('1032009d72b364f377ff270405cc')
+      #
+      #   # Response: raw image bytes (NOT a JSON envelope), e.g. a 4973-byte JPEG String:
+      #   bytes.class               # => String
+      #   bytes.byteslice(0, 4)     # => "\xFF\xD8\xFF\xE0" (JPEG magic bytes)
+      #   File.binwrite('thumb.jpg', bytes)
       def thumbnail(document_id)
         doc_id = require_id(document_id, 'Document ID')
 
@@ -166,6 +301,14 @@ module Assinafy
       # @param page_id     [String]
       # @return [String] binary image body
       # @see GET /documents/{document_id}/pages/{page_id}/download
+      # @example Download a single page image
+      #   # Request: GET /documents/{document_id}/pages/{page_id}/download
+      #   bytes = client.documents.download_page('1032009d72b364f377ff270405cc',
+      #                                          '1032009db961c327b101a7fea34d')
+      #
+      #   # Response: raw image bytes (NOT a JSON envelope):
+      #   bytes.class      # => String
+      #   File.binwrite('page-1.png', bytes)
       def download_page(document_id, page_id)
         doc_id = require_id(document_id, 'Document ID')
         pid    = require_id(page_id, 'Page ID')
@@ -178,8 +321,31 @@ module Assinafy
       # List the activity log for a document.
       #
       # @param document_id [String]
-      # @return [Array<Hash>]
+      # @return [Array<Hash>] newest-first activity entries (empty Array when there are none)
       # @see GET /documents/{documentId}/activities
+      # @example List a document's activity log
+      #   # Request: GET /documents/{document_id}/activities
+      #   client.documents.activities('1032009d72b364f377ff270405cc')
+      #
+      #   # Response (unwrapped data payload):
+      #   [
+      #     {
+      #       'id' => 8304,
+      #       'event' => 'document_metadata_ready',
+      #       'message' => 'Documento processado.',
+      #       'payload' => [],
+      #       'origin' => nil,
+      #       'created_at' => '2026-06-05T21:21:15Z'
+      #     },
+      #     {
+      #       'id' => 8303,
+      #       'event' => 'document_uploaded',
+      #       'message' => 'Documento criado.',
+      #       'payload' => [],
+      #       'origin' => { 'ip' => '99.75.13.162', 'user-agent' => 'assinafy-ruby-sdk/1.3.1' },
+      #       'created_at' => '2026-06-05T21:21:13Z'
+      #     }
+      #   ]
       def activities(document_id)
         doc_id = require_id(document_id, 'Document ID')
 
@@ -195,6 +361,12 @@ module Assinafy
       # @param document_id [String]
       # @return [nil]
       # @see DELETE /documents/{documentId}
+      # @example Delete a deletable document
+      #   # Request: DELETE /documents/{document_id}
+      #   client.documents.delete('1032009d72b364f377ff270405cc')
+      #
+      #   # Response: the API returns { "status": 200, "data": [] }; the SDK returns nil.
+      #   # => nil
       def delete(document_id)
         doc_id = require_id(document_id, 'Document ID')
 
@@ -211,9 +383,48 @@ module Assinafy
       # @param options              [Hash] additional body fields (`name`, `message`,
       #   `editor_fields`, `expires_at`, ...)
       # @param account_id_override  [String, nil]
-      # @return [Hash] document object
+      # @return [Hash] document object with an embedded `assignment` (signers, items, signing_urls)
       #
       # @see POST /accounts/{account_id}/templates/{template_id}/documents
+      # @example Create a document from a template with two signers
+      #   # Request: POST /accounts/{account_id}/templates/{template_id}/documents
+      #   # Body: {
+      #   #   "name": "sample-contract.pdf",
+      #   #   "message": "Message to the signers",
+      #   #   "signers": [
+      #   #     { "role_id": "fa8c14f3...", "id": "fa8c140c...", "verification_method": "Email",
+      #   #       "notification_methods": ["Email"], "step": 1 }
+      #   #   ],
+      #   #   "expires_at": "2024-07-30T23:59:00Z"
+      #   # }
+      #   client.documents.create_from_template(
+      #     '60f720572d7fecf7c16c8463',
+      #     [{ role_id: 'fa8c14f3...', id: 'fa8c140c...' }],
+      #     name: 'sample-contract.pdf', message: 'Message to the signers'
+      #   )
+      #
+      #   # Response (unwrapped data payload):
+      #   {
+      #     'resource' => 'document',
+      #     'id' => 'fa8c140c614c928f7e7efa086b2',
+      #     'account_id' => '1a',
+      #     'template_id' => 'fa8c140b5ee344f8e48236ed284',
+      #     'name' => 'sample-contract.pdf',
+      #     'status' => 'uploaded',
+      #     'assignment' => {
+      #       'id' => 'fa8c140ccd5781b079738d19e95',
+      #       'method' => 'virtual',
+      #       'signers' => [{ 'id' => 'fa8c140c...', 'full_name' => 'Suzana Cordeiro',
+      #                       'email' => 's@x.com', 'has_accepted_terms' => false }],
+      #       'summary' => { 'signer_count' => 1, 'completed_count' => 0, 'signers' => [] },
+      #       'signing_urls' => [{ 'signer_id' => 'customid1', 'url' => 'https://.../sign/...' }]
+      #       # ... (also items, copy_receivers, expires_at, message)
+      #     },
+      #     'tags' => [{ 'id' => 'ab12cd34...', 'name' => 'Onboarding' }],
+      #     'created_at' => '2024-07-23T15:05:17Z',
+      #     'updated_at' => '2024-07-23T15:05:17Z'
+      #     # ... (artifacts, pages, is_closed, decline_reason; see docs for full shape)
+      #   }
       def create_from_template(template_id, signers_or_payload, options = {}, account_id_override = nil)
         tmpl_id = require_id(template_id, 'Template ID')
         acc_id  = account_id(account_id_override)
@@ -231,9 +442,31 @@ module Assinafy
       # @param template_id          [String]
       # @param signers_or_payload   [Array<Hash>, Hash] same shape as #create_from_template
       # @param account_id_override  [String, nil]
-      # @return [Hash] cost breakdown
+      # @return [Hash] cost breakdown with current account balances
       #
       # @see POST /accounts/{account_id}/templates/{template_id}/documents/estimate-cost
+      # @example Estimate cost before creating from a template
+      #   # Request: POST /accounts/{account_id}/templates/{template_id}/documents/estimate-cost
+      #   # Body: { "signers": [{ "role_id": "fa8c14f3...", "notification_methods": ["Email"] }] }
+      #   client.documents.estimate_cost_from_template(
+      #     '60f720572d7fecf7c16c8463',
+      #     [{ role_id: 'fa8c14f3...', notification_methods: ['Email'] }]
+      #   )
+      #
+      #   # Response (unwrapped data payload):
+      #   {
+      #     'documents' => 1,
+      #     'credits' => 0,
+      #     'needs_extra_document' => false,
+      #     'extra_document_cost' => 0,
+      #     'total_credits' => 0,
+      #     'breakdown' => [], # [{ 'code'=>'NotificationWhatsapp', 'cost'=>0.45, 'quantity'=>1, ... }]
+      #     'document_balance' => 62,
+      #     'credit_balance' => 0,
+      #     'has_sufficient_resources' => true,
+      #     'blocking_reason' => nil, # e.g. 'PendingPayment' / 'InsufficientDocuments' when blocked
+      #     'message' => nil
+      #   }
       def estimate_cost_from_template(template_id, signers_or_payload, account_id_override = nil)
         tmpl_id = require_id(template_id, 'Template ID')
         acc_id  = account_id(account_id_override)
@@ -247,8 +480,27 @@ module Assinafy
       # Verify a certificated document by its signature hash.
       #
       # @param hash [String]
-      # @return [Hash]
+      # @return [Hash] verification result; `is_valid` is false when the hash is unknown
       # @see GET /documents/{signature_hash}/verify
+      # @example Verify a certificated document
+      #   # Request: GET /documents/{signature_hash}/verify
+      #   client.documents.verify('FE32EDDADE7CBDDCBB934E7402047450B0E59C02')
+      #
+      #   # Response (unwrapped data payload) - verified:
+      #   {
+      #     'hash' => 'FE32EDDADE7CBDDCBB934E7402047450B0E59C02',
+      #     'id' => '63ddb172402799bfc991d10d',
+      #     'status' => 'certificated',
+      #     'page_count' => '1',
+      #     'signer_count' => '1',
+      #     'completed_count' => 1,
+      #     'completed_at' => '2023-01-27T19:27:44Z',
+      #     'verified_at' => '2023-01-27T19:27:46Z',
+      #     'is_valid' => true,
+      #     'message' => ''
+      #   }
+      #   # Not verified: { 'hash' => 'INVALIDHASHEXAMPLE', 'id' => nil, 'status' => nil,
+      #   #   'is_valid' => false, 'message' => 'Document not signed or not found.', ... }
       def verify(hash)
         h = require_id(hash, 'Signature hash')
 
@@ -260,8 +512,20 @@ module Assinafy
       # Fetch the unauthenticated, public-facing metadata of a document.
       #
       # @param document_id [String]
-      # @return [Hash]
+      # @return [Hash] minimal public metadata
       # @see GET /public/documents/{document_id}
+      # @example Fetch public-facing document info (no auth required)
+      #   # Request: GET /public/documents/{document_id}
+      #   client.documents.public_info('39adfe3r5a3a')
+      #
+      #   # Response (unwrapped data payload):
+      #   {
+      #     'resource' => 'document',
+      #     'id' => 'doc1',
+      #     'name' => '1.pdf',
+      #     'page_count' => '1',
+      #     'created_by' => 'John Smith'
+      #   }
       def public_info(document_id)
         doc_id = require_id(document_id, 'Document ID')
 
@@ -275,10 +539,29 @@ module Assinafy
       # @param document_id [String]
       # @param recipient   [String] email address or WhatsApp phone number
       # @param channel     [String] `email` or `whatsapp`
-      # @return [Hash]
+      # @return [Hash] `{ 'document' => {..}, 'channel' => String, 'recipient' => String }`
       # @see PUT /public/documents/{document_id}/send-token
+      # @example Email a signer their access token (no auth required)
+      #   # Request: PUT /public/documents/{document_id}/send-token
+      #   # Body: { "recipient": "signer@example.com", "channel": "email" }
+      #   client.documents.send_token('39adfe3r5a3a', recipient: 'signer@example.com', channel: 'email')
+      #
+      #   # Response (unwrapped data payload):
+      #   {
+      #     'document' => {
+      #       'resource' => 'document',
+      #       'id' => 'doc1',
+      #       'name' => '1.pdf',
+      #       'page_count' => '1',
+      #       'created_by' => 'John Smith'
+      #     },
+      #     'channel' => 'email',
+      #     'recipient' => 'signer@example.com'
+      #   }
       def send_token(document_id, recipient:, channel:)
         doc_id = require_id(document_id, 'Document ID')
+        require_present(recipient, 'Recipient')
+        require_present(channel, 'Channel')
 
         call('Failed to send signer token') do
           http_put("public/documents/#{doc_id}/send-token",
@@ -290,8 +573,22 @@ module Assinafy
       #
       # @param document_id [String]
       # @param account_id_override [String, nil]
-      # @return [Array<Hash>]
+      # @return [Array<Hash>] the document's tag objects
       # @see GET /accounts/{account_id}/documents/{document_id}/tags
+      # @example List the tags attached to a document
+      #   # Request: GET /accounts/{account_id}/documents/{document_id}/tags
+      #   client.documents.list_tags('1032009d72b364f377ff270405cc')
+      #
+      #   # Response (unwrapped data payload):
+      #   [
+      #     {
+      #       'id' => '1032009e69e366ca5adc879ef26c',
+      #       'name' => 'audit-e2e-renamed',
+      #       'color' => 'ff8800',
+      #       'created_at' => '2026-06-05T21:21:19Z',
+      #       'updated_at' => '2026-06-05T21:21:19Z'
+      #     }
+      #   ]
       def list_tags(document_id, account_id_override = nil)
         acc_id = account_id(account_id_override)
         doc_id = require_id(document_id, 'Document ID')
@@ -307,8 +604,24 @@ module Assinafy
       # @param document_id [String]
       # @param tags [Array<String>] tag names
       # @param account_id_override [String, nil]
-      # @return [Array<Hash>]
+      # @return [Array<Hash>] the document's full tag set after replacement (empty Array when detaching all)
       # @see PUT /accounts/{account_id}/documents/{document_id}/tags
+      # @example Replace the tag set with a single tag
+      #   # Request: PUT /accounts/{account_id}/documents/{document_id}/tags
+      #   # Body: { "tags": ["Contracts"] }
+      #   client.documents.replace_tags('1032009d72b364f377ff270405cc', ['Contracts'])
+      #
+      #   # Response (unwrapped data payload):
+      #   [
+      #     {
+      #       'id' => 'ab12c09f3e709a8a1c82d69b145',
+      #       'name' => 'Contracts',
+      #       'color' => nil,
+      #       'created_at' => '2026-05-14T12:00:00Z',
+      #       'updated_at' => '2026-05-14T12:00:00Z'
+      #     }
+      #   ]
+      #   # Passing [] detaches all tags and returns [].
       def replace_tags(document_id, tags, account_id_override = nil)
         acc_id = account_id(account_id_override)
         doc_id = require_id(document_id, 'Document ID')
@@ -324,8 +637,23 @@ module Assinafy
       # @param document_id [String]
       # @param tags [Array<String>] tag names
       # @param account_id_override [String, nil]
-      # @return [Array<Hash>]
+      # @return [Array<Hash>] the document's full tag set after the append
       # @see POST /accounts/{account_id}/documents/{document_id}/tags
+      # @example Attach a tag without removing existing ones
+      #   # Request: POST /accounts/{account_id}/documents/{document_id}/tags
+      #   # Body: { "tags": ["audit-e2e-renamed"] }
+      #   client.documents.append_tags('1032009d72b364f377ff270405cc', ['audit-e2e-renamed'])
+      #
+      #   # Response (unwrapped data payload):
+      #   [
+      #     {
+      #       'id' => '1032009e69e366ca5adc879ef26c',
+      #       'name' => 'audit-e2e-renamed',
+      #       'color' => 'ff8800',
+      #       'created_at' => '2026-06-05T21:21:19Z',
+      #       'updated_at' => '2026-06-05T21:21:19Z'
+      #     }
+      #   ]
       def append_tags(document_id, tags, account_id_override = nil)
         acc_id = account_id(account_id_override)
         doc_id = require_id(document_id, 'Document ID')
@@ -341,8 +669,15 @@ module Assinafy
       # @param document_id [String]
       # @param tag_id [String]
       # @param account_id_override [String, nil]
-      # @return [Hash]
+      # @return [Hash] `{ 'detached' => true }`
       # @see DELETE /accounts/{account_id}/documents/{document_id}/tags/{tag_id}
+      # @example Detach a single tag from a document
+      #   # Request: DELETE /accounts/{account_id}/documents/{document_id}/tags/{tag_id}
+      #   client.documents.detach_tag('1032009d72b364f377ff270405cc', 'fa8c09f3e709a8a1c82d69b1454')
+      #
+      #   # Response (unwrapped data payload):
+      #   { 'detached' => true }
+      #   # Detaching a tag that was not attached is a no-op (still returns { 'detached' => true }).
       def detach_tag(document_id, tag_id, account_id_override = nil)
         acc_id = account_id(account_id_override)
         doc_id = require_id(document_id, 'Document ID')
@@ -358,6 +693,13 @@ module Assinafy
       #
       # @param document_id [String]
       # @return [Boolean]
+      # @example Check whether every signer has completed
+      #   # Fetches GET /documents/{document_id} and inspects status + assignment.summary.
+      #   client.documents.fully_signed?('1032009d72b364f377ff270405cc')
+      #
+      #   # Return value (computed locally from the document, not a server payload):
+      #   # => false  (true when status == 'certificated', or every signer in
+      #   #            assignment.summary is completed)
       def fully_signed?(document_id)
         doc = details(document_id)
         return true if doc['status'] == 'certificated'
@@ -375,6 +717,12 @@ module Assinafy
       #
       # @param document_id [String]
       # @return [Hash{Symbol=>Integer,Float}]
+      # @example Derive signing progress from the document's assignment summary
+      #   # Fetches GET /documents/{document_id} and reduces assignment.summary locally.
+      #   client.documents.signing_progress('1032009d72b364f377ff270405cc')
+      #
+      #   # Return value (computed locally; percentage is signed/total rounded to 2 decimals):
+      #   { signed: 0, total: 0, pending: 0, percentage: 0.0 }
       def signing_progress(document_id)
         doc     = details(document_id)
         summary = doc.dig('assignment', 'summary')

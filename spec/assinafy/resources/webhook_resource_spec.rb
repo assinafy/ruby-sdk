@@ -45,6 +45,65 @@ RSpec.describe Assinafy::Resources::WebhookResource do
     end
   end
 
+  describe '#update (alias)' do
+    it 'dispatches to the same PUT subscriptions request as register' do
+      stub_request(:put, "#{base_url}/accounts/acc/webhooks/subscriptions")
+        .to_return(api_envelope({ 'is_active' => true }))
+
+      resource = described_class.new(connection, 'acc')
+      resource.update(
+        url:    'https://example.com/webhook',
+        email:  'ops@example.com',
+        events: %w[document_ready]
+      )
+
+      expect(
+        a_request(:put, "#{base_url}/accounts/acc/webhooks/subscriptions")
+          .with(body: {
+            'url'       => 'https://example.com/webhook',
+            'email'     => 'ops@example.com',
+            'events'    => %w[document_ready],
+            'is_active' => true
+          })
+      ).to have_been_made
+    end
+  end
+
+  describe '#get' do
+    it 'GETs the subscription and returns the object when it exists' do
+      stub_request(:get, "#{base_url}/accounts/acc/webhooks/subscriptions")
+        .to_return(api_envelope({ 'url' => 'https://example.com/webhook', 'is_active' => true }))
+
+      resource = described_class.new(connection, 'acc')
+      result   = resource.get
+
+      expect(a_request(:get, "#{base_url}/accounts/acc/webhooks/subscriptions")).to have_been_made
+      expect(result['url']).to eq('https://example.com/webhook')
+    end
+
+    it 'returns nil on 404' do
+      stub_request(:get, "#{base_url}/accounts/acc/webhooks/subscriptions")
+        .to_return(api_envelope({ 'message' => 'Not found' }, status: 404))
+
+      resource = described_class.new(connection, 'acc')
+
+      expect(resource.get).to be_nil
+      expect(a_request(:get, "#{base_url}/accounts/acc/webhooks/subscriptions")).to have_been_made
+    end
+  end
+
+  describe '#delete' do
+    it 'DELETEs the subscription and returns nil' do
+      stub_request(:delete, "#{base_url}/accounts/acc/webhooks/subscriptions")
+        .to_return(api_envelope({ 'message' => 'Deleted' }))
+
+      resource = described_class.new(connection, 'acc')
+
+      expect(resource.delete).to be_nil
+      expect(a_request(:delete, "#{base_url}/accounts/acc/webhooks/subscriptions")).to have_been_made
+    end
+  end
+
   describe '#list_event_types' do
     it 'calls the global /webhooks/event-types endpoint' do
       stub_request(:get, "#{base_url}/webhooks/event-types").to_return(api_envelope([]))
@@ -53,6 +112,16 @@ RSpec.describe Assinafy::Resources::WebhookResource do
       resource.list_event_types
 
       expect(a_request(:get, "#{base_url}/webhooks/event-types")).to have_been_made
+    end
+
+    it 'returns the array of event-type entries' do
+      catalogue = [{ 'id' => 'document_ready', 'description' => 'Document is ready' }]
+      stub_request(:get, "#{base_url}/webhooks/event-types").to_return(api_envelope(catalogue))
+
+      resource = described_class.new(connection)
+      result   = resource.list_event_types
+
+      expect(result).to eq([{ 'id' => 'document_ready', 'description' => 'Document is ready' }])
     end
   end
 
@@ -85,6 +154,16 @@ RSpec.describe Assinafy::Resources::WebhookResource do
     it 'raises ValidationError when dispatch_id is empty' do
       resource = described_class.new(connection, 'acc')
       expect { resource.retry_dispatch('') }.to raise_error(Assinafy::ValidationError)
+    end
+
+    it 'POSTs to /accounts/{id}/webhooks/{dispatch_id}/retry' do
+      stub_request(:post, "#{base_url}/accounts/acc/webhooks/dsp-1/retry")
+        .to_return(api_envelope({ 'id' => 'dsp-1', 'delivered' => true }))
+
+      resource = described_class.new(connection, 'acc')
+      resource.retry_dispatch('dsp-1')
+
+      expect(a_request(:post, "#{base_url}/accounts/acc/webhooks/dsp-1/retry")).to have_been_made
     end
   end
 

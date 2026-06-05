@@ -13,7 +13,7 @@ Maps 1:1 to every documented endpoint in the Assinafy v1 API. Coverage is enforc
 
 ## Requirements
 
-- Ruby 3.0+
+- Ruby 3.2+ (tested on 3.2, 3.3, 3.4, 4.0, and `head`)
 - Bundler
 
 ## Installation
@@ -52,7 +52,7 @@ client = Assinafy::Client.new(
   account_id: ENV.fetch('ASSINAFY_ACCOUNT_ID')
 )
 
-document = client.documents.upload(file_path: './contract.pdf')
+document = client.documents.upload({ file_path: './contract.pdf' })
 signer   = client.signers.create(full_name: 'Alice Silva', email: 'alice@example.com')
 
 assignment = client.assignments.create(
@@ -89,7 +89,8 @@ client = Assinafy::Client.new(
 
 ## Resources
 
-The nine resource accessors on `Assinafy::Client` cover every documented endpoint:
+`Assinafy::Client` exposes ten accessors — nine API resources that cover every
+documented endpoint, plus the local `webhook_verifier` helper:
 
 | Accessor                    | What it covers                                                 |
 | --------------------------- | -------------------------------------------------------------- |
@@ -122,8 +123,8 @@ client.auth.reset_password(email: 'u@e.com', new_password: 'new', token: 'reset-
 ```ruby
 client.documents.statuses                                    # GET /documents/statuses
 client.documents.list(page: 1, per_page: 20, status: 'pending_signature')
-client.documents.upload(file_path: './contract.pdf', name: 'Contract v1')
-client.documents.upload(buffer: pdf_bytes, file_name: 'contract.pdf')
+client.documents.upload({ file_path: './contract.pdf' }, name: 'Contract v1')
+client.documents.upload({ buffer: pdf_bytes, file_name: 'contract.pdf' })
 client.documents.get('document-id')                          # alias of .details
 client.documents.wait_until_ready('document-id', max_wait_seconds: 60)
 client.documents.activities('document-id')
@@ -205,6 +206,7 @@ client.assignments.create(
 
 client.assignments.estimate_cost('document-id', signers: [{ verification_method: 'Whatsapp' }])
 client.assignments.reset_expiration('document-id', 'assignment-id', '2026-12-31T23:59:00Z')
+client.assignments.reset_expiration('document-id', 'assignment-id', nil) # clears the expiry
 client.assignments.resend_notification('document-id', 'assignment-id', 'signer-id')
 client.assignments.estimate_resend_cost('document-id', 'assignment-id', 'signer-id')
 client.assignments.whatsapp_notifications('document-id', 'assignment-id')
@@ -239,6 +241,8 @@ client.templates.list(status: 'ready', per_page: 25)
 client.templates.get('template-id')
 client.templates.create(name: 'My template', message: 'Please sign')
 client.templates.update('template-id', name: 'Renamed template')
+client.templates.delete('template-id')
+client.templates.download_page('template-id', 'page-id')   # binary image bytes
 ```
 
 ### Tags
@@ -296,17 +300,50 @@ The Assinafy API does not currently document a body-signing scheme for outbound 
 verifier = Assinafy::Support::WebhookVerifier.new(ENV.fetch('ASSINAFY_WEBHOOK_SECRET'))
 raw_body = request.body.read
 
-if verifier.verify(raw_body, request.headers['X-Assinafy-Signature'])
+# The signature header is one your gateway injects (e.g. Cloudflare / API Gateway).
+# Assinafy v1 does not send a signature header itself.
+if verifier.verify(raw_body, request.headers['X-Webhook-Signature'])
   event = verifier.extract_event(raw_body)
-  puts verifier.event_type(event), verifier.event_data(event)
+  verifier.event_type(event)    # => "assignment_created"  (the top-level `event`)
+  verifier.event_payload(event) # => event-specific params, or nil
+  verifier.event_object(event)  # => the entity acted on, e.g. the document
+  verifier.event_subject(event) # => the actor, e.g. the user
 end
 ```
 
 If no `webhook_secret` is configured, `verify` always returns `false` — safe-by-default.
 
+## Responses
+
+The Assinafy API wraps every JSON response in a `{ "status": ..., "message": ..., "data": ... }`
+envelope. The SDK unwraps it for you and returns just the `data` payload (a Hash for single
+resources, an Array for collection bodies). Binary endpoints (`download`, `thumbnail`,
+`download_page`, `download_signature`) return the raw bytes as an ASCII-8BIT `String`, and
+`delete`-style endpoints return `nil`.
+
+Errors surface the envelope/framework error body through `Assinafy::ApiError`:
+
+```ruby
+begin
+  client.documents.details('missing-id')
+rescue Assinafy::ApiError => e
+  e.status_code   # => 404
+  e.message       # => "Documento não encontrado."
+  e.error_name    # => nil (or "Not Found" for framework errors)
+  e.error_code    # => nil (or an integer code)
+  e.response_data # => the raw parsed body
+end
+```
+
+Every public method's YARD documentation includes an `@example` block with the request it
+sends and the (unwrapped) response payload it returns.
+
 ## Pagination
 
-Every `*.list*` method returns `{ data: [...], meta: { ... } }` when the API includes pagination headers. Ruby-style `per_page:` is transparently converted to the documented `per-page` query parameter:
+Most `*.list*` methods return `{ data: [...], meta: { ... } }` when the API includes pagination
+headers. Ruby-style `per_page:` is transparently converted to the documented `per-page` query
+parameter (values above the API's maximum are clamped server-side; the sandbox caps it at 50).
+A few endpoints (e.g. `fields.list`) do not paginate and return `meta: nil`.
 
 ```ruby
 result = client.documents.list(page: 2, per_page: 25)
