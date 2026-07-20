@@ -124,6 +124,44 @@ module Assinafy
         end
       end
 
+      # List assignments for an account. The API requires an account context,
+      # supplied as the `accountId` query parameter — note the camelCase, which
+      # is unusual for this otherwise snake_case API (verified live).
+      #
+      # @param params [Hash] extra query parameters (`status`, `method`, `page`, `per_page`, ...)
+      # @param account_id_override [String, nil]
+      # @return [Hash{Symbol=>Array,Hash}] `{ data: [assignment, ...], meta: {..} | nil }`
+      # @see GET /assignments
+      # @example List assignments for the account
+      #   # Request: GET /assignments?accountId={account_id}
+      #   client.assignments.list
+      #
+      #   # Response (unwrapped data payload):
+      #   {
+      #     data: [
+      #       {
+      #         'id' => '103033c9d2cec233bf65eea04999',
+      #         'sender_email' => 'bill@febacapital.com',
+      #         'method' => 'virtual',
+      #         'expires_at' => nil,
+      #         'message' => 'Please sign this contract',
+      #         'signers' => [
+      #           { 'id' => '19e6b92e7895332ed9708535d8c', 'full_name' => 'Audit Bill A2',
+      #             'email' => 'bill@febacapital.com', 'completed' => false, 'step' => 1 }
+      #         ]
+      #         # ... (see docs for the full assignment shape)
+      #       }
+      #     ],
+      #     meta: nil
+      #   }
+      def list(params = {}, account_id_override = nil)
+        acc_id = account_id(account_id_override)
+
+        call_list('Failed to list assignments') do
+          http_get('assignments', params.merge(accountId: acc_id))
+        end
+      end
+
       # Create an assignment for a document. See {.build_payload} for the
       # accepted shapes.
       #
@@ -323,7 +361,9 @@ module Assinafy
       # @param assignment_id      [String]
       # @param items              [Array<Hash>]
       # @param signer_access_code [String]
-      # @return [Array] empty array on success (the API returns no payload)
+      # @return [Hash] empty Hash `{}` on success per the API reference. Signing
+      #   requires an emailed OTP, so this exact shape is not independently
+      #   verifiable with a workspace API key.
       # @see POST /documents/{documentId}/assignments/{assignmentId}
       # @example Sign with snake_case keys — mapped to camelCase itemId/fieldId/pageId
       #   resource.sign("c57d51eaad68a7", "d51edaee68a7",
@@ -333,7 +373,7 @@ module Assinafy
       #   # Request body the SDK sends (snake_case keys mapped to camelCase):
       #   # [{ "itemId" => "615606efcde1a39c9d21e30e", "fieldId" => "6152120297080d55bdd13197",
       #   #    "pageId" => "615213ed81b071f4293b2fc2", "value" => "Signed by Sonny Bayer" }]
-      #   # => []
+      #   # => {} # per the API reference (unverified via workspace key)
       def sign(document_id, assignment_id, items, signer_access_code:)
         doc_id = require_id(document_id, 'Document ID')
         asg_id = require_id(assignment_id, 'Assignment ID')

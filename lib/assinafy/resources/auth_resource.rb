@@ -83,6 +83,39 @@ module Assinafy
         end
       end
 
+      # Build the browser URL that starts the OAuth social-login redirect flow.
+      #
+      # `GET /auth/authenticate` is a browser redirect to the identity provider,
+      # not a JSON endpoint, so the SDK exposes it as a pure URL builder — it
+      # makes no network request. Send the returned URL to the user's browser.
+      #
+      # @param authclient [String, nil] optional client identifier passed through
+      #   as the `authclient` query parameter
+      # @return [String] the fully-qualified authorize URL
+      # @see GET /auth/authenticate
+      # @example Build the social-login start URL
+      #   client.auth.social_login_url(authclient: 'web')
+      #   # => "https://api.assinafy.com.br/v1/auth/authenticate?authclient=web"
+      def social_login_url(authclient: nil)
+        @connection.build_url('auth/authenticate', query_params(authclient: authclient)).to_s
+      end
+
+      # Link a third-party identity provider to the authenticated user's account.
+      #
+      # @param provider [String] the provider type; currently only `google`
+      # @param token    [String] provider-issued OAuth/OIDC token
+      # @return [Hash] unwrapped payload confirming the linked provider
+      # @see POST /auth/link-social-login
+      # @example Link a Google account
+      #   client.auth.link_social_login(provider: 'google', token: 'ya29.a0Af...')
+      #   # Request body sent by the SDK:
+      #   #   { "provider": "google", "token": "ya29.a0Af..." }
+      def link_social_login(provider:, token:)
+        call('Failed to link social login') do
+          @connection.post('auth/link-social-login', body_params(provider: provider, token: token))
+        end
+      end
+
       # Generate a new API key for the authenticated user.
       #
       # The returned key is shown in full only once, here; afterwards #get_api_key returns a masked

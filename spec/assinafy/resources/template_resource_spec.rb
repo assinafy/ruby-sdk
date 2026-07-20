@@ -37,14 +37,21 @@ RSpec.describe Assinafy::Resources::TemplateResource do
   end
 
   describe '#create' do
-    it 'posts to the account templates endpoint' do
+    it 'uploads the source file as multipart/form-data' do
       stub_request(:post, "#{base_url}/accounts/acc/templates")
-        .to_return(api_envelope({ 'id' => 'tmpl-1' }))
+        .to_return(api_envelope({ 'id' => 'tmpl-1', 'status' => 'Uploaded' }))
 
-      result = resource.create(name: 'Template')
+      result = resource.create(buffer: '%PDF-1.4 fake', file_name: 'contract.pdf')
 
       expect(result['id']).to eq('tmpl-1')
-      expect(a_request(:post, "#{base_url}/accounts/acc/templates")).to have_been_made
+      expect(
+        a_request(:post, "#{base_url}/accounts/acc/templates")
+          .with(headers: { 'Content-Type' => %r{\Amultipart/form-data} })
+      ).to have_been_made
+    end
+
+    it 'raises when the source is not a file' do
+      expect { resource.create(name: 'Template') }.to raise_error(Assinafy::ValidationError)
     end
   end
 

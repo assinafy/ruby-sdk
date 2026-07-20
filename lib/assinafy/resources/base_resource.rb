@@ -66,6 +66,55 @@ module Assinafy
         Utils.body_params(params)
       end
 
+      # Normalise an upload source into `[buffer, file_name]`. Shared by every
+      # multipart upload endpoint (document upload, template create, account
+      # logo). Accepts a path String, or a Hash with `:file_path` (path) **or**
+      # `:buffer` + `:file_name` (raw bytes).
+      #
+      # @param source [String, Hash]
+      # @return [Array(String, String)] `[buffer, file_name]`
+      # @raise [ValidationError] on an unusable source
+      def read_source(source)
+        case source
+        when String
+          [File.binread(source), File.basename(source)]
+        when Hash
+          if source[:buffer]
+            raise ValidationError.new('file_name is required when uploading a buffer') unless source[:file_name]
+
+            [source[:buffer], source[:file_name]]
+          elsif source[:file_path]
+            [File.binread(source[:file_path]), source[:file_name] || File.basename(source[:file_path])]
+          else
+            raise ValidationError.new('Invalid upload source: provide :file_path or :buffer')
+          end
+        else
+          raise ValidationError.new('Invalid upload source: provide a path String or a Hash with :file_path/:buffer')
+        end
+      end
+
+      # Wrap raw bytes in a Faraday::FilePart for a multipart request body.
+      #
+      # @param buffer       [String] raw file bytes
+      # @param file_name    [String]
+      # @param content_type [String] MIME type (defaults to sniffing the extension)
+      # @return [Faraday::FilePart]
+      def file_part(buffer, file_name, content_type = nil)
+        Faraday::FilePart.new(StringIO.new(buffer), content_type || mime_type_for(file_name), file_name)
+      end
+
+      def mime_type_for(file_name)
+        case File.extname(file_name.to_s).downcase
+        when '.pdf'         then 'application/pdf'
+        when '.png'         then 'image/png'
+        when '.jpg', '.jpeg' then 'image/jpeg'
+        when '.gif'         then 'image/gif'
+        when '.webp'        then 'image/webp'
+        when '.svg'         then 'image/svg+xml'
+        else 'application/octet-stream'
+        end
+      end
+
       def http_get(path, params = {})
         @connection.get(path, query_params(params))
       end
@@ -84,9 +133,17 @@ module Assinafy
         end
       end
 
-      def http_delete(path, params = {})
+      def http_patch(path, body = nil, params = {})
+        @connection.patch(path) do |request|
+          request.params.update(query_params(params))
+          request.body = body unless body.nil?
+        end
+      end
+
+      def http_delete(path, params = {}, body: nil)
         @connection.delete(path) do |request|
           request.params.update(query_params(params))
+          request.body = body unless body.nil?
         end
       end
 

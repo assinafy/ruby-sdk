@@ -5,6 +5,29 @@ RSpec.describe Assinafy::Resources::SignerDocumentResource do
   let(:connection) { build_test_connection(base_url) }
   let(:resource)   { described_class.new(connection) }
 
+  describe '#search' do
+    it 'GETs the signer documents/search endpoint with a query param' do
+      stub_request(:get, "#{base_url}/signers/signer-1/documents/search")
+        .with(query: hash_including('query' => 'audit'))
+        .to_return(api_envelope([{ 'id' => 'doc-1', 'status' => 'pending_signature' }]))
+
+      result = resource.search('signer-1', 'audit')
+      expect(result[:data].first['id']).to eq('doc-1')
+    end
+
+    it 'passes the signer-access-code as a query param when given' do
+      stub_request(:get, "#{base_url}/signers/signer-1/documents/search")
+        .with(query: hash_including('signer-access-code' => 'code'))
+        .to_return(api_envelope([]))
+
+      resource.search('signer-1', 'audit', {}, signer_access_code: 'code')
+      expect(
+        a_request(:get, "#{base_url}/signers/signer-1/documents/search")
+          .with(query: hash_including('signer-access-code' => 'code'))
+      ).to have_been_made
+    end
+  end
+
   describe '#current' do
     it 'calls the current signer document endpoint' do
       stub_request(:get, "#{base_url}/signers/signer-1/document")
@@ -81,6 +104,17 @@ RSpec.describe Assinafy::Resources::SignerDocumentResource do
         .to_return(status: 200, body: 'PDF', headers: { 'Content-Type' => 'application/pdf' })
 
       expect(resource.download('signer-1', 'doc-1', 'original', signer_access_code: 'code')).to eq('PDF')
+    end
+
+    it 'works without a signer-access-code (public endpoint)' do
+      stub_request(:get, "#{base_url}/signers/signer-1/documents/doc-1/download/original")
+        .to_return(status: 200, body: 'PDF', headers: { 'Content-Type' => 'application/pdf' })
+
+      # No signer_access_code passed -> the query param is omitted entirely.
+      expect(resource.download('signer-1', 'doc-1', 'original')).to eq('PDF')
+      expect(
+        a_request(:get, "#{base_url}/signers/signer-1/documents/doc-1/download/original")
+      ).to have_been_made
     end
 
     it 'gets the artifact path and returns the raw binary body' do

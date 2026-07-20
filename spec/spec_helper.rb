@@ -21,13 +21,15 @@ RSpec.configure do |config|
   end
 end
 
+# Mirror the middleware stack the real Client builds (see Client#build_connection),
+# so multipart uploads and JSON bodies behave in specs exactly as in production.
 def build_test_connection(base_url = 'https://api.assinafy.com.br/v1', api_key = 'test-key')
   Faraday.new(url: base_url) do |f|
+    f.request  :multipart
     f.request  :json
     f.response :json, content_type: /\bjson/
-    f.headers['X-Api-Key']     = api_key
-    f.headers['Content-Type']  = 'application/json'
-    f.headers['Accept']        = 'application/json'
+    f.headers['X-Api-Key'] = api_key
+    f.headers['Accept']    = 'application/json'
     f.adapter :net_http
   end
 end

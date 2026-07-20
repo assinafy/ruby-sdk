@@ -19,8 +19,8 @@ module Assinafy
       #
       # Resolves the document, assignment, and current signer directly from the
       # access code; it does not require code verification or data confirmation.
-      # The shape mirrors the signing endpoints but omits the `pages` array, and
-      # `assignment.items` is filtered to only the current signer's items.
+      # The shape mirrors the signing endpoints, and `assignment.items` is
+      # filtered to only the current signer's items.
       #
       # @param signer_id          [String]
       # @param signer_access_code [String]
@@ -97,6 +97,40 @@ module Assinafy
         end
       end
 
+      # Lightweight search over the signer's documents. Like {#list}, this
+      # accepts either the workspace `X-Api-Key` header or the signer access
+      # code, so `signer_access_code:` is optional.
+      #
+      # @param signer_id          [String]
+      # @param query              [String] free-text search term
+      # @param params             [Hash] extra query parameters (`page`, `per_page`, ...)
+      # @param signer_access_code [String, nil]
+      # @return [Hash{Symbol=>Array,Hash}] `{ data: [...], meta: {..} | nil }`
+      # @see GET /signers/{signer_id}/documents/search
+      # @example Search the signer's documents
+      #   page = client.signer_documents.search('62d6ee35c7741ca4006b9e11', 'contract')
+      #
+      #   # Request: GET /signers/{signer_id}/documents/search?query=contract
+      #   # => {
+      #   #   data: [
+      #   #     { "id" => "103b0274...", "account_id" => "1a", "name" => "audit.pdf",
+      #   #       "status" => "pending_signature",
+      #   #       "artifacts" => { "original" => "https://...", "thumbnail" => "https://..." },
+      #   #       "assignment" => { "id" => "..", "method" => "virtual" }
+      #   #       # ... (see docs for full shape)
+      #   #     }
+      #   #   ],
+      #   #   meta: nil
+      #   # }
+      def search(signer_id, query, params = {}, signer_access_code: nil)
+        sid = require_id(signer_id, 'Signer ID')
+
+        call_list('Failed to search signer documents') do
+          http_get("signers/#{sid}/documents/search",
+                   params.merge(query: query, signer_access_code: signer_access_code))
+        end
+      end
+
       # Sign multiple virtual-method documents in a single call.
       #
       # Each document must be prepared for the "virtual" signature method.
@@ -151,20 +185,23 @@ module Assinafy
 
       # Download an artifact for one of the signer's documents.
       #
+      # This endpoint is public (no auth required) — only the document and
+      # artifact IDs are needed — so `signer_access_code:` is optional and
+      # omitted from the query when nil.
+      #
       # @param signer_id          [String]
       # @param document_id        [String]
       # @param artifact_name      [String] one of `original`, `certificated`, `certificate-page`, `bundle`
-      # @param signer_access_code [String]
+      # @param signer_access_code [String, nil] optional
       # @return [String] binary file body (ASCII-8BIT), e.g. the raw PDF bytes
       # @see GET /signers/{signer_id}/documents/{document_id}/download/{artifact_name}
-      # @example Download the original PDF and write it to disk
-      #   pdf = client.signer_documents.download('62d6ee35c7741ca4006b9e11', 'doc-1', 'original',
-      #                                          signer_access_code: '1ca4006b9e11')
+      # @example Download the original PDF and write it to disk (no access code needed)
+      #   pdf = client.signer_documents.download('62d6ee35c7741ca4006b9e11', 'doc-1', 'original')
       #
       #   # Response is the raw artifact body (Content-Type: application/pdf):
       #   #   => "%PDF-1.7\n..." (binary string)
       #   File.binwrite('document.pdf', pdf)
-      def download(signer_id, document_id, artifact_name = 'certificated', signer_access_code:)
+      def download(signer_id, document_id, artifact_name = 'certificated', signer_access_code: nil)
         sid = require_id(signer_id, 'Signer ID')
         did = require_id(document_id, 'Document ID')
         art = require_id(artifact_name, 'Artifact name')

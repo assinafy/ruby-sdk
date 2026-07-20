@@ -91,25 +91,6 @@ module Assinafy
         end
       end
 
-      # Delete the account's webhook subscription.
-      #
-      # @param account_id_override [String, nil]
-      # @return [nil] no body is returned; the call resolves to `nil` on success
-      # @see DELETE /accounts/{account_id}/webhooks/subscriptions
-      # @example Delete the subscription
-      #   client.webhooks.delete
-      #   # DELETE /accounts/{account_id}/webhooks/subscriptions
-      #   # => nil  (envelope carries only { status:, message: }, no data payload)
-      def delete(account_id_override = nil)
-        acc_id = account_id(account_id_override)
-
-        @logger.info('Deleting webhook subscription')
-
-        call_void('Failed to delete webhook subscription') do
-          http_delete("accounts/#{acc_id}/webhooks/subscriptions")
-        end
-      end
-
       # Inactivate (but keep) the account's webhook subscription. Stops
       # deliveries without losing the configured event set.
       #
@@ -164,7 +145,7 @@ module Assinafy
 
       # List webhook delivery attempts (dispatches) with pagination metadata.
       #
-      # @param params [Hash] `event`, `delivered`, `from`, `to`, `page`, `per_page`
+      # @param params [Hash] `event`, `delivered`, `from`, `to`, `page`, `per-page`
       # @param account_id_override [String, nil]
       # @return [Hash{Symbol=>Array,Hash}] `{ data: [dispatch, ...], meta: { current_page:, per_page:, total:,
       #   last_page: } }`
@@ -176,16 +157,17 @@ module Assinafy
       #   # {
       #   #   data: [
       #   #     {
-      #   #       id:            "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
-      #   #       event:         "document_ready",
-      #   #       activity_id:   456,
+      #   #       id:            "103b0278ca67eee5e34a430213bf",
+      #   #       event:         "signature_requested",
+      #   #       activity_id:   15431,
       #   #       endpoint:      "https://example.com/webhook",
-      #   #       payload:       { event: "document_ready", id: 456, object: {}, subject: {} },
-      #   #       delivered:     true,
-      #   #       http_status:   200,
-      #   #       response_body: "OK",
-      #   #       error:         nil,
-      #   #       created_at:    1705312200
+      #   #       payload:       { id: 15431, event: "signature_requested", object: {}, subject: {}, payload: {} },
+      #   #       delivered:     false,
+      #   #       http_status:   404,
+      #   #       response_body: "{\"success\":false,...}",
+      #   #       error:         "Client error: `POST https://example.com/webhook` resulted in a 404 ...",
+      #   #       created_at:    "2026-07-20T15:57:38Z",
+      #   #       updated_at:    "2026-07-20T15:57:38Z"
       #   #     }
       #   #     # ... (see docs for full dispatch shape)
       #   #   ],
@@ -211,16 +193,17 @@ module Assinafy
       #   # => unwrapped data payload returned:
       #   # {
       #   #   resource:      "activity_dispatching_history",
-      #   #   id:            "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
-      #   #   event:         "document_ready",
-      #   #   activity_id:   456,
+      #   #   id:            "103b0278ca67eee5e34a430213bf",
+      #   #   event:         "signature_requested",
+      #   #   activity_id:   15431,
       #   #   endpoint:      "https://example.com/webhook",
-      #   #   payload:       { event: "document_ready", id: 456, object: {}, subject: {} },
+      #   #   payload:       { id: 15431, event: "signature_requested", object: {}, subject: {} },
       #   #   delivered:     true,
       #   #   http_status:   200,
       #   #   response_body: "OK",
       #   #   error:         nil,
-      #   #   created_at:    1705312200
+      #   #   created_at:    "2026-07-20T15:57:38Z",
+      #   #   updated_at:    "2026-07-20T15:57:39Z"
       #   # }
       def retry_dispatch(dispatch_id, account_id_override = nil)
         acc_id = account_id(account_id_override)
