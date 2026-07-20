@@ -2,6 +2,59 @@
 
 All notable changes to the `assinafy` Ruby gem are documented here.
 
+## 1.5.0
+
+A full re-audit of the SDK against the current Assinafy v1
+[OpenAPI specification](https://api.assinafy.com.br/v1/docs/openapi.json) (the docs
+migrated from a Slate page to a Scalar reference backed by a machine-readable spec).
+Every endpoint was reconciled against the spec and verified end-to-end against the
+live sandbox by a new opt-in integration suite.
+
+### Added
+
+- **`Resources::AccountResource`** (`client.accounts`): `list`, `create`, `get`, `update`,
+  `delete` (with `force:`), `theme`, `stats`, and brand-logo `upload_logo`/`download_logo`/`delete_logo`.
+- **`Resources::UserResource`** (`client.users`): `me` (`GET /users/self`) and `stats`.
+- `DocumentResource#search` (`GET /accounts/{account_id}/documents/search`) and
+  `#rename` (`PATCH /documents/{document_id}`).
+- `AssignmentResource#list` (`GET /assignments`; the account context is sent as the
+  camelCase `accountId` query parameter, verified live).
+- `SignerDocumentResource#search` (`GET /signers/{signer_id}/documents/search`).
+- `AuthResource#link_social_login` (`POST /auth/link-social-login`) and
+  `#social_login_url` (a URL builder for `GET /auth/authenticate`, makes no request).
+- `SignerResource#upload_signature` accepts an optional `reuse:` flag.
+- An opt-in live integration suite (`spec/integration/`, gated by `ASSINAFY_LIVE=1`)
+  that drives every endpoint against the sandbox and self-cleans.
+- A `.github/dependabot.yml` (bundler + github-actions) so dependency advisories are
+  caught automatically.
+
+### Fixed
+
+- `SignerResource#accept_terms` and `#verify_email` now send `signer-access-code` as
+  the documented query parameter (the `signerAccessCode` security scheme is `in: query`),
+  consistent with every other signer-authenticated endpoint. Previously it was sent
+  only in the request body.
+- `TemplateResource#create` now performs the required `multipart/form-data` file
+  upload. The previous JSON body was rejected by the API (HTTP 400) and never worked.
+  Its signature is now `create(source, options = {}, account_id_override = nil)`.
+- `SignerDocumentResource#download` makes `signer_access_code:` optional — the endpoint
+  is public (`security: []`), so only the document/artifact IDs are required.
+- `faraday` dependency floor raised to `>= 2.14.3` (CVE-2026-54297, DoS via deeply
+  nested query params).
+
+### Removed
+
+- `WebhookResource#delete`. There is no `DELETE /webhooks/subscriptions` route — it
+  returns HTTP 404 (verified live). Use `#inactivate` to stop deliveries.
+
+### Documentation
+
+- Corrected YARD payloads verified against live responses: `confirm_data` (body is
+  `full_name`/`email`/`government_id`; returns the signer object), `upload_signature`
+  (returns `nil`), `FieldResource#update` (accepts only `name`/`regex`/`is_active`),
+  webhook dispatch shape (ISO-8601 `created_at` + `updated_at`), and template `create`.
+- README updated for the new resources and behaviors, plus live-test instructions.
+
 ## 1.4.0
 
 This release is the result of a full audit of the SDK against the live Assinafy

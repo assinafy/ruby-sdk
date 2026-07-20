@@ -99,32 +99,32 @@ RSpec.describe Assinafy::Resources::SignerResource do
   end
 
   describe '#accept_terms' do
-    it 'puts signer-access-code in the request body' do
+    it 'sends signer-access-code as the documented query parameter' do
       stub_request(:put, "#{base_url}/signers/accept-terms")
+        .with(query: hash_including('signer-access-code' => 'code'))
         .to_return(api_envelope({ 'has_accepted_terms' => true }))
 
       resource.accept_terms(signer_access_code: 'code')
 
       expect(
         a_request(:put, "#{base_url}/signers/accept-terms")
-          .with(body: hash_including('signer-access-code' => 'code'))
+          .with(query: hash_including('signer-access-code' => 'code'))
       ).to have_been_made
     end
   end
 
   describe '#verify_email' do
-    it 'posts hyphenated verification-code and signer-access-code in the body' do
+    it 'sends signer-access-code as a query param and verification-code in the body' do
       stub_request(:post, "#{base_url}/verify")
+        .with(query: hash_including('signer-access-code' => 'code'))
         .to_return(json_response({ 'message' => 'Code verified successfully' }))
 
       resource.verify_email(verification_code: '123456', signer_access_code: 'code')
 
       expect(
         a_request(:post, "#{base_url}/verify")
-          .with(body: hash_including(
-            'verification-code'  => '123456',
-            'signer-access-code' => 'code'
-          ))
+          .with(query: hash_including('signer-access-code' => 'code'),
+                body:  hash_including('verification-code' => '123456'))
       ).to have_been_made
     end
   end

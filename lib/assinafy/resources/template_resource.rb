@@ -9,7 +9,8 @@ module Assinafy
     class TemplateResource < BaseResource
       # List templates with pagination metadata.
       #
-      # @param params [Hash] `status`, `search`, `tags` (comma-separated IDs, AND), `sort`, `page`, `per_page`
+      # @param params [Hash] documented filters are `search`, `page`, `per-page`; any additional
+      #   keys (`status`, `tags`, `sort`) are passed through verbatim if the API supports them
       # @param account_id_override [String, nil]
       # @return [Hash{Symbol=>Array,Hash}] `{ data: [Template, ...], meta: { current_page:, per_page:, ... } }`
       # @see GET /accounts/{account_id}/templates
@@ -26,7 +27,7 @@ module Assinafy
       #   #       "message" => nil,
       #   #       "status" => "Ready",
       #   #       "pages" => [{ "id" => "fa7f3e528d77f2b3ed786df2ce0", "number" => 1, "fields" => [] }],
-      #   #       "roles" => [{ "id" => "fa7f3e525bfefc71df3701eac6f", "name" => "Editor" }],
+      #   #       "roles" => [{ "id" => "fa7f3e525bfefc71df3701eac6f", "name" => "TemplateEditor" }],
       #   #       "tags" => [{ "id" => "fa8c09f3e709a8a1c82d69b1454", "name" => "HR" }],
       #   #       "created_at" => "2024-07-19T15:23:03Z",
       #   #       "updated_at" => "2024-07-19T15:23:03Z"
@@ -67,7 +68,7 @@ module Assinafy
       #   #       "fields" => []
       #   #     }
       #   #   ],
-      #   #   "roles" => [{ "id" => "fa7f3e525bfefc71df3701eac6f", "name" => "Editor", "assignment_type" => "Editor" }],
+      #   #   "roles" => [{ "id" => "fa7f3e525bfe", "name" => "TemplateEditor", "assignment_type" => "Editor" }],
       #   #   "tags" => [{ "id" => "fa8c09f3e709a8a1c82d69b1454", "name" => "HR" }],
       #   #   "default_document_tags" => [],
       #   #   "created_at" => "2024-07-19T15:23:03Z",
@@ -82,37 +83,47 @@ module Assinafy
         end
       end
 
-      # Create a template. Body fields map directly to the documented
-      # {https://api.assinafy.com.br/v1/docs#template-object Template Object}.
+      # Create a template by uploading a source document. The endpoint requires a
+      # `multipart/form-data` file upload (verified live) — the template name
+      # defaults to the uploaded file's name and an `Editor` role is created
+      # automatically.
       #
-      # @param payload             [Hash]
+      # @param source [String, Hash] a path to a PDF, or a Hash with `:file_path`
+      #   (path) **or** `:buffer` + `:file_name` (raw bytes).
+      # @param options [Hash] additional multipart form fields (e.g. `:message`)
       # @param account_id_override [String, nil]
       # @return [Hash] the unwrapped Template Object for the created template
       # @see POST /accounts/{account_id}/templates
       #
-      # @example Create a template
-      #   client.templates.create(name: 'Sales Contract', document_name: 'sales-contract.pdf')
-      #   # JSON body sent: { "name": "Sales Contract", "document_name": "sales-contract.pdf" }
+      # @example Create a template from a PDF on disk
+      #   client.templates.create('/path/to/contract.pdf')
+      #   # Request: POST /accounts/{account_id}/templates (multipart/form-data)
+      #   # Body: file=<binary application/pdf>
       #   # Returns the unwrapped Template Object:
       #   # {
       #   #   "resource" => "template",
-      #   #   "id" => "fa7f3e524f3a2cc00a5ea4325e2",
-      #   #   "name" => "Sales Contract",
-      #   #   "document_name" => "sales-contract.pdf",
+      #   #   "id" => "103b0275c2bb53a437c761ec3462",
+      #   #   "name" => "contract.pdf",
+      #   #   "document_name" => "contract.pdf",
       #   #   "message" => nil,
-      #   #   "status" => "uploading",
+      #   #   "status" => "Uploaded",
       #   #   "pages" => [],
-      #   #   "roles" => [],
+      #   #   "roles" => [{ "id" => "103b0275db76f02f0531db15b62a", "name" => "TemplateEditor",
+      #   #                 "assignment_type" => "Editor", "created_at" => "2026-07-20T15:57:19Z",
+      #   #                 "updated_at" => "2026-07-20T15:57:19Z" }],
       #   #   "tags" => [],
-      #   #   "created_at" => "2024-07-19T15:23:03Z",
-      #   #   "updated_at" => "2024-07-19T15:23:03Z"
+      #   #   "created_at" => "2026-07-20T15:57:18Z",
+      #   #   "updated_at" => "2026-07-20T15:57:19Z"
       #   # }
-      def create(payload, account_id_override = nil)
-        acc_id = account_id(account_id_override)
-        body   = body_params(require_payload(payload, 'Template payload'))
+      def create(source, options = {}, account_id_override = nil)
+        acc_id            = account_id(account_id_override)
+        buffer, file_name = read_source(source)
+
+        payload = { file: file_part(buffer, file_name) }
+        options.each { |key, value| payload[key.to_s] = value unless value.nil? }
 
         call('Failed to create template') do
-          http_post("accounts/#{acc_id}/templates", body)
+          http_post("accounts/#{acc_id}/templates", payload)
         end
       end
 

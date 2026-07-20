@@ -10,16 +10,20 @@ RSpec.describe Assinafy::Client do
     it 'accepts api_key and exposes all resource accessors' do
       client = described_class.new(api_key: 'k', account_id: 'acc')
 
-      expect(client.auth).to            be_a(Assinafy::Resources::AuthResource)
-      expect(client.documents).to       be_a(Assinafy::Resources::DocumentResource)
-      expect(client.signers).to         be_a(Assinafy::Resources::SignerResource)
-      expect(client.signer_documents).to be_a(Assinafy::Resources::SignerDocumentResource)
-      expect(client.assignments).to     be_a(Assinafy::Resources::AssignmentResource)
-      expect(client.webhooks).to        be_a(Assinafy::Resources::WebhookResource)
-      expect(client.templates).to       be_a(Assinafy::Resources::TemplateResource)
-      expect(client.fields).to          be_a(Assinafy::Resources::FieldResource)
-      expect(client.tags).to            be_a(Assinafy::Resources::TagResource)
-      expect(client.webhook_verifier).to be_a(Assinafy::Support::WebhookVerifier)
+      aggregate_failures do
+        expect(client.auth).to             be_a(Assinafy::Resources::AuthResource)
+        expect(client.accounts).to         be_a(Assinafy::Resources::AccountResource)
+        expect(client.users).to            be_a(Assinafy::Resources::UserResource)
+        expect(client.documents).to        be_a(Assinafy::Resources::DocumentResource)
+        expect(client.signers).to          be_a(Assinafy::Resources::SignerResource)
+        expect(client.signer_documents).to be_a(Assinafy::Resources::SignerDocumentResource)
+        expect(client.assignments).to      be_a(Assinafy::Resources::AssignmentResource)
+        expect(client.webhooks).to         be_a(Assinafy::Resources::WebhookResource)
+        expect(client.templates).to        be_a(Assinafy::Resources::TemplateResource)
+        expect(client.fields).to           be_a(Assinafy::Resources::FieldResource)
+        expect(client.tags).to             be_a(Assinafy::Resources::TagResource)
+        expect(client.webhook_verifier).to be_a(Assinafy::Support::WebhookVerifier)
+      end
     end
 
     it 'accepts legacy token credentials' do

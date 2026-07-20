@@ -10,11 +10,10 @@ module Assinafy
       # Create a field definition.
       #
       # @param payload [Hash]
-      # @option payload [String]  :type        e.g. `text`, `cpf`, `email` — see {#types}
-      # @option payload [String]  :name        display label
+      # @option payload [String]  :type        required — e.g. `text`, `cpf`, `email` — see {#types}
+      # @option payload [String]  :name        required — display label
       # @option payload [String]  :regex       optional validation regex (text fields)
       # @option payload [Boolean] :is_required default `true`
-      # @option payload [Boolean] :is_active   default `true`
       # @param account_id_override [String, nil]
       # @return [Hash] the created field definition (envelope `data` unwrapped)
       # @see POST /accounts/{accountId}/fields
@@ -115,10 +114,15 @@ module Assinafy
         end
       end
 
-      # Update a field definition.
+      # Update a field definition. The update endpoint accepts only `name`,
+      # `regex`, and `is_active` (unlike {#create}, it does not accept `type`
+      # or `is_required`).
       #
       # @param field_id            [String]
-      # @param payload             [Hash] same fields as {#create}
+      # @param payload             [Hash]
+      # @option payload [String]  :name      display label
+      # @option payload [String]  :regex     validation regex (text fields)
+      # @option payload [Boolean] :is_active enable/disable the field
       # @param account_id_override [String, nil]
       # @return [Hash] the updated field definition (envelope `data` unwrapped)
       # @see PUT /accounts/{account_id}/fields/{field_id}
@@ -252,6 +256,7 @@ module Assinafy
       #   #   { "type" => "email",       "name" => "E-mail" },
       #   #   { "type" => "cnpj",        "name" => "CNPJ" },
       #   #   { "type" => "companyName", "name" => "Nome da empresa" },
+      #   #   { "type" => "email",       "name" => "E-mail" }, # the live catalog lists "email" twice
       #   #   { "type" => "text",        "name" => "Texto" },
       #   #   { "type" => "number",      "name" => "Número" },
       #   #   { "type" => "date",        "name" => "Data" }

@@ -17,6 +17,10 @@ module Assinafy
   class Client
     # @return [Resources::AuthResource]
     attr_reader :auth
+    # @return [Resources::AccountResource]
+    attr_reader :accounts
+    # @return [Resources::UserResource]
+    attr_reader :users
     # @return [Resources::DocumentResource]
     attr_reader :documents
     # @return [Resources::SignerResource]
@@ -64,6 +68,8 @@ module Assinafy
       @logger     = config.logger || NullLogger.new
 
       @auth             = Resources::AuthResource.new(@connection, nil, @logger)
+      @accounts         = Resources::AccountResource.new(@connection, account_id, @logger)
+      @users            = Resources::UserResource.new(@connection, nil, @logger)
       @documents        = Resources::DocumentResource.new(@connection, account_id, @logger)
       @signers          = Resources::SignerResource.new(@connection, account_id, @logger)
       @signer_documents = Resources::SignerDocumentResource.new(@connection, nil, @logger)

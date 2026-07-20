@@ -4,6 +4,21 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
   let(:base_url) { 'https://api.assinafy.com.br/v1' }
   let(:connection) { build_test_connection(base_url) }
 
+  describe '#list' do
+    it 'GETs /assignments with the camelCase accountId query param' do
+      resource = described_class.new(connection, 'acc')
+      stub_request(:get, "#{base_url}/assignments")
+        .with(query: hash_including('accountId' => 'acc'))
+        .to_return(api_envelope([{ 'id' => 'asg-1', 'method' => 'virtual' }]))
+
+      result = resource.list
+      expect(result[:data].first['id']).to eq('asg-1')
+      expect(
+        a_request(:get, "#{base_url}/assignments").with(query: hash_including('accountId' => 'acc'))
+      ).to have_been_made
+    end
+  end
+
   describe '.build_payload' do
     it 'normalises string signer ids into {id} hashes' do
       body = described_class.build_payload(signers: %w[a b])

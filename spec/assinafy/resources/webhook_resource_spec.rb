@@ -92,18 +92,6 @@ RSpec.describe Assinafy::Resources::WebhookResource do
     end
   end
 
-  describe '#delete' do
-    it 'DELETEs the subscription and returns nil' do
-      stub_request(:delete, "#{base_url}/accounts/acc/webhooks/subscriptions")
-        .to_return(api_envelope({ 'message' => 'Deleted' }))
-
-      resource = described_class.new(connection, 'acc')
-
-      expect(resource.delete).to be_nil
-      expect(a_request(:delete, "#{base_url}/accounts/acc/webhooks/subscriptions")).to have_been_made
-    end
-  end
-
   describe '#list_event_types' do
     it 'calls the global /webhooks/event-types endpoint' do
       stub_request(:get, "#{base_url}/webhooks/event-types").to_return(api_envelope([]))

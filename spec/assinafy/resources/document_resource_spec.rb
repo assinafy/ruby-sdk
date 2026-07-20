@@ -5,6 +5,31 @@ RSpec.describe Assinafy::Resources::DocumentResource do
   let(:connection) { build_test_connection(base_url) }
   let(:resource)   { described_class.new(connection, 'acc') }
 
+  describe '#search' do
+    it 'GETs the account documents/search endpoint with a query param' do
+      stub_request(:get, "#{base_url}/accounts/acc/documents/search")
+        .with(query: hash_including('query' => 'contract'))
+        .to_return(api_envelope([{ 'id' => 'doc-1', 'name' => 'contract.pdf' }]))
+
+      result = resource.search('contract')
+      expect(result[:data].first['id']).to eq('doc-1')
+    end
+  end
+
+  describe '#rename' do
+    it 'PATCHes /documents/{id} with the new name' do
+      stub_request(:patch, "#{base_url}/documents/doc-1")
+        .with(body: hash_including('name' => 'renamed.pdf'))
+        .to_return(api_envelope({ 'id' => 'doc-1', 'name' => 'renamed.pdf' }))
+
+      expect(resource.rename('doc-1', 'renamed.pdf')['name']).to eq('renamed.pdf')
+    end
+
+    it 'raises when the name is blank' do
+      expect { resource.rename('doc-1', '') }.to raise_error(Assinafy::ValidationError)
+    end
+  end
+
   describe '#details' do
     it 'raises when document ID is empty' do
       expect { resource.details('') }.to raise_error(Assinafy::ValidationError)

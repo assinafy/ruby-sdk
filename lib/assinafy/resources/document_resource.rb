@@ -124,6 +124,46 @@ module Assinafy
         end
       end
 
+      # Lightweight search over an account's documents (id/name/status/artifacts),
+      # without the heavier per-document detail returned by {#list}.
+      #
+      # @param query [String] free-text search term
+      # @param params [Hash] extra query parameters (`status`, `page`, `per_page`, ...)
+      # @param account_id_override [String, nil]
+      # @return [Hash{Symbol=>Array,Hash}] `{ data: [...], meta: {..} | nil }`
+      # @see GET /accounts/{account_id}/documents/search
+      # @example Search documents by name
+      #   # Request: GET /accounts/{account_id}/documents/search?query=contract
+      #   client.documents.search('contract')
+      #
+      #   # Response (unwrapped data payload):
+      #   {
+      #     data: [
+      #       {
+      #         'id' => '103b0253fdc3607d342c49f9b55d',
+      #         'account_id' => '102d25a489f34a275d31a16045fd',
+      #         'template_id' => nil,
+      #         'name' => 'contract.pdf',
+      #         'status' => 'metadata_ready',
+      #         'artifacts' => { 'original' => 'https://...', 'thumbnail' => 'https://...' },
+      #         'is_closed' => false,
+      #         'signing_url' => 'https://app-sandbox.assinafy.com.br/sign/103b0253...',
+      #         'tags' => [],
+      #         'created_at' => '2026-07-20T15:53:37Z',
+      #         'updated_at' => '2026-07-20T15:53:41Z'
+      #       }
+      #       # ... (one Hash per matching document)
+      #     ],
+      #     meta: nil
+      #   }
+      def search(query, params = {}, account_id_override = nil)
+        acc_id = account_id(account_id_override)
+
+        call_list('Failed to search documents') do
+          http_get("accounts/#{acc_id}/documents/search", params.merge(query: query))
+        end
+      end
+
       # List the catalog of document status codes.
       #
       # @return [Array<Hash>] each entry has `code` and a `deletable` flag
@@ -195,6 +235,41 @@ module Assinafy
       end
 
       alias get details
+
+      # Rename a document.
+      #
+      # @param document_id [String]
+      # @param name        [String] the new display name
+      # @return [Hash] the updated document object (envelope `data` unwrapped)
+      # @see PATCH /documents/{document_id}
+      # @example Rename a document
+      #   # Request: PATCH /documents/{document_id}
+      #   # Body: { "name": "renamed.pdf" }
+      #   client.documents.rename('103b0253fdc3607d342c49f9b55d', 'renamed.pdf')
+      #
+      #   # Response (unwrapped data payload):
+      #   {
+      #     'resource' => 'document',
+      #     'id' => '103b0253fdc3607d342c49f9b55d',
+      #     'account_id' => '102d25a489f34a275d31a16045fd',
+      #     'name' => 'renamed.pdf',
+      #     'status' => 'metadata_ready',
+      #     'artifacts' => { 'original' => 'https://...', 'thumbnail' => 'https://...' },
+      #     'is_closed' => false,
+      #     'signing_url' => 'https://app-sandbox.assinafy.com.br/sign/103b0253...',
+      #     'tags' => [],
+      #     'created_at' => '2026-07-20T15:53:37Z',
+      #     'updated_at' => '2026-07-20T15:53:41Z'
+      #     # ... (see #details for the full document shape)
+      #   }
+      def rename(document_id, name)
+        doc_id   = require_id(document_id, 'Document ID')
+        new_name = require_present(name, 'Name')
+
+        call('Failed to rename document') do
+          http_patch("documents/#{doc_id}", body_params(name: new_name))
+        end
+      end
 
       # Poll {#details} until the document reaches a {READY_STATUSES ready} status,
       # raising if it reaches a {FAILED_STATUSES failed} status or the deadline elapses.

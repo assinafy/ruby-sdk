@@ -1,0 +1,17 @@
+---
+# Documented, time-bound risk acceptances for `bundler-audit`.
+#
+# CVE-2026-54696 — json "heap buffer overflow when streaming to an IO"
+#   Severity: Low. Transitive dependency (pulled in by faraday / rubocop / webmock);
+#   never a direct dependency of this gem.
+#   Why ignored: Ruby 4.0.x currently ships json 2.19.5 as its bundled default gem,
+#   and the patched json line (>= 2.19.9) does not yet compile its C extension against
+#   the Ruby 4.0 headers. Forcing an upgrade breaks installation on Ruby 4.0.
+#   Exposure: the SDK never calls JSON.generate streaming to an IO (the vulnerable
+#   path); JSON handling is delegated to Faraday's request/response middleware over
+#   in-memory strings.
+#   Action: re-evaluate and remove this ignore once a Ruby-4.0-compatible json
+#   >= 2.19.9 is available (already fine on Ruby 3.2–3.4, where bundle update json
+#   resolves cleanly).
+ignore:
+  - CVE-2026-54696

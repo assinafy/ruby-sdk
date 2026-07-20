@@ -5,7 +5,7 @@
 
 Ruby SDK for the [Assinafy API v1](https://api.assinafy.com.br/v1/docs).
 
-Maps 1:1 to every documented endpoint in the Assinafy v1 API. Coverage is enforced by [`spec/api_coverage_spec.rb`](spec/api_coverage_spec.rb).
+Maps 1:1 to every endpoint in the Assinafy v1 [OpenAPI specification](https://api.assinafy.com.br/v1/docs/openapi.json). Coverage is enforced by [`spec/api_coverage_spec.rb`](spec/api_coverage_spec.rb), and every endpoint is exercised live against the sandbox by the opt-in [integration suite](spec/integration/live_sandbox_spec.rb).
 
 - **Source:** <https://github.com/assinafy/ruby-sdk>
 - **Issues:** <https://github.com/assinafy/ruby-sdk/issues>
@@ -89,17 +89,19 @@ client = Assinafy::Client.new(
 
 ## Resources
 
-`Assinafy::Client` exposes ten accessors — nine API resources that cover every
-documented endpoint, plus the local `webhook_verifier` helper:
+`Assinafy::Client` exposes twelve accessors — eleven API resources that cover every
+endpoint, plus the local `webhook_verifier` helper:
 
 | Accessor                    | What it covers                                                 |
 | --------------------------- | -------------------------------------------------------------- |
 | `client.auth`               | Login, social login, password reset, API keys                  |
-| `client.documents`          | Upload, list, get, download, delete, verify, template creation |
+| `client.accounts`           | Account CRUD, theme, KPI stats, brand logo                     |
+| `client.users`              | The authenticated user's profile and cross-account KPIs        |
+| `client.documents`          | Upload, list, search, rename, download, delete, verify, tags   |
 | `client.signers`            | Workspace signer CRUD + signer self-service endpoints          |
-| `client.signer_documents`   | Signer-authenticated multi-document operations                 |
-| `client.assignments`        | Create/sign/decline/resend/estimate assignments                |
-| `client.templates`          | Template CRUD                                                  |
+| `client.signer_documents`   | Signer-authenticated multi-document operations + search        |
+| `client.assignments`        | List/create/sign/decline/resend/estimate assignments           |
+| `client.templates`          | Template creation (file upload), get, list, update, delete     |
 | `client.tags`               | Workspace tags                                                 |
 | `client.fields`             | Field definitions + validation + type catalog                  |
 | `client.webhooks`           | Subscription, event-type catalog, dispatch history, retries    |
@@ -110,6 +112,8 @@ documented endpoint, plus the local `webhook_verifier` helper:
 ```ruby
 client.auth.login(email: 'user@example.com', password: 'secret')
 client.auth.social_login(provider: 'google', token: 'id-token', has_accepted_terms: true)
+client.auth.social_login_url(authclient: 'web')       # builds the OAuth redirect URL (no request)
+client.auth.link_social_login(provider: 'google', token: 'id-token')
 client.auth.create_api_key(password: 'secret')
 client.auth.get_api_key
 client.auth.delete_api_key
@@ -118,13 +122,37 @@ client.auth.request_password_reset(email: 'u@e.com')
 client.auth.reset_password(email: 'u@e.com', new_password: 'new', token: 'reset-token')
 ```
 
+### Accounts
+
+```ruby
+client.accounts.list                                  # accounts the user can access
+client.accounts.get                                   # the current account (or pass an id)
+client.accounts.create(name: 'Acme Inc.')
+client.accounts.update({ name: 'Acme Renamed' })
+client.accounts.delete(force: true, account_id_override: 'account-id')
+client.accounts.theme                                 # { account_name, primary_color, secondary_color, logo }
+client.accounts.stats(granularity: 'monthly', month: '2026-06')  # KPI series (per the API reference)
+client.accounts.upload_logo({ file_path: './logo.png' })
+client.accounts.download_logo                          # raw image bytes
+client.accounts.delete_logo
+```
+
+### Users
+
+```ruby
+client.users.me                                       # { user: {...}, accounts: [...] }
+client.users.stats(granularity: 'monthly')            # cross-account KPI series (per the API reference)
+```
+
 ### Documents
 
 ```ruby
 client.documents.statuses                                    # GET /documents/statuses
 client.documents.list(page: 1, per_page: 20, status: 'pending_signature')
+client.documents.search('contract')                          # lightweight GET .../documents/search
 client.documents.upload({ file_path: './contract.pdf' }, name: 'Contract v1')
 client.documents.upload({ buffer: pdf_bytes, file_name: 'contract.pdf' })
+client.documents.rename('document-id', 'renamed.pdf')        # PATCH /documents/{id}
 client.documents.get('document-id')                          # alias of .details
 client.documents.wait_until_ready('document-id', max_wait_seconds: 60)
 client.documents.activities('document-id')
@@ -177,7 +205,7 @@ client.signers.find_by_email('alice@example.com')
 client.signers.self_data(signer_access_code: 'code')
 client.signers.accept_terms(signer_access_code: 'code')
 client.signers.verify_email(verification_code: '123456', signer_access_code: 'code')
-client.signers.confirm_data('document-id', { email: 'alice@example.com', has_accepted_terms: true }, signer_access_code: 'code')
+client.signers.confirm_data('document-id', { full_name: 'Alice Silva', email: 'alice@example.com', government_id: '15774136604' }, signer_access_code: 'code')
 client.signers.upload_signature(png_bytes, signer_access_code: 'code', type: 'signature', content_type: 'image/png')
 client.signers.download_signature(signer_access_code: 'code', type: 'signature')
 ```
@@ -204,6 +232,7 @@ client.assignments.create(
                                              display_settings: { top: 100, left: 100 } }] }]
 )
 
+client.assignments.list                                       # GET /assignments (scoped to the account)
 client.assignments.estimate_cost('document-id', signers: [{ verification_method: 'Whatsapp' }])
 client.assignments.reset_expiration('document-id', 'assignment-id', '2026-12-31T23:59:00Z')
 client.assignments.reset_expiration('document-id', 'assignment-id', nil) # clears the expiry
@@ -229,21 +258,25 @@ client.assignments.decline('document-id', 'assignment-id', decline_reason: 'Clau
 ```ruby
 client.signer_documents.current('signer-id', signer_access_code: 'code')
 client.signer_documents.list('signer-id', { status: 'pending_signature' }, signer_access_code: 'code')
+client.signer_documents.search('signer-id', 'contract', signer_access_code: 'code')
 client.signer_documents.sign_multiple(%w[doc-1 doc-2], signer_access_code: 'code')
 client.signer_documents.decline_multiple(%w[doc-1 doc-2], decline_reason: 'No', signer_access_code: 'code')
-client.signer_documents.download('signer-id', 'document-id', 'original', signer_access_code: 'code')
+client.signer_documents.download('signer-id', 'document-id', 'original') # public: no access code needed
 ```
 
 ### Templates
 
 ```ruby
-client.templates.list(status: 'ready', per_page: 25)
+client.templates.list(search: 'contract', per_page: 25)
 client.templates.get('template-id')
-client.templates.create(name: 'My template', message: 'Please sign')
+client.templates.create({ file_path: './contract.pdf' })   # multipart file upload
+client.templates.create({ buffer: pdf_bytes, file_name: 'contract.pdf' })
 client.templates.update('template-id', name: 'Renamed template')
 client.templates.delete('template-id')
 client.templates.download_page('template-id', 'page-id')   # binary image bytes
 ```
+
+> Template endpoints (`get`/`create`/`update`/`delete`/`download_page`) are live-verified against the sandbox but are not part of the current OpenAPI document. `create` requires a source file (`multipart/form-data`); the template name defaults to the uploaded file's name.
 
 ### Tags
 
@@ -285,12 +318,13 @@ client.webhooks.register(
   email:  'ops@example.com',
   events: %w[document_ready document_prepared signer_signed_document]
 )
-client.webhooks.inactivate
-client.webhooks.delete
+client.webhooks.inactivate                                   # stop deliveries, keep the event set
 
 client.webhooks.list_dispatches(delivered: false, per_page: 50)
 client.webhooks.retry_dispatch('dispatch-id')
 ```
+
+> To stop deliveries, use `inactivate` (the API has no delete-subscription route).
 
 #### Webhook signature verification
 
@@ -385,12 +419,26 @@ All inherit a `#context` Hash with debugging metadata.
 ## Tests
 
 ```bash
-bundle exec rake spec     # 100+ RSpec examples, including a coverage matrix
-bundle exec rubocop       # Linting
-bundle exec bundle-audit  # Dependency CVEs
+bundle exec rake spec               # 200+ RSpec examples, including a coverage matrix
+bundle exec rubocop                 # Linting
+bundle exec bundler-audit check     # Dependency CVEs
 ```
 
-The coverage spec (`spec/api_coverage_spec.rb`) asserts every endpoint documented at <https://api.assinafy.com.br/v1/docs> has a corresponding SDK method.
+The coverage spec (`spec/api_coverage_spec.rb`) asserts every endpoint in the Assinafy v1 [OpenAPI specification](https://api.assinafy.com.br/v1/docs/openapi.json) has a corresponding SDK method.
+
+### Live integration tests
+
+The suite in [`spec/integration/`](spec/integration/live_sandbox_spec.rb) exercises every resource end-to-end against the real sandbox. It is excluded from the default run and only executes when `ASSINAFY_LIVE=1` is set with credentials:
+
+```bash
+ASSINAFY_LIVE=1 \
+ASSINAFY_API_KEY=... \
+ASSINAFY_ACCOUNT_ID=... \
+ASSINAFY_BASE_URL=https://sandbox.assinafy.com.br/v1 \
+bundle exec rspec spec/integration
+```
+
+> These tests create and clean up real resources and, for the assignment flow, send real signature-request emails to the addresses in `ASSINAFY_TEST_EMAIL` / `ASSINAFY_TEST_EMAIL2`.
 
 ## Contributing
 

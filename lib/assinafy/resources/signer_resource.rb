@@ -230,14 +230,18 @@ module Assinafy
 
       # Accept the platform's terms of use as the signer.
       #
+      # The `signer-access-code` is sent as the documented query parameter (the
+      # `signerAccessCode` security scheme is `in: query`), consistent with every
+      # other signer-authenticated endpoint. It is also mirrored in the body for
+      # backwards compatibility.
+      #
       # @param signer_access_code [String]
       # @return [Hash] partial signer object reflecting the acceptance (envelope `data` unwrapped)
       # @see PUT /signers/accept-terms
       # @example Accept the terms of use
       #   result = client.signers.accept_terms(signer_access_code: '9uAWyOXx9hgzCKdCuahkinwvg8tWJ2RC')
       #
-      #   # Request body the SDK sends:
-      #   #   { "signer-access-code": "9uAWyOXx9hgzCKdCuahkinwvg8tWJ2RC" }
+      #   # Request: PUT /signers/accept-terms?signer-access-code=9uAWyOXx9hgzCKdCuahkinwvg8tWJ2RC
       #
       #   # => {
       #   #   "full_name"          => "Signer Name",
@@ -246,7 +250,9 @@ module Assinafy
       #   # }
       def accept_terms(signer_access_code:)
         call('Failed to accept signer terms') do
-          http_put('signers/accept-terms', body_params(signer_access_code: signer_access_code))
+          http_put('signers/accept-terms',
+                   body_params(signer_access_code: signer_access_code),
+                   signer_access_code: signer_access_code)
         end
       end
 
@@ -263,11 +269,9 @@ module Assinafy
       #     signer_access_code: '9uAWyOXx9hgzCKdCuahkinwvg8tWJ2RC'
       #   )
       #
-      #   # Request body the SDK sends (note the hyphenated keys):
-      #   #   {
-      #   #     "verification-code": "123456",
-      #   #     "signer-access-code": "9uAWyOXx9hgzCKdCuahkinwvg8tWJ2RC"
-      #   #   }
+      #   # Request: POST /verify?signer-access-code=9uAWyOXx9hgzCKdCuahkinwvg8tWJ2RC
+      #   # Body (the documented `verification-code`; the access code is also mirrored here):
+      #   #   { "verification-code": "123456", "signer-access-code": "9uAWyOXx9hgzCKdCuahkinwvg8tWJ2RC" }
       #
       #   # => { "message" => "Code verified successfully" }
       def verify_email(verification_code:, signer_access_code:)
@@ -277,34 +281,36 @@ module Assinafy
             body_params(
               verification_code:  verification_code,
               signer_access_code: signer_access_code
-            )
+            ),
+            signer_access_code: signer_access_code
           )
         end
       end
 
-      # Confirm signer data (email/phone/terms) before signing a virtual assignment.
+      # Confirm signer data before signing a virtual assignment. The documented
+      # body fields are `full_name`, `email`, and `government_id`; the payload is
+      # passed through unchanged, so any additional fields the API accepts can be
+      # supplied as well.
       #
       # @param document_id        [String]
-      # @param payload            [Hash] `:email`, `:whatsapp_phone_number`,
-      #                             `:has_accepted_terms` (all conditional)
+      # @param payload            [Hash] `:full_name`, `:email`, `:government_id`
       # @param signer_access_code [String]
-      # @return [Hash] empty Hash `{}` on success (the endpoint returns no body)
+      # @return [Hash] the updated signer object (envelope `data` unwrapped)
       # @see PUT /documents/{documentId}/signers/confirm-data
-      # @example Confirm data and accept terms in one call
+      # @example Confirm the signer's data
       #   result = client.signers.confirm_data(
       #     'c57d51eaad68a7',
-      #     { email: 'signer@example.com', whatsapp_phone_number: '+5548999990000', has_accepted_terms: true },
+      #     { full_name: 'Signer Name', email: 'signer@example.com', government_id: '15774136604' },
       #     signer_access_code: '9uAWyOXx9hgzCKdCuahkinwvg8tWJ2RC'
       #   )
       #
       #   # signer-access-code is sent as a query param; the JSON body the SDK sends:
-      #   #   {
-      #   #     "email": "signer@example.com",
-      #   #     "whatsapp_phone_number": "+5548999990000",
-      #   #     "has_accepted_terms": true
-      #   #   }
+      #   #   { "full_name": "Signer Name", "email": "signer@example.com", "government_id": "15774136604" }
       #
-      #   # => {} # the endpoint returns an empty body on success
+      #   # => {
+      #   #   "resource" => "signer", "id" => "62d6...", "full_name" => "Signer Name",
+      #   #   "email" => "signer@example.com", "whatsapp_phone_number" => nil, "has_accepted_terms" => false
+      #   # }
       def confirm_data(document_id, payload, signer_access_code:)
         doc_id = require_id(document_id, 'Document ID')
         body   = body_params(require_payload(payload))
@@ -321,11 +327,14 @@ module Assinafy
       # @param signer_access_code [String]
       # @param type               [String] `signature` or `initial`
       # @param content_type       [String] e.g. `image/png`
-      # @return [Array] empty Array `[]` on success (envelope `data` unwrapped)
+      # @param reuse              [Boolean, nil] when true, marks the signature as
+      #   reusable for future documents (documented `reuse` query flag)
+      # @return [nil] the endpoint returns `{ status:, message: }` with no `data`,
+      #   so the unwrapped result is `nil`
       # @see POST /signature
       # @example Upload a PNG signature image
       #   bytes  = File.binread('signature.png')
-      #   result = client.signers.upload_signature(
+      #   client.signers.upload_signature(
       #     bytes,
       #     signer_access_code: '9uAWyOXx9hgzCKdCuahkinwvg8tWJ2RC',
       #     type:               'signature',
@@ -335,13 +344,15 @@ module Assinafy
       #   # The SDK sends the RAW image bytes as the body, with
       #   # Content-Type: image/png and ?signer-access-code=...&type=signature query params.
       #
-      #   # => [] # the envelope data is an empty Array on success
-      def upload_signature(content, signer_access_code:, type: 'signature', content_type: 'image/png')
+      #   # => nil # the envelope carries only { status:, message: } with no data payload
+      def upload_signature(content, signer_access_code:, type: 'signature', content_type: 'image/png', reuse: nil)
         sig_type = signature_type(type)
 
         call('Failed to upload signer signature') do
           @connection.post('signature') do |request|
-            request.params.update(query_params(signer_access_code: signer_access_code, type: sig_type))
+            request.params.update(
+              query_params(signer_access_code: signer_access_code, type: sig_type, reuse: reuse)
+            )
             request.headers['Content-Type'] = content_type
             request.body = content
           end
