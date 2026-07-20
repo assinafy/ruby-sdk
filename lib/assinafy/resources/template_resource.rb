@@ -27,7 +27,7 @@ module Assinafy
       #   #       "message" => nil,
       #   #       "status" => "Ready",
       #   #       "pages" => [{ "id" => "fa7f3e528d77f2b3ed786df2ce0", "number" => 1, "fields" => [] }],
-      #   #       "roles" => [{ "id" => "fa7f3e525bfefc71df3701eac6f", "name" => "Editor" }],
+      #   #       "roles" => [{ "id" => "fa7f3e525bfefc71df3701eac6f", "name" => "TemplateEditor" }],
       #   #       "tags" => [{ "id" => "fa8c09f3e709a8a1c82d69b1454", "name" => "HR" }],
       #   #       "created_at" => "2024-07-19T15:23:03Z",
       #   #       "updated_at" => "2024-07-19T15:23:03Z"
@@ -68,7 +68,7 @@ module Assinafy
       #   #       "fields" => []
       #   #     }
       #   #   ],
-      #   #   "roles" => [{ "id" => "fa7f3e525bfefc71df3701eac6f", "name" => "Editor", "assignment_type" => "Editor" }],
+      #   #   "roles" => [{ "id" => "fa7f3e525bfe", "name" => "TemplateEditor", "assignment_type" => "Editor" }],
       #   #   "tags" => [{ "id" => "fa8c09f3e709a8a1c82d69b1454", "name" => "HR" }],
       #   #   "default_document_tags" => [],
       #   #   "created_at" => "2024-07-19T15:23:03Z",

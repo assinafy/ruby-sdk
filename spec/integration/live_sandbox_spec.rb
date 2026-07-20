@@ -76,13 +76,23 @@ RSpec.describe 'Assinafy live sandbox', :live do # rubocop:disable RSpec/Describ
     id  = acc['id']
     expect(id).to be_a(String)
 
-    upload = client.accounts.upload_logo({ buffer: sample_png, file_name: 'logo.png' }, id)
-    expect(upload).to include('mime_type')
-    expect(client.accounts.download_logo(id).bytesize).to be > 0
-    expect(client.accounts.update({ name: 'sdk-live-renamed' }, id)['name']).to eq('sdk-live-renamed')
-
-    expect(client.accounts.delete_logo(id)).to be_nil
-    expect(client.accounts.delete(force: true, account_id_override: id)).to be_nil
+    begin
+      upload = client.accounts.upload_logo({ buffer: sample_png, file_name: 'logo.png' }, id)
+      aggregate_failures do
+        expect(upload).to include('mime_type')
+        expect(client.accounts.download_logo(id).bytesize).to be > 0
+        expect(client.accounts.update({ name: 'sdk-live-renamed' }, id)['name']).to eq('sdk-live-renamed')
+        expect(client.accounts.delete_logo(id)).to be_nil
+        expect(client.accounts.delete(force: true, account_id_override: id)).to be_nil
+      end
+      id = nil # deleted cleanly above; nothing left for the ensure to reap
+    ensure
+      begin
+        client.accounts.delete(force: true, account_id_override: id) if id
+      rescue Assinafy::ApiError
+        nil
+      end
+    end
   end
 
   it 'runs the document + assignment lifecycle (sends real emails)' do

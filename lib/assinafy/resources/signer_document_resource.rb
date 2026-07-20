@@ -114,10 +114,10 @@ module Assinafy
       #   # => {
       #   #   data: [
       #   #     { "id" => "103b0274...", "account_id" => "1a", "name" => "audit.pdf",
-      #   #       "status" => "pending_signature",
+      #   #       "status" => "pending_signature", "template_id" => nil,
       #   #       "artifacts" => { "original" => "https://...", "thumbnail" => "https://..." },
-      #   #       "assignment" => { "id" => "..", "method" => "virtual" }
-      #   #       # ... (see docs for full shape)
+      #   #       "is_closed" => false, "signing_url" => "https://...", "tags" => []
+      #   #       # ... search returns the lightweight document shape (no embedded assignment)
       #   #     }
       #   #   ],
       #   #   meta: nil

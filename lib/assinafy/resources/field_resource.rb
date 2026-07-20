@@ -256,6 +256,7 @@ module Assinafy
       #   #   { "type" => "email",       "name" => "E-mail" },
       #   #   { "type" => "cnpj",        "name" => "CNPJ" },
       #   #   { "type" => "companyName", "name" => "Nome da empresa" },
+      #   #   { "type" => "email",       "name" => "E-mail" }, # the live catalog lists "email" twice
       #   #   { "type" => "text",        "name" => "Texto" },
       #   #   { "type" => "number",      "name" => "Número" },
       #   #   { "type" => "date",        "name" => "Data" }
