@@ -104,6 +104,9 @@ Gemspec/RequireMFA:
 
 RSpec/ExampleLength:
   Max: 25
+  Exclude:
+    # Live end-to-end flows legitimately chain many calls in one example.
+    - 'spec/integration/**/*'
 
 RSpec/MultipleExpectations:
   Max: 10

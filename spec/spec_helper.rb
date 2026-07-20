@@ -15,9 +15,18 @@ RSpec.configure do |config|
   config.shared_context_metadata_behavior = :apply_to_host_groups
   config.order = :random
 
-  config.before do
-    WebMock.reset!
-    WebMock.disable_net_connect!
+  # `:live` specs hit the real sandbox API; everything else is fully mocked.
+  # Live specs are skipped unless ASSINAFY_LIVE=1, so the default suite stays
+  # fast, hermetic, and offline (as CI runs it).
+  config.filter_run_excluding :live unless ENV['ASSINAFY_LIVE'] == '1'
+
+  config.before do |example|
+    if example.metadata[:live]
+      WebMock.allow_net_connect!
+    else
+      WebMock.reset!
+      WebMock.disable_net_connect!
+    end
   end
 end
 
