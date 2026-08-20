@@ -6,9 +6,9 @@ RSpec.describe Assinafy::Resources::SignerDocumentResource do
   let(:resource)   { described_class.new(connection) }
 
   describe '#search' do
-    it 'GETs the signer documents/search endpoint with a query param' do
+    it 'GETs the signer documents/search endpoint with the documented search param' do
       stub_request(:get, "#{base_url}/signers/signer-1/documents/search")
-        .with(query: hash_including('query' => 'audit'))
+        .with(query: hash_including('search' => 'audit'))
         .to_return(api_envelope([{ 'id' => 'doc-1', 'status' => 'pending_signature' }]))
 
       result = resource.search('signer-1', 'audit')
@@ -98,6 +98,10 @@ RSpec.describe Assinafy::Resources::SignerDocumentResource do
   end
 
   describe '#download' do
+    it 'rejects unsupported artifact names' do
+      expect { resource.download('signer-1', 'doc-1', '../users') }.to raise_error(Assinafy::ValidationError)
+    end
+
     it 'calls the signer document download endpoint' do
       stub_request(:get, "#{base_url}/signers/signer-1/documents/doc-1/download/original")
         .with(query: hash_including('signer-access-code' => 'code'))

@@ -1,23 +1,24 @@
 # frozen_string_literal: true
 
+require_relative 'errors'
+
 module Assinafy
-  # Immutable-ish bag of SDK configuration values. Constructed implicitly by
-  # {Client#initialize} or explicitly via {.from_hash} for credentials loaded
-  # from YAML/JSON.
+  # SDK configuration values. {Client} snapshots these values when it builds
+  # its connection; construct a new client after changing a configuration.
   #
   # @example Build from a YAML-style hash (e.g. loaded from config/assinafy.yml)
   #   raw = YAML.load_file('config/assinafy.yml') # => string-keyed Hash
   #   # raw => {
-  #   #   "api_key"        => "hAvmvk6Urzus3byLD2qOWrg",
-  #   #   "account_id"     => "a1b2c3d4-0000-1111-2222-333344445555",
+  #   #   "api_key"        => "example_api_key",
+  #   #   "account_id"     => "account_example",
   #   #   "base_url"       => "https://api.assinafy.com.br/v1",
-  #   #   "webhook_secret" => "whsec_3f9a...",
+  #   #   "webhook_secret" => "gateway_secret",
   #   #   "timeout"        => 30
   #   # }
   #   config = Assinafy::Configuration.from_hash(raw)
-  #   config.api_key      # => "hAvmvk6Urzus3byLD2qOWrg"
-  #   config.account_id   # => "a1b2c3d4-0000-1111-2222-333344445555"
-  #   config.auth_headers # => { "X-Api-Key" => "hAvmvk6Urzus3byLD2qOWrg" }
+  #   config.api_key      # => "example_api_key"
+  #   config.account_id   # => "account_example"
+  #   config.auth_headers # => { "X-Api-Key" => "example_api_key" }
   class Configuration
     # Default base URL (production v1 API).
     DEFAULT_BASE_URL = 'https://api.assinafy.com.br/v1'
@@ -54,12 +55,12 @@ module Assinafy
     #
     # @example Construct with an API key (omits the default base_url)
     #   config = Assinafy::Configuration.new(
-    #     api_key:    'hAvmvk6Urzus3byLD2qOWrg',
-    #     account_id: 'a1b2c3d4-0000-1111-2222-333344445555'
+    #     api_key:    'example_api_key',
+    #     account_id: 'account_example'
     #   )
     #   config.base_url     # => "https://api.assinafy.com.br/v1"
     #   config.timeout      # => 30
-    #   config.auth_headers # => { "X-Api-Key" => "hAvmvk6Urzus3byLD2qOWrg" }
+    #   config.auth_headers # => { "X-Api-Key" => "example_api_key" }
     #
     # @example Trailing slash on base_url is stripped
     #   Assinafy::Configuration.new(base_url: 'https://api.assinafy.com.br/v1/').base_url
@@ -70,16 +71,21 @@ module Assinafy
       @api_key        = api_key
       @token          = token
       @account_id     = account_id
-      @base_url       = base_url.to_s.chomp('/')
+      raise ValidationError.new('Base URL is required') unless base_url.is_a?(String)
+
+      @base_url = base_url.strip.sub(%r{/+\z}, '')
+      raise ValidationError.new('Base URL is required') if @base_url.empty?
+
       @webhook_secret = webhook_secret
-      @timeout        = timeout || DEFAULT_TIMEOUT
+      @timeout        = normalize_timeout(timeout)
       @logger         = logger
     end
 
     # Build a {Configuration} from a Hash with string or symbol keys.
     # Accepts both `'token'` and `'access_token'` for backwards compatibility.
     # Missing keys fall back to defaults (`base_url` => {DEFAULT_BASE_URL},
-    # `timeout` => {DEFAULT_TIMEOUT}); `timeout` is coerced via `#to_i`.
+    # `timeout` => {DEFAULT_TIMEOUT}); numeric strings are accepted, while
+    # invalid and non-positive values raise {ValidationError}.
     #
     # @param hash [Hash{String,Symbol=>Object}]
     # @return [Configuration]
@@ -87,8 +93,8 @@ module Assinafy
     # @example Symbol-keyed hash with the legacy access_token alias
     #   config = Assinafy::Configuration.from_hash(
     #     access_token: 'legacy-bearer-abc123',
-    #     account_id:   'a1b2c3d4-0000-1111-2222-333344445555',
-    #     timeout:      '45' # string is coerced via #to_i
+    #     account_id:   'account_example',
+    #     timeout:      '45'
     #   )
     #   config.token        # => "legacy-bearer-abc123"
     #   config.api_key      # => nil
@@ -96,14 +102,16 @@ module Assinafy
     #   config.base_url     # => "https://api.assinafy.com.br/v1"
     #   config.auth_headers # => { "Authorization" => "Bearer legacy-bearer-abc123" }
     def self.from_hash(hash)
+      raise ValidationError.new('Configuration must be a Hash') unless hash.is_a?(Hash)
+
       h = hash.transform_keys(&:to_s)
       new(
         api_key:        h['api_key'],
         token:          h['token'] || h['access_token'],
         account_id:     h['account_id'],
-        base_url:       h['base_url'] || DEFAULT_BASE_URL,
+        base_url:       h.key?('base_url') ? h['base_url'] : DEFAULT_BASE_URL,
         webhook_secret: h['webhook_secret'],
-        timeout:        h['timeout'] ? h['timeout'].to_i : DEFAULT_TIMEOUT,
+        timeout:        h.key?('timeout') ? h['timeout'] : DEFAULT_TIMEOUT,
         logger:         h['logger']
       )
     end
@@ -128,10 +136,22 @@ module Assinafy
     #   Assinafy::Configuration.new.auth_headers
     #   # => {}
     def auth_headers
-      return { 'X-Api-Key' => api_key } if api_key
-      return { 'Authorization' => "Bearer #{token}" } if token
+      key = api_key.to_s.strip
+      bearer = token.to_s.strip
+      return { 'X-Api-Key' => key } unless key.empty?
+      return { 'Authorization' => "Bearer #{bearer}" } unless bearer.empty?
 
       {}
+    end
+
+    private
+
+    def normalize_timeout(value)
+      raw = value.nil? ? DEFAULT_TIMEOUT : value
+      seconds = Integer(raw, exception: false) if raw.is_a?(Integer) || raw.is_a?(String)
+      return seconds if seconds&.positive?
+
+      raise ValidationError.new('Timeout must be a positive integer')
     end
   end
 end

@@ -1,11 +1,10 @@
 # frozen_string_literal: true
 
-# Coverage matrix: every documented Assinafy v1 endpoint mapped to the
-# SDK method that wraps it. This spec exists so the audit is checked into
-# version control and runs in CI — adding a new endpoint without wiring it
-# into the SDK will cause this file to be edited deliberately.
+# Static coverage matrix: current Assinafy v1 OpenAPI operations plus known
+# sandbox-live template routes, each mapped to its SDK wrapper. This spec checks
+# the committed inventory; it does not fetch or compare the remote OpenAPI file.
 #
-# Source of truth: https://api.assinafy.com.br/v1/docs
+# OpenAPI reference: https://api.assinafy.com.br/v1/docs/openapi.json
 
 RSpec.describe Assinafy::Client, type: :coverage_matrix do
   let(:endpoints) do
@@ -27,8 +26,6 @@ RSpec.describe Assinafy::Client, type: :coverage_matrix do
        'AuthResource#request_password_reset'],
       ['PUT',    '/authentication/reset-password',
        'AuthResource#reset_password'],
-      ['GET',    '/auth/authenticate',
-       'AuthResource#social_login_url'],
       ['POST',   '/auth/link-social-login',
        'AuthResource#link_social_login'],
 
@@ -59,6 +56,10 @@ RSpec.describe Assinafy::Client, type: :coverage_matrix do
        'UserResource#me'],
       ['GET',    '/users/self/stats',
        'UserResource#stats'],
+      ['GET',    '/users/self/notification-preferences',
+       'UserResource#notification_preferences'],
+      ['PUT',    '/users/self/notification-preferences',
+       'UserResource#update_notification_preferences'],
 
       # Signers — workspace CRUD
       ['POST',   '/accounts/{account_id}/signers',
@@ -224,7 +225,7 @@ RSpec.describe Assinafy::Client, type: :coverage_matrix do
     ]
   end
 
-  # Public methods that intentionally do NOT map 1:1 to a documented endpoint:
+  # Public methods that intentionally do NOT map 1:1 to an API route:
   # convenience helpers (computed client-side) and documented aliases.
   let(:non_endpoint_methods) do
     {
@@ -246,7 +247,7 @@ RSpec.describe Assinafy::Client, type: :coverage_matrix do
     }
   end
 
-  it 'covers every documented endpoint with a single SDK method' do
+  it 'maps every listed operation to a public SDK method' do
     aggregate_failures do
       endpoints.each do |(verb, path, mapping)|
         class_name, method_name = mapping.split('#')
@@ -257,6 +258,16 @@ RSpec.describe Assinafy::Client, type: :coverage_matrix do
         )
       end
     end
+  end
+
+  it 'lists each operation and SDK wrapper exactly once' do
+    operations = endpoints.map do |verb, path, _mapping|
+      [verb, path.gsub(/\{[^}]+\}/, '{}')]
+    end
+    wrappers = endpoints.map(&:last)
+
+    expect(operations).to eq(operations.uniq)
+    expect(wrappers).to eq(wrappers.uniq)
   end
 
   it 'has no public endpoint wrapper missing from the coverage matrix' do
@@ -295,13 +306,13 @@ RSpec.describe Assinafy::Client, type: :coverage_matrix do
     end
   end
 
-  it 'has at least one wrapper per documented endpoint and no orphan resources' do
-    documented_classes = endpoints.map { |(_, _, m)| m.split('#').first }.uniq.sort
+  it 'has no orphan resource classes' do
+    mapped_classes = endpoints.map { |(_, _, m)| m.split('#').first }.uniq.sort
     sdk_resources = Assinafy::Resources.constants
                                        .map(&:to_s)
                                        .reject { |c| c == 'BaseResource' }
                                        .sort
 
-    expect(documented_classes).to eq(sdk_resources)
+    expect(mapped_classes).to eq(sdk_resources)
   end
 end

@@ -7,18 +7,20 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   verify:
     name: Verify tag matches gem version
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
         with:
           ruby-version: .ruby-version
           bundler-cache: true
@@ -43,51 +45,49 @@ jobs:
       - name: Run bundler-audit
         run: bundle exec bundler-audit check --update
 
-  publish-github-packages:
-    name: Publish to GitHub Packages
+  publish:
+    name: Publish gem
     needs: verify
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
     permissions:
       contents: read
       packages: write
+      id-token: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
         with:
           ruby-version: .ruby-version
           bundler-cache: true
 
       - name: Build gem
         run: gem build assinafy.gemspec
+
+      - name: Configure RubyGems.org trusted publishing
+        uses: rubygems/configure-rubygems-credentials@dc5a8d8553e6ee01fc26761a49e99e733d17954a # v2.1.0
+
+      - name: Push to RubyGems.org
+        run: |
+          set -euo pipefail
+          version="$(ruby -Ilib -rassinafy/version -e 'print Assinafy::VERSION')"
+          status="$(curl --silent --show-error --location --output /dev/null \
+            --write-out '%{http_code}' --retry 3 \
+            "https://rubygems.org/api/v2/rubygems/assinafy/versions/${version}.json")"
+          case "$status" in
+            200) echo "assinafy $version is already on RubyGems.org; skipping" ;;
+            404) gem push assinafy-*.gem ;;
+            *) echo "RubyGems.org version check returned HTTP $status" >&2; exit 1 ;;
+          esac
 
       - name: Push to GitHub Packages
         env:
           GEM_HOST_API_KEY: "Bearer ${{ secrets.GITHUB_TOKEN }}"
         run: |
           gem push --host "https://rubygems.pkg.github.com/assinafy" assinafy-*.gem
-
-  publish-rubygems:
-    name: Publish to RubyGems.org
-    needs: verify
-    runs-on: ubuntu-latest
-    if: ${{ vars.PUBLISH_TO_RUBYGEMS != 'false' }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: .ruby-version
-          bundler-cache: true
-
-      - name: Build gem
-        run: gem build assinafy.gemspec
-
-      - name: Push to RubyGems.org
-        env:
-          GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
-        run: gem push assinafy-*.gem

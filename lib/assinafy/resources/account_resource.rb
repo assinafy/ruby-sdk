@@ -21,7 +21,7 @@ module Assinafy
       #   {
       #     data: [
       #       {
-      #         'id' => '102d25a489f34a275d31a16045fd',
+      #         'id' => 'account-id',
       #         'name' => 'MT',
       #         'roles' => ['owner'],
       #         'is_delete_allowed' => true,
@@ -51,7 +51,7 @@ module Assinafy
       #
       #   # Response (unwrapped data payload):
       #   {
-      #     'id' => '19f803b8a41d4b2fef372736a05',
+      #     'id' => 'account-id',
       #     'name' => 'Acme Inc.',
       #     'primary_color' => nil,
       #     'secondary_color' => nil,
@@ -77,7 +77,7 @@ module Assinafy
       #
       #   # Response (unwrapped data payload):
       #   {
-      #     'id' => '102d25a489f34a275d31a16045fd',
+      #     'id' => 'account-id',
       #     'name' => 'MT',
       #     'primary_color' => nil,
       #     'secondary_color' => nil,
@@ -104,7 +104,7 @@ module Assinafy
       #
       #   # Response (unwrapped data payload):
       #   {
-      #     'id' => '19f803b8a41d4b2fef372736a05',
+      #     'id' => 'account-id',
       #     'name' => 'Acme Renamed',
       #     'primary_color' => nil,
       #     'secondary_color' => nil,
@@ -129,10 +129,11 @@ module Assinafy
       # @example Force-delete a throwaway account
       #   # Request: DELETE /accounts/{account_id}
       #   # Body: { "force": true }
-      #   client.accounts.delete(force: true, account_id_override: '19f803b8a41d4b2fef372736a05')
+      #   client.accounts.delete(force: true, account_id_override: 'account-id')
       #   # => nil
       def delete(force: false, account_id_override: nil)
         acc_id = account_id(account_id_override)
+        force  = require_boolean(force, 'force')
 
         call_void('Failed to delete account') do
           http_delete("accounts/#{acc_id}", body: body_params(force: force))
@@ -176,12 +177,18 @@ module Assinafy
       #   # Request: GET /accounts/{account_id}/stats?granularity=monthly&month=2026-06
       #   client.accounts.stats(granularity: 'monthly', month: '2026-06')
       #
-      #   # Response (unwrapped data payload), per the API reference:
+      #   # Response (unwrapped data payload):
       #   [
       #     {
-      #       'period' => '2026-06', 'documents_uploaded' => 42, 'documents_sent' => 37,
-      #       'signature_requests' => 61, 'documents_signed' => 52
-      #       # ... (see docs for the full KPI series)
+      #       'period' => '2026-06',
+      #       'documents_uploaded' => 42,
+      #       'documents_sent' => 37,
+      #       'signature_requests' => 61,
+      #       'signature_requests_email' => 45,
+      #       'signature_requests_whatsapp' => 16,
+      #       'signature_requests_viewed' => 58,
+      #       'signature_requests_completed' => 52,
+      #       'documents_certified' => 34
       #     }
       #   ]
       def stats(granularity: nil, month: nil, account_id_override: nil)
@@ -195,7 +202,8 @@ module Assinafy
       # Download the account brand logo as raw image bytes.
       #
       # @param account_id_override [String, nil]
-      # @return [String] binary image body (empty String when no logo is set)
+      # @return [String] binary image body
+      # @raise [Assinafy::ApiError] when no logo is configured (HTTP 404)
       # @see GET /accounts/{account_id}/logo
       # @example Download the logo and save it
       #   # Request: GET /accounts/{account_id}/logo
@@ -214,19 +222,21 @@ module Assinafy
       # @param source [String, Hash] a path to an image, or a Hash with
       #   `:file_path` (path) **or** `:buffer` + `:file_name` (raw bytes).
       # @param account_id_override [String, nil]
-      # @return [Hash] `{ 'mime_type' =>, 'version' =>, 'updated_at' => }`
+      # @return [nil, Hash] `nil` for the OpenAPI's no-data envelope; the current
+      #   sandbox returns `{ 'mime_type' =>, 'version' =>, 'updated_at' => }`
       # @see POST /accounts/{account_id}/logo
       # @example Upload a PNG logo
       #   # Request: POST /accounts/{account_id}/logo (multipart/form-data)
       #   # Body: file=<binary image/png>
       #   client.accounts.upload_logo('/path/to/logo.png')
       #
-      #   # Response (unwrapped data payload):
+      #   # Current sandbox response (unwrapped data payload):
       #   {
       #     'mime_type' => 'image/png',
       #     'version' => 1784562814,
       #     'updated_at' => '2026-07-20T15:53:35Z'
       #   }
+      #   # => nil when the API returns the documented no-data envelope
       def upload_logo(source, account_id_override = nil)
         acc_id = account_id(account_id_override)
         buffer, file_name = read_source(source)
@@ -239,7 +249,7 @@ module Assinafy
       # Delete the account brand logo.
       #
       # @param account_id_override [String, nil]
-      # @return [nil] the API returns `data: []`; the SDK normalizes this to `nil`
+      # @return [nil] the documented success envelope has no `data` payload
       # @see DELETE /accounts/{account_id}/logo
       # @example Delete the logo
       #   # Request: DELETE /accounts/{account_id}/logo

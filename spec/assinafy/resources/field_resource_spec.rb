@@ -58,6 +58,18 @@ RSpec.describe Assinafy::Resources::FieldResource do
           .with(body: hash_including('name' => 'New Field Name'))
       ).to have_been_made
     end
+
+    it 'preserves an explicit nil regex so callers can clear it' do
+      stub_request(:put, "#{base_url}/accounts/acc/fields/field-1")
+        .with(body: hash_including('regex' => nil))
+        .to_return(api_envelope({ 'id' => 'field-1', 'regex' => nil }))
+
+      resource.update('field-1', regex: nil)
+
+      expect(
+        a_request(:put, "#{base_url}/accounts/acc/fields/field-1").with(body: hash_including('regex' => nil))
+      ).to have_been_made
+    end
   end
 
   describe '#delete' do

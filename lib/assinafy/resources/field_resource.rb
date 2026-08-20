@@ -50,7 +50,7 @@ module Assinafy
       # NOTE: this endpoint does not send pagination headers, so `meta` is always
       # `nil` here (unlike other list endpoints which return a pagination Hash).
       #
-      # @param params [Hash] `include_inactive`, `include_standard`, `page`, `per_page`
+      # @param params [Hash] `include_inactive`, `include_standard`
       # @param account_id_override [String, nil]
       # @return [Hash{Symbol=>Array,nil}] `{ data: [...], meta: nil }`
       # @see GET /accounts/{accountId}/fields
@@ -60,7 +60,7 @@ module Assinafy
       #   # => {
       #   #   data: [
       #   #     {
-      #   #       "id"             => "102d25a48bec03ebcf3b5f651998",
+      #   #       "id"             => "field-id",
       #   #       "name"           => "Nome",
       #   #       "type"           => "personName",
       #   #       "regex"          => nil,
@@ -148,7 +148,10 @@ module Assinafy
       def update(field_id, payload, account_id_override = nil)
         acc_id = account_id(account_id_override)
         fid    = require_id(field_id, 'Field ID')
-        body   = body_params(require_payload(payload))
+        raw    = require_payload(payload)
+        body   = body_params(raw)
+        body['regex'] = nil if (raw.key?(:regex) && raw[:regex].nil?) ||
+                               (raw.key?('regex') && raw['regex'].nil?)
 
         call('Failed to update field definition') do
           http_put("accounts/#{acc_id}/fields/#{fid}", body)
@@ -193,8 +196,8 @@ module Assinafy
       #   # => { "type" => "text", "success" => true, "error_message" => "" }
       #
       # @example Validate as a signer (signer-access-code auth, sent as a query param)
-      #   client.fields.validate('field-id', '400.676.228-36', signer_access_code: 'hAvmvk6Urzus...')
-      #   # => { "type" => "cpf", "success" => false, "error_message" => "Invalid CPF." }
+      #   client.fields.validate('field-id', 'Some text', signer_access_code: 'signer-access-code')
+      #   # => { "type" => "text", "success" => true, "error_message" => "" }
       def validate(field_id, value, account_id_override = nil, signer_access_code: nil)
         acc_id = account_id(account_id_override)
         fid    = require_id(field_id, 'Field ID')

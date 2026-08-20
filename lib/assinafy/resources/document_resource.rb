@@ -10,7 +10,7 @@ module Assinafy
       MAX_UPLOAD_BYTES = 25 * 1024 * 1024
       READY_STATUSES   = %w[metadata_ready pending_signature certificated].freeze
       FAILED_STATUSES  = %w[failed rejected_by_signer rejected_by_user expired].freeze
-      ARTIFACT_TYPES   = %w[original certificated certificate-page bundle].freeze
+      ARTIFACT_TYPES   = %w[original certificated certificate-page bundle pades].freeze
 
       # Upload a PDF and create a document.
       #
@@ -33,7 +33,7 @@ module Assinafy
       #   {
       #     'resource' => 'document',
       #     'id' => '1032009d72b364f377ff270405cc',
-      #     'account_id' => '102d25a489f34a275d31a16045fd',
+      #     'account_id' => 'account-id',
       #     'template_id' => nil,
       #     'name' => 'assinafy_audit_test.pdf',
       #     'status' => 'uploaded',
@@ -51,16 +51,17 @@ module Assinafy
       #   }
       # @example Upload raw bytes from memory
       #   client.documents.upload(buffer: pdf_bytes, file_name: 'in_memory.pdf')
+      # @note The SDK enforces the `.pdf` extension and 25 MB limit; the API
+      #   performs authoritative PDF-structure validation.
       def upload(source, options = {})
-        buffer, file_name = load_source(source)
+        buffer, file_name = read_source(source, max_bytes: MAX_UPLOAD_BYTES)
         validate_upload!(buffer, file_name)
 
         acc_id = account_id(options[:account_id])
 
-        @logger.info("Uploading document #{file_name} (#{buffer.bytesize} bytes)")
+        @logger.info("Uploading document (#{buffer.bytesize} bytes)")
 
-        io      = StringIO.new(buffer)
-        payload = { file: Faraday::FilePart.new(io, 'application/pdf', file_name) }
+        payload = { file: file_part(buffer, file_name, 'application/pdf') }
         payload[:name] = options[:name] if options[:name]
 
         document = call('Document upload failed') do
@@ -77,13 +78,13 @@ module Assinafy
 
       # List documents for an account.
       #
-      # @param params [Hash] query parameters (`status`, `method`, `search`, `sort`, `page`, `per_page`)
+      # @param params [Hash] query parameters (`status`, `method`, `search`, `sort`, `tags`, `page`, `per_page`)
       # @param account_id_override [String, nil]
       # @return [Hash{Symbol=>Array,Hash}] `{ data: [...], meta: { current_page:, per_page:, total:, last_page: } }`
       #
       # @see GET /accounts/{account_id}/documents
       # @example List the first page of documents
-      #   # Request: GET /accounts/{account_id}/documents?per_page=3
+      #   # Request: GET /accounts/{account_id}/documents?per-page=3
       #   client.documents.list(per_page: 3)
       #
       #   # Response (unwrapped data payload):
@@ -91,7 +92,7 @@ module Assinafy
       #     data: [
       #       {
       #         'id' => '1031ff847e1aecdcf848f579cc77',
-      #         'account_id' => '102d25a489f34a275d31a16045fd',
+      #         'account_id' => 'account-id',
       #         'template_id' => nil,
       #         'name' => 'audit.pdf',
       #         'status' => 'metadata_ready',
@@ -133,7 +134,7 @@ module Assinafy
       # @return [Hash{Symbol=>Array,Hash}] `{ data: [...], meta: {..} | nil }`
       # @see GET /accounts/{account_id}/documents/search
       # @example Search documents by name
-      #   # Request: GET /accounts/{account_id}/documents/search?query=contract
+      #   # Request: GET /accounts/{account_id}/documents/search?search=contract
       #   client.documents.search('contract')
       #
       #   # Response (unwrapped data payload):
@@ -141,7 +142,7 @@ module Assinafy
       #     data: [
       #       {
       #         'id' => '103b0253fdc3607d342c49f9b55d',
-      #         'account_id' => '102d25a489f34a275d31a16045fd',
+      #         'account_id' => 'account-id',
       #         'template_id' => nil,
       #         'name' => 'contract.pdf',
       #         'status' => 'metadata_ready',
@@ -160,7 +161,7 @@ module Assinafy
         acc_id = account_id(account_id_override)
 
         call_list('Failed to search documents') do
-          http_get("accounts/#{acc_id}/documents/search", params.merge(query: query))
+          http_get("accounts/#{acc_id}/documents/search", params.merge(search: query))
         end
       end
 
@@ -205,7 +206,7 @@ module Assinafy
       #   {
       #     'resource' => 'document',
       #     'id' => '1032009d72b364f377ff270405cc',
-      #     'account_id' => '102d25a489f34a275d31a16045fd',
+      #     'account_id' => 'account-id',
       #     'template_id' => nil,
       #     'name' => 'assinafy_audit_test.pdf',
       #     'status' => 'metadata_ready',
@@ -251,7 +252,7 @@ module Assinafy
       #   {
       #     'resource' => 'document',
       #     'id' => '103b0253fdc3607d342c49f9b55d',
-      #     'account_id' => '102d25a489f34a275d31a16045fd',
+      #     'account_id' => 'account-id',
       #     'name' => 'renamed.pdf',
       #     'status' => 'metadata_ready',
       #     'artifacts' => { 'original' => 'https://...', 'thumbnail' => 'https://...' },
@@ -291,13 +292,19 @@ module Assinafy
       #     # ... (see #details for the full document shape)
       #   }
       def wait_until_ready(document_id, max_wait_seconds: 30, poll_interval_seconds: 2)
-        doc_id   = require_id(document_id, 'Document ID')
-        deadline = Time.now + max_wait_seconds
+        doc_id = require_id(document_id, 'Document ID')
+        unless max_wait_seconds.is_a?(Numeric) && max_wait_seconds > 0 &&
+               poll_interval_seconds.is_a?(Numeric) && poll_interval_seconds > 0
+          raise ValidationError.new('Wait and poll intervals must be positive numbers')
+        end
+
+        clock    = Process::CLOCK_MONOTONIC
+        deadline = Process.clock_gettime(clock) + max_wait_seconds
         attempts = 0
 
         @logger.info("Waiting for document to be ready: #{doc_id}")
 
-        while Time.now < deadline
+        while Process.clock_gettime(clock) < deadline
           attempts += 1
           begin
             doc    = details(doc_id)
@@ -310,13 +317,14 @@ module Assinafy
             if FAILED_STATUSES.include?(status)
               raise ValidationError.new("Document processing failed with status: #{status}")
             end
-          rescue ValidationError
-            raise
-          rescue StandardError => e
+          rescue NetworkError => e
             @logger.warn("Error checking document status: #{e.message}")
           end
 
-          sleep(poll_interval_seconds)
+          remaining = deadline - Process.clock_gettime(clock)
+          break unless remaining > 0
+
+          sleep([poll_interval_seconds, remaining].min)
         end
 
         raise ValidationError.new(
@@ -328,7 +336,8 @@ module Assinafy
       # Download a document artifact as raw bytes.
       #
       # @param document_id   [String]
-      # @param artifact_name [String] one of {ARTIFACT_TYPES} (default `certificated`)
+      # @param artifact_name [String] `original`, `certificated`, `certificate-page`, `pades`, or
+      #   `bundle` (default `certificated`)
       # @return [String] binary PDF body
       # @raise [Assinafy::ValidationError] on unknown artifact type
       # @see GET /documents/{document_id}/download/{artifact_name}
@@ -490,7 +499,7 @@ module Assinafy
       #       'id' => 'fa8c140ccd5781b079738d19e95',
       #       'method' => 'virtual',
       #       'signers' => [{ 'id' => 'fa8c140c...', 'full_name' => 'Suzana Cordeiro',
-      #                       'email' => 's@x.com', 'has_accepted_terms' => false }],
+      #                       'email' => 'signer@example.com', 'has_accepted_terms' => false }],
       #       'summary' => { 'signer_count' => 1, 'completed_count' => 0, 'signers' => [] },
       #       'signing_urls' => [{ 'signer_id' => 'customid1', 'url' => 'https://.../sign/...' }]
       #       # ... (also items, copy_receivers, expires_at, message)
@@ -515,7 +524,8 @@ module Assinafy
       # Estimate the cost of creating a document from a template without consuming credits.
       #
       # @param template_id          [String]
-      # @param signers_or_payload   [Array<Hash>, Hash] same shape as #create_from_template
+      # @param signers_or_payload   [Array<Hash>, Hash] signers with required +role_id+ and
+      #   optional +verification_method+ / +notification_methods+; signer IDs are not required
       # @param account_id_override  [String, nil]
       # @return [Hash] cost breakdown with current account balances
       #
@@ -584,10 +594,12 @@ module Assinafy
         end
       end
 
-      # Fetch the unauthenticated, public-facing metadata of a document.
+      # Fetch the unauthenticated, public-facing metadata of a document. The
+      # OpenAPI declares the full Document schema, while the current sandbox
+      # returns the smaller payload shown below; the SDK passes either through.
       #
       # @param document_id [String]
-      # @return [Hash] minimal public metadata
+      # @return [Hash] a Document Hash, or the current sandbox's minimal metadata Hash
       # @see GET /public/documents/{document_id}
       # @example Fetch public-facing document info (no auth required)
       #   # Request: GET /public/documents/{document_id}
@@ -610,18 +622,29 @@ module Assinafy
       end
 
       # Send a 6-digit access token for the document to a signer (public endpoint).
+      # The current OpenAPI permits no body or an `{ email: }` body, while the
+      # deployed sandbox requires `{ recipient:, channel: }` when a recipient is supplied.
       #
       # @param document_id [String]
-      # @param recipient   [String] email address or WhatsApp phone number
-      # @param channel     [String] `email` or `whatsapp`
-      # @return [Hash] `{ 'document' => {..}, 'channel' => String, 'recipient' => String }`
+      # @param recipient   [String, nil] deployed-API email address or WhatsApp phone number
+      # @param channel     [String, nil] deployed-API `email` or `whatsapp` channel
+      # @param email       [String, nil] email address for the current OpenAPI request shape
+      # @return [nil, Hash] `nil` for the OpenAPI's no-data envelope; the current
+      #   sandbox returns `{ 'document' => {..}, 'channel' => String, 'recipient' => String }`
       # @see PUT /public/documents/{document_id}/send-token
-      # @example Email a signer their access token (no auth required)
-      #   # Request: PUT /public/documents/{document_id}/send-token
-      #   # Body: { "recipient": "signer@example.com", "channel": "email" }
-      #   client.documents.send_token('39adfe3r5a3a', recipient: 'signer@example.com', channel: 'email')
+      # @example Ask the API to use the document's signer contact (no auth required)
+      #   client.documents.send_token('document-id')
       #
-      #   # Response (unwrapped data payload):
+      # @example Email a signer using the current OpenAPI request (no auth required)
+      #   # Request: PUT /public/documents/{document_id}/send-token
+      #   # Body: { "email": "signer@example.com" }
+      #   client.documents.send_token('document-id', email: 'signer@example.com')
+      #
+      # @example Use the current sandbox request shape
+      #   # Body: { "recipient": "signer@example.com", "channel": "email" }
+      #   client.documents.send_token('document-id', recipient: 'signer@example.com', channel: 'email')
+      #
+      #   # Current sandbox response (unwrapped data payload):
       #   {
       #     'document' => {
       #       'resource' => 'document',
@@ -633,14 +656,29 @@ module Assinafy
       #     'channel' => 'email',
       #     'recipient' => 'signer@example.com'
       #   }
-      def send_token(document_id, recipient:, channel:)
+      #   # => nil when the API returns the documented no-data envelope
+      def send_token(document_id, recipient: nil, channel: nil, email: nil)
         doc_id = require_id(document_id, 'Document ID')
-        require_present(recipient, 'Recipient')
-        require_present(channel, 'Channel')
+        if email.nil? && recipient.nil? && channel.nil?
+          payload = nil
+        elsif !email.nil?
+          if recipient || channel
+            raise ValidationError.new('Use either email or recipient/channel, not both')
+          end
+
+          payload = { email: require_present(email, 'Email') }
+        else
+          require_present(recipient, 'Recipient')
+          delivery_channel = require_present(channel, 'Channel').to_s
+          unless %w[email whatsapp].include?(delivery_channel)
+            raise ValidationError.new('Channel must be email or whatsapp')
+          end
+
+          payload = { recipient: recipient, channel: delivery_channel }
+        end
 
         call('Failed to send signer token') do
-          http_put("public/documents/#{doc_id}/send-token",
-                   body_params(recipient: recipient, channel: channel))
+          http_put("public/documents/#{doc_id}/send-token", payload && body_params(payload))
         end
       end
 
@@ -677,14 +715,14 @@ module Assinafy
       # all tags from the document.
       #
       # @param document_id [String]
-      # @param tags [Array<String>] tag names
+      # @param tags [Array<String>] tag IDs per OpenAPI; the deployed sandbox also accepts existing names
       # @param account_id_override [String, nil]
       # @return [Array<Hash>] the document's full tag set after replacement (empty Array when detaching all)
       # @see PUT /accounts/{account_id}/documents/{document_id}/tags
       # @example Replace the tag set with a single tag
       #   # Request: PUT /accounts/{account_id}/documents/{document_id}/tags
-      #   # Body: { "tags": ["Contracts"] }
-      #   client.documents.replace_tags('1032009d72b364f377ff270405cc', ['Contracts'])
+      #   # Body: { "tags": ["ab12c09f3e709a8a1c82d69b145"] }
+      #   client.documents.replace_tags('1032009d72b364f377ff270405cc', ['ab12c09f3e709a8a1c82d69b145'])
       #
       #   # Response (unwrapped data payload):
       #   [
@@ -710,14 +748,14 @@ module Assinafy
       # Attach additional tags to a document without removing existing tags.
       #
       # @param document_id [String]
-      # @param tags [Array<String>] tag names
+      # @param tags [Array<String>] tag IDs per OpenAPI; the deployed sandbox also accepts existing names
       # @param account_id_override [String, nil]
       # @return [Array<Hash>] the document's full tag set after the append
       # @see POST /accounts/{account_id}/documents/{document_id}/tags
       # @example Attach a tag without removing existing ones
       #   # Request: POST /accounts/{account_id}/documents/{document_id}/tags
-      #   # Body: { "tags": ["audit-e2e-renamed"] }
-      #   client.documents.append_tags('1032009d72b364f377ff270405cc', ['audit-e2e-renamed'])
+      #   # Body: { "tags": ["1032009e69e366ca5adc879ef26c"] }
+      #   client.documents.append_tags('1032009d72b364f377ff270405cc', ['1032009e69e366ca5adc879ef26c'])
       #
       #   # Response (unwrapped data payload):
       #   [
@@ -812,23 +850,6 @@ module Assinafy
       end
 
       private
-
-      def load_source(source)
-        if source.is_a?(Hash) && source[:buffer]
-          raise ValidationError.new('file_name is required when uploading a buffer') unless source[:file_name]
-
-          [source[:buffer], source[:file_name]]
-        elsif source.is_a?(Hash) && source[:file_path]
-          file_path = source[:file_path]
-          raise ValidationError.new('file_path is required') unless file_path
-
-          [File.binread(file_path), source[:file_name] || File.basename(file_path)]
-        elsif source.is_a?(String)
-          [File.binread(source), File.basename(source)]
-        else
-          raise ValidationError.new('Invalid upload source: provide :file_path or :buffer')
-        end
-      end
 
       def validate_upload!(buffer, file_name)
         if buffer.nil? || buffer.bytesize == 0

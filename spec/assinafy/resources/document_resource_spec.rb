@@ -6,9 +6,9 @@ RSpec.describe Assinafy::Resources::DocumentResource do
   let(:resource)   { described_class.new(connection, 'acc') }
 
   describe '#search' do
-    it 'GETs the account documents/search endpoint with a query param' do
+    it 'GETs the account documents/search endpoint with the documented search param' do
       stub_request(:get, "#{base_url}/accounts/acc/documents/search")
-        .with(query: hash_including('query' => 'contract'))
+        .with(query: hash_including('search' => 'contract'))
         .to_return(api_envelope([{ 'id' => 'doc-1', 'name' => 'contract.pdf' }]))
 
       result = resource.search('contract')
@@ -33,6 +33,11 @@ RSpec.describe Assinafy::Resources::DocumentResource do
   describe '#details' do
     it 'raises when document ID is empty' do
       expect { resource.details('') }.to raise_error(Assinafy::ValidationError)
+    end
+
+    it 'rejects IDs that can alter the request path' do
+      expect { resource.details('../users') }.to raise_error(Assinafy::ValidationError)
+      expect { resource.details('doc?admin=true') }.to raise_error(Assinafy::ValidationError)
     end
 
     it 'fetches document details by ID' do
@@ -127,6 +132,13 @@ RSpec.describe Assinafy::Resources::DocumentResource do
   end
 
   describe '#download' do
+    it 'supports the documented pades artifact' do
+      stub_request(:get, "#{base_url}/documents/doc-1/download/pades")
+        .to_return(status: 200, body: 'PDF', headers: { 'Content-Type' => 'application/pdf' })
+
+      expect(resource.download('doc-1', 'pades')).to eq('PDF')
+    end
+
     it 'rejects unsupported artifact names' do
       expect { resource.download('doc-1', 'unknown') }.to raise_error(Assinafy::ValidationError)
     end
@@ -147,6 +159,25 @@ RSpec.describe Assinafy::Resources::DocumentResource do
       expect do
         resource.upload(buffer: '', file_name: 'document.pdf')
       end.to raise_error(Assinafy::ValidationError, /empty/)
+    end
+
+    it 'raises ValidationError when a file cannot be read' do
+      expect { resource.upload('/path/that/does/not/exist.pdf') }
+        .to raise_error(Assinafy::ValidationError, /Unable to read/)
+    end
+
+    it 'normalizes invalid file paths to ValidationError' do
+      expect { resource.upload("bad\0path.pdf") }
+        .to raise_error(Assinafy::ValidationError, /Unable to read/)
+    end
+
+    it 'bounds file reads before enforcing the maximum upload size' do
+      max_bytes = described_class::MAX_UPLOAD_BYTES
+      oversized = instance_double(String, bytesize: max_bytes + 1)
+      allow(File).to receive(:binread).with('/tmp/oversized.pdf', max_bytes + 1).and_return(oversized)
+
+      expect { resource.upload('/tmp/oversized.pdf') }
+        .to raise_error(Assinafy::ValidationError, /25MB/)
     end
   end
 
@@ -201,16 +232,16 @@ RSpec.describe Assinafy::Resources::DocumentResource do
   end
 
   describe '#append_tags' do
-    it 'posts tag names to the append endpoint' do
+    it 'posts tag IDs to the append endpoint' do
       stub_request(:post, "#{base_url}/accounts/acc/documents/doc-1/tags")
         .to_return(api_envelope([{ 'id' => 'tag-1', 'name' => 'Urgent' }]))
 
-      result = resource.append_tags('doc-1', ['Urgent'])
+      result = resource.append_tags('doc-1', ['tag-1'])
 
       expect(result.first['name']).to eq('Urgent')
       expect(
         a_request(:post, "#{base_url}/accounts/acc/documents/doc-1/tags")
-          .with(body: { 'tags' => ['Urgent'] })
+          .with(body: { 'tags' => ['tag-1'] })
       ).to have_been_made
     end
 
@@ -248,6 +279,13 @@ RSpec.describe Assinafy::Resources::DocumentResource do
       expect(resource.thumbnail('doc-1')).to eq('PNG')
       expect(a_request(:get, "#{base_url}/documents/doc-1/thumbnail")).to have_been_made
     end
+
+    it 'raises ApiError for a successful HTTP response containing an error envelope' do
+      stub_request(:get, "#{base_url}/documents/doc-1/thumbnail")
+        .to_return(json_response({ 'status' => 404, 'message' => 'Not found' }))
+
+      expect { resource.thumbnail('doc-1') }.to raise_error(Assinafy::ApiError)
+    end
   end
 
   describe '#download_page' do
@@ -275,15 +313,33 @@ RSpec.describe Assinafy::Resources::DocumentResource do
   end
 
   describe '#send_token' do
+    it 'supports the current OpenAPI request without a body' do
+      path = "#{base_url}/public/documents/doc-1/send-token"
+      stub_request(:put, path).with(body: nil)
+                              .to_return(json_response({ 'status' => 200, 'message' => 'Token sent' }))
+
+      expect(resource.send_token('doc-1')).to be_nil
+      expect(a_request(:put, path).with(body: nil)).to have_been_made
+    end
+
+    it 'supports the current OpenAPI email body' do
+      path = "#{base_url}/public/documents/doc-1/send-token"
+      stub_request(:put, path).with(body: { 'email' => 'recipient@example.com' })
+                              .to_return(json_response({ 'status' => 200, 'message' => 'Token sent' }))
+
+      expect(resource.send_token('doc-1', email: 'recipient@example.com')).to be_nil
+      expect(a_request(:put, path).with(body: { 'email' => 'recipient@example.com' })).to have_been_made
+    end
+
     it 'puts the recipient and channel to the send-token endpoint' do
       path = "#{base_url}/public/documents/doc-1/send-token"
       stub_request(:put, path).to_return(api_envelope({ 'channel' => 'email' }))
 
-      result = resource.send_token('doc-1', recipient: 'a@x.com', channel: 'email')
+      result = resource.send_token('doc-1', recipient: 'recipient@example.com', channel: 'email')
 
       expect(result['channel']).to eq('email')
       expect(
-        a_request(:put, path).with(body: { 'recipient' => 'a@x.com', 'channel' => 'email' })
+        a_request(:put, path).with(body: { 'recipient' => 'recipient@example.com', 'channel' => 'email' })
       ).to have_been_made
     end
 
@@ -296,9 +352,16 @@ RSpec.describe Assinafy::Resources::DocumentResource do
 
     it 'raises and makes no request when channel is blank' do
       expect do
-        resource.send_token('doc-1', recipient: 'a@x.com', channel: '')
+        resource.send_token('doc-1', recipient: 'recipient@example.com', channel: '')
       end.to raise_error(Assinafy::ValidationError)
       expect(a_request(:put, %r{/send-token})).not_to have_been_made
+    end
+
+    it 'rejects mixing the OpenAPI and deployed request shapes' do
+      expect do
+        resource.send_token('doc-1', email: 'recipient@example.com',
+                                      recipient: 'recipient@example.com', channel: 'email')
+      end.to raise_error(Assinafy::ValidationError)
     end
   end
 
@@ -311,6 +374,42 @@ RSpec.describe Assinafy::Resources::DocumentResource do
 
       expect(result['status']).to eq('metadata_ready')
       expect(a_request(:get, "#{base_url}/documents/doc-1")).to have_been_made
+    end
+
+    it 'propagates API errors instead of masking them as timeouts' do
+      stub_request(:get, "#{base_url}/documents/doc-1")
+        .to_return(json_response({ 'status' => 401, 'message' => 'Unauthorized' }, status: 401))
+
+      expect do
+        resource.wait_until_ready('doc-1', max_wait_seconds: 5, poll_interval_seconds: 1)
+      end.to raise_error(Assinafy::ApiError) { |error| expect(error.status_code).to eq(401) }
+    end
+
+    it 'stops immediately when document processing reaches a failed state' do
+      stub_request(:get, "#{base_url}/documents/doc-1")
+        .to_return(api_envelope({ 'id' => 'doc-1', 'status' => 'failed' }))
+
+      expect do
+        resource.wait_until_ready('doc-1', max_wait_seconds: 5, poll_interval_seconds: 1)
+      end.to raise_error(Assinafy::ValidationError, /processing failed/)
+    end
+
+    it 'rejects non-positive polling intervals' do
+      expect do
+        resource.wait_until_ready('doc-1', max_wait_seconds: 5, poll_interval_seconds: 0)
+      end.to raise_error(Assinafy::ValidationError)
+    end
+
+    it 'does not issue another request after the polling deadline' do
+      stub_request(:get, "#{base_url}/documents/doc-1")
+        .to_return(api_envelope({ 'id' => 'doc-1', 'status' => 'metadata_processing' }))
+      allow(Process).to receive(:clock_gettime).with(Process::CLOCK_MONOTONIC).and_return(0, 0, 0, 1)
+      allow(resource).to receive(:sleep)
+
+      expect do
+        resource.wait_until_ready('doc-1', max_wait_seconds: 1, poll_interval_seconds: 1)
+      end.to raise_error(Assinafy::ValidationError, /Timeout/)
+      expect(a_request(:get, "#{base_url}/documents/doc-1")).to have_been_made.once
     end
   end
 end

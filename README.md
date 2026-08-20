@@ -5,7 +5,7 @@
 
 Ruby SDK for the [Assinafy API v1](https://api.assinafy.com.br/v1/docs).
 
-Maps 1:1 to every endpoint in the Assinafy v1 [OpenAPI specification](https://api.assinafy.com.br/v1/docs/openapi.json). Coverage is enforced by [`spec/api_coverage_spec.rb`](spec/api_coverage_spec.rb), and every endpoint is exercised live against the sandbox by the opt-in [integration suite](spec/integration/live_sandbox_spec.rb).
+The SDK includes a public wrapper for every operation in the current Assinafy v1 [OpenAPI specification](https://api.assinafy.com.br/v1/docs/openapi.json), plus sandbox-live template routes that are not yet listed there. The checked-in [`spec/api_coverage_spec.rb`](spec/api_coverage_spec.rb) verifies that its static route-to-method inventory is unique and points to public SDK methods.
 
 - **Source:** <https://github.com/assinafy/ruby-sdk>
 - **Issues:** <https://github.com/assinafy/ruby-sdk/issues>
@@ -13,7 +13,7 @@ Maps 1:1 to every endpoint in the Assinafy v1 [OpenAPI specification](https://ap
 
 ## Requirements
 
-- Ruby 3.2+ (tested on 3.2, 3.3, 3.4, 4.0, and `head`)
+- Ruby 3.2+ (maintained support: 3.3+; 3.2 is legacy/EOL compatibility)
 - Bundler
 
 ## Installation
@@ -82,21 +82,21 @@ client = Assinafy::Client.new(
 - `api_key:` sends `X-Api-Key` (preferred).
 - `token:` sends `Authorization: Bearer ...` (legacy session token).
 - A client can also be created with no credentials for authentication and public/signer endpoints.
-- All resource methods accept a per-call `account_id_override`, useful for multi-workspace tenants.
+- Account-scoped methods document a per-call account override for multi-workspace tenants.
 - Provide a `Logger`-compatible `logger:` to observe upload/assignment/webhook lifecycle messages.
 
 `Client.from_config(hash)` accepts string- or symbol-keyed hashes (e.g. parsed YAML).
 
 ## Resources
 
-`Assinafy::Client` exposes twelve accessors — eleven API resources that cover every
-endpoint, plus the local `webhook_verifier` helper:
+`Assinafy::Client` exposes twelve accessors — eleven API resources for the current
+OpenAPI operations and sandbox-live template routes, plus the local `webhook_verifier` helper:
 
 | Accessor                    | What it covers                                                 |
 | --------------------------- | -------------------------------------------------------------- |
 | `client.auth`               | Login, social login, password reset, API keys                  |
 | `client.accounts`           | Account CRUD, theme, KPI stats, brand logo                     |
-| `client.users`              | The authenticated user's profile and cross-account KPIs        |
+| `client.users`              | User profile, notification preferences, cross-account KPIs     |
 | `client.documents`          | Upload, list, search, rename, download, delete, verify, tags   |
 | `client.signers`            | Workspace signer CRUD + signer self-service endpoints          |
 | `client.signer_documents`   | Signer-authenticated multi-document operations + search        |
@@ -112,14 +112,13 @@ endpoint, plus the local `webhook_verifier` helper:
 ```ruby
 client.auth.login(email: 'user@example.com', password: 'secret')
 client.auth.social_login(provider: 'google', token: 'id-token', has_accepted_terms: true)
-client.auth.social_login_url(authclient: 'web')       # builds the OAuth redirect URL (no request)
 client.auth.link_social_login(provider: 'google', token: 'id-token')
 client.auth.create_api_key(password: 'secret')
 client.auth.get_api_key
 client.auth.delete_api_key
-client.auth.change_password(email: 'u@e.com', password: 'old', new_password: 'new')
-client.auth.request_password_reset(email: 'u@e.com')
-client.auth.reset_password(email: 'u@e.com', new_password: 'new', token: 'reset-token')
+client.auth.change_password(email: 'user@example.com', password: 'old', new_password: 'new')
+client.auth.request_password_reset(email: 'user@example.com')
+client.auth.reset_password(email: 'user@example.com', new_password: 'new', token: 'reset-token')
 ```
 
 ### Accounts
@@ -131,18 +130,24 @@ client.accounts.create(name: 'Acme Inc.')
 client.accounts.update({ name: 'Acme Renamed' })
 client.accounts.delete(force: true, account_id_override: 'account-id')
 client.accounts.theme                                 # { account_name, primary_color, secondary_color, logo }
-client.accounts.stats(granularity: 'monthly', month: '2026-06')  # KPI series (per the API reference)
+client.accounts.stats(granularity: 'monthly', month: '2026-06')  # account KPI rows
 client.accounts.upload_logo({ file_path: './logo.png' })
-client.accounts.download_logo                          # raw image bytes
+client.accounts.download_logo                          # raw bytes; raises ApiError on HTTP 404 when unset
 client.accounts.delete_logo
 ```
 
 ### Users
 
 ```ruby
-client.users.me                                       # { user: {...}, accounts: [...] }
-client.users.stats(granularity: 'monthly')            # cross-account KPI series (per the API reference)
+client.users.me # OpenAPI: AuthUser; some sandboxes: { user:, accounts: }; data is passed through
+client.users.stats(granularity: 'monthly')            # cross-account KPI rows
+client.users.notification_preferences                 # returns all nine owner-email preferences
+client.users.update_notification_preferences(SignerDeclined: false) # partial request; returns all nine
 ```
+
+Both stats methods return rows with `period`, `documents_uploaded`, `documents_sent`,
+`signature_requests`, `signature_requests_email`, `signature_requests_whatsapp`,
+`signature_requests_viewed`, `signature_requests_completed`, and `documents_certified`.
 
 ### Documents
 
@@ -158,14 +163,18 @@ client.documents.wait_until_ready('document-id', max_wait_seconds: 60)
 client.documents.activities('document-id')
 client.documents.thumbnail('document-id')                    # binary PNG/JPEG
 client.documents.download('document-id', 'certificated')     # binary PDF
+client.documents.download('document-id', 'pades')            # signed PAdES artifact
 client.documents.download_page('document-id', 'page-id')
 client.documents.delete('document-id')
 client.documents.verify('signature-hash')
 client.documents.public_info('document-id')
-client.documents.send_token('document-id', recipient: 'alice@example.com', channel: 'email')
+client.documents.send_token('document-id') # current OpenAPI also permits no body
+client.documents.send_token('document-id', email: 'alice@example.com') # current OpenAPI body
+# Current sandbox deployment: recipient: 'alice@example.com', channel: 'email'
 client.documents.list_tags('document-id')
-client.documents.replace_tags('document-id', ['Contracts', '2026-Q1'])
-client.documents.append_tags('document-id', ['Urgent'])
+client.documents.replace_tags('document-id', ['tag-id-1', 'tag-id-2'])
+client.documents.append_tags('document-id', ['tag-id-3'])
+# The current sandbox also accepts existing tag names in these arrays.
 client.documents.detach_tag('document-id', 'tag-id')
 
 # Template-driven creation
@@ -192,7 +201,7 @@ client.signers.create(full_name: 'Alice Silva', email: 'alice@example.com')
 client.signers.create(full_name: 'Bob Costa',  phone: '+5548999990000') # phone -> whatsapp_phone_number
 client.signers.get('signer-id')
 client.signers.list(search: 'alice', per_page: 50)  # returns { data:, meta: }
-client.signers.update('signer-id', full_name: 'Alice S.')
+client.signers.update('signer-id', full_name: 'Alice S.', government_id: '00000000000')
 client.signers.delete('signer-id')
 
 # Convenience: case-insensitive lookup with built-in 404 handling
@@ -202,11 +211,12 @@ client.signers.find_by_email('alice@example.com')
 ### Signers (self-service, signer-access-code)
 
 ```ruby
-client.signers.self_data(signer_access_code: 'code')
+client.signers.self_data(signer_access_code: 'code') # includes has_signature, has_initial, is_signature_reusable
 client.signers.accept_terms(signer_access_code: 'code')
 client.signers.verify_email(verification_code: '123456', signer_access_code: 'code')
-client.signers.confirm_data('document-id', { full_name: 'Alice Silva', email: 'alice@example.com', government_id: '15774136604' }, signer_access_code: 'code')
+client.signers.confirm_data('document-id', { full_name: 'Alice Silva', email: 'alice@example.com', government_id: '00000000000' }, signer_access_code: 'code')
 client.signers.upload_signature(png_bytes, signer_access_code: 'code', type: 'signature', content_type: 'image/png')
+# => nil for the documented no-data envelope; some deployments return []
 client.signers.download_signature(signer_access_code: 'code', type: 'signature')
 ```
 
@@ -229,7 +239,8 @@ client.assignments.create(
   method:  'collect',
   signers: [{ id: 'signer-1' }],
   entries: [{ page_id: 'page-id', fields: [{ signer_id: 'signer-1', field_id: 'field-id',
-                                             display_settings: { top: 100, left: 100 } }] }]
+                                             display_settings: { left: 100, top: 100, width: 240,
+                                                                 height: 48, fontSize: 16 } }] }]
 )
 
 client.assignments.list                                       # GET /assignments (scoped to the account)
@@ -251,7 +262,7 @@ client.assignments.sign(
 client.assignments.decline('document-id', 'assignment-id', decline_reason: 'Clause 2', signer_access_code: 'code')
 ```
 
-> The `sign` endpoint is the only place the Assinafy API uses camelCase. This SDK accepts the snake_case keys (`item_id`, `field_id`, `page_id`, `value`) shown above and maps them to the API's `itemId/fieldId/pageId/value` automatically. CamelCase input is also passed through unchanged.
+> The `sign` request body is the API's camelCase body-key exception. This SDK accepts the snake_case keys (`item_id`, `field_id`, `page_id`, `value`) shown above and maps them to `itemId/fieldId/pageId/value` automatically. CamelCase input is also passed through unchanged. Assignment listing separately uses the live-required `accountId` query parameter.
 
 ### Signer documents (multi-document workflows)
 
@@ -261,7 +272,7 @@ client.signer_documents.list('signer-id', { status: 'pending_signature' }, signe
 client.signer_documents.search('signer-id', 'contract', signer_access_code: 'code')
 client.signer_documents.sign_multiple(%w[doc-1 doc-2], signer_access_code: 'code')
 client.signer_documents.decline_multiple(%w[doc-1 doc-2], decline_reason: 'No', signer_access_code: 'code')
-client.signer_documents.download('signer-id', 'document-id', 'original') # public: no access code needed
+client.signer_documents.download('signer-id', 'document-id', 'pades') # public: no access code needed
 ```
 
 ### Templates
@@ -303,7 +314,7 @@ client.fields.validate('field-id', 'ABC-1234')
 # Or authenticated via signer-access-code
 client.fields.validate('field-id', 'ABC-1234', signer_access_code: 'code')
 client.fields.validate_multiple(
-  [{ field_id: 'a', value: '1' }, { field_id: 'b', value: 'x@y.com' }],
+  [{ field_id: 'a', value: '1' }, { field_id: 'b', value: 'value@example.com' }],
   signer_access_code: 'code'
 )
 ```
@@ -349,11 +360,12 @@ If no `webhook_secret` is configured, `verify` always returns `false` — safe-b
 
 ## Responses
 
-The Assinafy API wraps every JSON response in a `{ "status": ..., "message": ..., "data": ... }`
-envelope. The SDK unwraps it for you and returns just the `data` payload (a Hash for single
-resources, an Array for collection bodies). Binary endpoints (`download`, `thumbnail`,
-`download_page`, `download_signature`) return the raw bytes as an ASCII-8BIT `String`, and
-`delete`-style endpoints return `nil`.
+Most JSON successes use a `{ "status": ..., "message": ..., "data": ... }` envelope. The SDK
+returns the `data` payload (a Hash for single resources, an Array for collection bodies). For
+documented no-data envelopes containing only `status`/`message`, it returns `nil`; deployed API
+versions that add `data` are passed through. Binary endpoints (`download`, `thumbnail`,
+`download_page`, `download_signature`) return raw bytes as an ASCII-8BIT `String`, and
+delete-style endpoints return `nil`.
 
 Errors surface the envelope/framework error body through `Assinafy::ApiError`:
 
@@ -369,8 +381,8 @@ rescue Assinafy::ApiError => e
 end
 ```
 
-Every public method's YARD documentation includes an `@example` block with the request it
-sends and the (unwrapped) response payload it returns.
+Resource YARD documentation includes request/response examples and calls out known differences
+between the current OpenAPI document and the deployed sandbox.
 
 ## Pagination
 
@@ -424,16 +436,18 @@ bundle exec rubocop                 # Linting
 bundle exec bundler-audit check     # Dependency CVEs
 ```
 
-The coverage spec (`spec/api_coverage_spec.rb`) asserts every endpoint in the Assinafy v1 [OpenAPI specification](https://api.assinafy.com.br/v1/docs/openapi.json) has a corresponding SDK method.
+The coverage spec checks the committed route-to-method matrix for duplicate operations or wrappers, missing public methods, aliases that drift, and unmapped resource methods. It does not download or compare the [OpenAPI document](https://api.assinafy.com.br/v1/docs/openapi.json) during the test run; update the matrix deliberately when the remote contract changes.
 
 ### Live integration tests
 
-The suite in [`spec/integration/`](spec/integration/live_sandbox_spec.rb) exercises every resource end-to-end against the real sandbox. It is excluded from the default run and only executes when `ASSINAFY_LIVE=1` is set with credentials:
+The suite in [`spec/integration/`](spec/integration/live_sandbox_spec.rb) exercises representative workflows across every resource against the real sandbox. It is not an exhaustive operation-by-operation contract check: OTP- or feature-gated routes may be skipped, and sandbox rollout can lag the current OpenAPI document. The suite is excluded from the default run and only executes when `ASSINAFY_LIVE=1` is set with credentials:
 
 ```bash
 ASSINAFY_LIVE=1 \
 ASSINAFY_API_KEY=... \
 ASSINAFY_ACCOUNT_ID=... \
+ASSINAFY_TEST_EMAIL=recipient1@example.com \
+ASSINAFY_TEST_EMAIL2=recipient2@example.com \
 ASSINAFY_BASE_URL=https://sandbox.assinafy.com.br/v1 \
 bundle exec rspec spec/integration
 ```

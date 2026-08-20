@@ -11,8 +11,7 @@ updates:
       dev-dependencies:
         dependency-type: development
 
-  # Keep GitHub Actions references current (and, if pinned to SHAs later,
-  # bump those SHAs with changelog links).
+  # Keep the full-SHA GitHub Actions pins current with upstream releases.
   - package-ecosystem: github-actions
     directory: "/"
     schedule:

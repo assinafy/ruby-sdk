@@ -12,13 +12,13 @@ module Assinafy
     class TagResource < BaseResource
       # List tags in the workspace, ordered alphabetically by name.
       #
-      # @param params [Hash] query parameters (`search`, `page`, `per_page`)
+      # @param params [Hash] documented `search` query; additional deployment-specific keys are forwarded
       # @param account_id_override [String, nil]
       # @return [Hash{Symbol=>Array,Hash}] `{ data: [...], meta: { ... } }`
       # @see GET /accounts/{account_id}/tags
       # @example List tags matching a search term
-      #   # Request: GET /accounts/{account_id}/tags?search=doc&per_page=3
-      #   client.tags.list(search: 'doc', per_page: 3)
+      #   # Request: GET /accounts/{account_id}/tags?search=doc
+      #   client.tags.list(search: 'doc')
       #
       #   # Response (unwrapped data payload):
       #   {
@@ -142,6 +142,7 @@ module Assinafy
       def delete(tag_id, account_id_override = nil, force: false)
         acc_id = account_id(account_id_override)
         tid    = require_id(tag_id, 'Tag ID')
+        force  = require_boolean(force, 'force')
         params = force ? { force: true } : {}
 
         call('Failed to delete tag') do

@@ -5,20 +5,24 @@ module Assinafy
   # by convention — callers should reach for these via the resource methods,
   # not directly.
   module Utils
+    MAX_NORMALIZATION_DEPTH = 100
+
     class << self
-      # Unwrap an Assinafy "envelope" response — a Hash with `status` and `data`
-      # keys. Returns `data` on a 2xx envelope, raises {ApiError} otherwise.
-      # Pass-through for any non-envelope body.
+      # Unwrap an Assinafy envelope — a Hash with a numeric `status` and an
+      # optional `data` key. Returns `data` (or nil) for 2xx, raises {ApiError}
+      # otherwise, and passes through non-envelope bodies.
       #
       # @param body [Hash, Object]
       # @return [Object]
       def handle_assinafy_response(body)
         return body unless body.is_a?(Hash)
-        return body unless body.key?('status') && body.key?('data')
+        return body unless body.key?('status')
 
-        status = body['status'].to_i
+        status = Integer(body['status'], exception: false)
+        return body unless status
+
         if status >= 200 && status < 300
-          body['data']
+          body['data'] if body.key?('data')
         else
           raise ApiError.from_response(status, body)
         end
@@ -30,6 +34,7 @@ module Assinafy
       # @return [Hash]
       def clean_params(hash)
         return {} if hash.nil?
+        raise ValidationError.new('Parameters must be a Hash') unless hash.is_a?(Hash)
 
         hash.each_with_object({}) do |(key, value), result|
           result[key] = value unless value.nil?
@@ -58,21 +63,39 @@ module Assinafy
 
       private
 
-      def normalize_keys(hash, key_map)
-        hash.each_with_object({}) do |(key, value), result|
-          result[normalize_key(key, key_map)] = normalize_value(value, key_map)
+      def normalize_keys(hash, key_map, seen = {}.compare_by_identity, depth = 0)
+        if depth > MAX_NORMALIZATION_DEPTH || seen.key?(hash)
+          raise ValidationError.new('Parameters are nested too deeply or contain a cycle')
         end
+
+        seen[hash] = true
+        hash.each_with_object({}) do |(key, value), result|
+          result[normalize_key(key, key_map)] = normalize_value(value, key_map, seen, depth)
+        end
+      ensure
+        seen.delete(hash)
       end
 
-      def normalize_value(value, key_map)
+      def normalize_value(value, key_map, seen, depth)
         case value
         when Hash
-          normalize_keys(value, key_map)
+          normalize_keys(value, key_map, seen, depth + 1)
         when Array
-          value.map { |item| item.is_a?(Hash) ? normalize_keys(item, key_map) : item }
+          normalize_array(value, key_map, seen, depth + 1)
         else
           value
         end
+      end
+
+      def normalize_array(array, key_map, seen, depth)
+        if depth > MAX_NORMALIZATION_DEPTH || seen.key?(array)
+          raise ValidationError.new('Parameters are nested too deeply or contain a cycle')
+        end
+
+        seen[array] = true
+        array.map { |item| normalize_value(item, key_map, seen, depth) }
+      ensure
+        seen.delete(array)
       end
 
       def normalize_key(key, key_map)

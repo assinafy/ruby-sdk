@@ -9,6 +9,31 @@ RSpec.describe Assinafy::Resources::SignerResource do
     it 'raises when signer ID is empty' do
       expect { resource.update('', { full_name: 'Test' }) }.to raise_error(Assinafy::ValidationError)
     end
+
+    it 'sends the documented government_id field' do
+      stub_request(:put, "#{base_url}/accounts/test-account/signers/signer-1")
+        .with(body: hash_including('government_id' => '00000000000'))
+        .to_return(api_envelope({ 'id' => 'signer-1' }))
+
+      resource.update('signer-1', government_id: '00000000000')
+
+      expect(
+        a_request(:put, "#{base_url}/accounts/test-account/signers/signer-1")
+          .with(body: hash_including('government_id' => '00000000000'))
+      ).to have_been_made
+    end
+
+    it 'omits a nil government_id because the update field is not nullable' do
+      stub_request(:put, "#{base_url}/accounts/test-account/signers/signer-1")
+        .with(body: {})
+        .to_return(api_envelope({ 'id' => 'signer-1' }))
+
+      resource.update('signer-1', government_id: nil)
+
+      expect(
+        a_request(:put, "#{base_url}/accounts/test-account/signers/signer-1").with(body: {})
+      ).to have_been_made
+    end
   end
 
   describe '#delete' do
@@ -21,7 +46,7 @@ RSpec.describe Assinafy::Resources::SignerResource do
     it 'raises when no account ID is available' do
       r = described_class.new(connection)
       expect do
-        r.create(full_name: 'Test', email: 'test@test.com')
+        r.create(full_name: 'Test', email: 'test@example.com')
       end.to raise_error(Assinafy::ValidationError)
     end
 
@@ -35,7 +60,7 @@ RSpec.describe Assinafy::Resources::SignerResource do
       stub_request(:post, "#{base_url}/accounts/custom-account/signers")
         .to_return(api_envelope({ 'id' => '123' }))
 
-      resource.create({ full_name: 'Test', email: 'test@test.com' }, 'custom-account')
+      resource.create({ full_name: 'Test', email: 'test@example.com' }, 'custom-account')
 
       expect(a_request(:post, "#{base_url}/accounts/custom-account/signers")).to have_been_made
     end
@@ -44,7 +69,7 @@ RSpec.describe Assinafy::Resources::SignerResource do
       stub_request(:post, "#{base_url}/accounts/test-account/signers")
         .to_return(api_envelope({ 'id' => '123' }))
 
-      resource.create(full_name: 'Test', email: 'test@test.com')
+      resource.create(full_name: 'Test', email: 'test@example.com')
 
       expect(a_request(:post, "#{base_url}/accounts/test-account/signers")).to have_been_made
     end
@@ -99,32 +124,32 @@ RSpec.describe Assinafy::Resources::SignerResource do
   end
 
   describe '#accept_terms' do
-    it 'sends signer-access-code as the documented query parameter' do
+    it 'sends signer-access-code as the documented query parameter and handles no-data success' do
       stub_request(:put, "#{base_url}/signers/accept-terms")
-        .with(query: hash_including('signer-access-code' => 'code'))
-        .to_return(api_envelope({ 'has_accepted_terms' => true }))
+        .with(query: hash_including('signer-access-code' => 'code')) { |request| request.body.to_s.empty? }
+        .to_return(json_response({ 'status' => 200, 'message' => 'Terms accepted' }))
 
-      resource.accept_terms(signer_access_code: 'code')
+      expect(resource.accept_terms(signer_access_code: 'code')).to be_nil
 
       expect(
         a_request(:put, "#{base_url}/signers/accept-terms")
-          .with(query: hash_including('signer-access-code' => 'code'))
+          .with(query: hash_including('signer-access-code' => 'code')) { |request| request.body.to_s.empty? }
       ).to have_been_made
     end
   end
 
   describe '#verify_email' do
-    it 'sends signer-access-code as a query param and verification-code in the body' do
+    it 'sends the access code and OTP in their documented locations and handles no-data success' do
       stub_request(:post, "#{base_url}/verify")
-        .with(query: hash_including('signer-access-code' => 'code'))
-        .to_return(json_response({ 'message' => 'Code verified successfully' }))
+        .with(query: hash_including('signer-access-code' => 'code'), body: { 'verification-code' => '123456' })
+        .to_return(json_response({ 'status' => 200, 'message' => 'Code verified successfully' }))
 
-      resource.verify_email(verification_code: '123456', signer_access_code: 'code')
+      expect(resource.verify_email(verification_code: '123456', signer_access_code: 'code')).to be_nil
 
       expect(
         a_request(:post, "#{base_url}/verify")
           .with(query: hash_including('signer-access-code' => 'code'),
-                body:  hash_including('verification-code' => '123456'))
+                body:  { 'verification-code' => '123456' })
       ).to have_been_made
     end
   end
@@ -164,6 +189,14 @@ RSpec.describe Assinafy::Resources::SignerResource do
           )
       ).to have_been_made
       expect(result).to eq([])
+    end
+
+    it 'returns nil for the official no-data success envelope' do
+      stub_request(:post, "#{base_url}/signature")
+        .with(query: hash_including('signer-access-code' => 'code', 'type' => 'signature'))
+        .to_return(json_response({ 'status' => 200, 'message' => 'Signature saved' }))
+
+      expect(resource.upload_signature('rawbytes', signer_access_code: 'code')).to be_nil
     end
   end
 
@@ -242,6 +275,46 @@ RSpec.describe Assinafy::Resources::SignerResource do
           .with(query: hash_including('search' => 'john@example.com', 'per-page' => '50'))
       ).to have_been_made
       expect(result['id']).to eq('1')
+    end
+
+    it 'walks subsequent result pages' do
+      first_page = api_envelope([]).merge(
+        headers: {
+          'Content-Type'              => 'application/json',
+          'x-pagination-current-page' => '1',
+          'x-pagination-page-count'   => '2'
+        }
+      )
+      second_page = api_envelope([{ 'id' => '2', 'email' => 'JOHN@EXAMPLE.COM' }])
+      stub_request(:get, "#{base_url}/accounts/test-account/signers")
+        .with(query: hash_including('page' => '1')).to_return(first_page)
+      stub_request(:get, "#{base_url}/accounts/test-account/signers")
+        .with(query: hash_including('page' => '2')).to_return(second_page)
+
+      expect(resource.find_by_email('john@example.com')['id']).to eq('2')
+    end
+
+    it 'stops at the requested last page even if response current-page metadata is stale' do
+      stale_meta = {
+        'Content-Type'              => 'application/json',
+        'x-pagination-current-page' => '1',
+        'x-pagination-page-count'   => '2'
+      }
+      stub_request(:get, "#{base_url}/accounts/test-account/signers")
+        .with(query: hash_including('page' => '1')).to_return(api_envelope([]).merge(headers: stale_meta))
+      stub_request(:get, "#{base_url}/accounts/test-account/signers")
+        .with(query: hash_including('page' => '2')).to_return(api_envelope([]).merge(headers: stale_meta))
+
+      expect(resource.find_by_email('john@example.com')).to be_nil
+      expect(
+        a_request(:get, "#{base_url}/accounts/test-account/signers").with(query: hash_including('page' => '1'))
+      ).to have_been_made.once
+      expect(
+        a_request(:get, "#{base_url}/accounts/test-account/signers").with(query: hash_including('page' => '2'))
+      ).to have_been_made.once
+      expect(
+        a_request(:get, "#{base_url}/accounts/test-account/signers").with(query: hash_including('page' => '3'))
+      ).not_to have_been_made
     end
   end
 end

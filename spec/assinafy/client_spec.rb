@@ -41,6 +41,18 @@ RSpec.describe Assinafy::Client do
       expect(client.faraday_connection.headers['Authorization']).to eq('Bearer legacy')
     end
 
+    it 'falls back to the bearer token when api_key is blank' do
+      client = described_class.new(api_key: '  ', token: 'legacy')
+      expect(client.faraday_connection.headers['Authorization']).to eq('Bearer legacy')
+    end
+
+    it 'rejects invalid configuration values' do
+      expect { described_class.new(base_url: '') }.to raise_error(Assinafy::ValidationError)
+      expect { described_class.new(base_url: false) }.to raise_error(Assinafy::ValidationError)
+      expect { described_class.new(timeout: 0) }.to raise_error(Assinafy::ValidationError)
+      expect { described_class.new(timeout: 1.9) }.to raise_error(Assinafy::ValidationError)
+    end
+
     it 'strips trailing slash from base_url' do
       client = described_class.new(
         api_key:    'k',
@@ -48,6 +60,13 @@ RSpec.describe Assinafy::Client do
         base_url:   'https://sandbox.assinafy.com.br/v1/'
       )
       expect(client.faraday_connection.url_prefix.to_s.chomp('/')).to eq('https://sandbox.assinafy.com.br/v1')
+    end
+
+    it 'applies the configured timeout to reads and connections' do
+      client = described_class.new(timeout: 12)
+
+      expect(client.faraday_connection.options.timeout).to eq(12)
+      expect(client.faraday_connection.options.open_timeout).to eq(12)
     end
   end
 
@@ -68,12 +87,23 @@ RSpec.describe Assinafy::Client do
       client = described_class.from_config(api_key: 'k', account_id: 'acc')
       expect(client.documents).to be_a(Assinafy::Resources::DocumentResource)
     end
+
+    it 'accepts a positive timeout encoded as a string' do
+      client = described_class.from_config(timeout: '45')
+      expect(client.faraday_connection.options.timeout).to eq(45)
+    end
+
+    it 'rejects a non-Hash or invalid timeout' do
+      expect { described_class.from_config(nil) }.to raise_error(Assinafy::ValidationError)
+      expect { described_class.from_config(timeout: 'not-a-number') }.to raise_error(Assinafy::ValidationError)
+      expect { described_class.from_config(timeout: false) }.to raise_error(Assinafy::ValidationError)
+    end
   end
 
   describe '#upload_and_request_signatures' do
     let(:base_url) { 'https://api.assinafy.com.br/v1' }
     let(:client)   { described_class.new(api_key: 'test-key', account_id: 'acc', base_url: base_url) }
-    let(:signers)  { [{ full_name: 'Audit Bill', email: 'bill@febacapital.com' }] }
+    let(:signers)  { [{ full_name: 'Example Signer', email: 'signer@example.com' }] }
 
     def stub_upload
       stub_request(:post, "#{base_url}/accounts/acc/documents")
@@ -87,7 +117,7 @@ RSpec.describe Assinafy::Client do
 
     def stub_signers
       stub_request(:post, "#{base_url}/accounts/acc/signers")
-        .to_return(api_envelope({ 'id' => 'signer-1', 'full_name' => 'Audit Bill' }))
+        .to_return(api_envelope({ 'id' => 'signer-1', 'full_name' => 'Example Signer' }))
     end
 
     def stub_assignment
@@ -105,7 +135,8 @@ RSpec.describe Assinafy::Client do
         source: { buffer: '%PDF-1.4', file_name: 'contract.pdf' }, signers: signers, message: 'Please sign'
       )
 
-      expect(result[:document]['id']).to   eq('doc-1')
+      expect(result[:document]['id']).to eq('doc-1')
+      expect(result[:document]['status']).to eq('metadata_ready')
       expect(result[:assignment]['id']).to eq('asg-1')
       expect(result[:signer_ids]).to       eq(['signer-1'])
     end
@@ -139,7 +170,7 @@ RSpec.describe Assinafy::Client do
 
       expect(
         a_request(:post, "#{base_url}/accounts/acc/signers")
-          .with(body: hash_including('full_name' => 'Audit Bill', 'email' => 'bill@febacapital.com'))
+          .with(body: hash_including('full_name' => 'Example Signer', 'email' => 'signer@example.com'))
       ).to have_been_made
     end
 
@@ -147,6 +178,23 @@ RSpec.describe Assinafy::Client do
       expect do
         client.upload_and_request_signatures(source: { buffer: '%PDF-1.4', file_name: 'contract.pdf' }, signers: [])
       end.to raise_error(Assinafy::ValidationError)
+    end
+
+    it 'raises ValidationError when signers are not an Array of Hashes' do
+      expect do
+        client.upload_and_request_signatures(
+          source: { buffer: '%PDF-1.4', file_name: 'contract.pdf' }, signers: ['signer-id']
+        )
+      end.to raise_error(Assinafy::ValidationError)
+    end
+
+    it 'rejects an invalid account override before uploading' do
+      expect do
+        client.upload_and_request_signatures(
+          source: { buffer: '%PDF-1.4', file_name: 'contract.pdf' }, signers: signers, account_id: false
+        )
+      end.to raise_error(Assinafy::ValidationError)
+      expect(a_request(:post, %r{/documents})).not_to have_been_made
     end
 
     it 'does not fetch document details when wait_for_ready is false' do

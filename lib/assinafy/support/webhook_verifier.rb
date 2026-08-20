@@ -12,6 +12,8 @@ module Assinafy
     # request-signing scheme for webhook deliveries, so this class is opt-in:
     # construct it with a secret only if you have one configured in front
     # of your webhook receiver (e.g. via API Gateway / Cloudflare).
+    # HMAC verifies authenticity, not freshness; the receiver must separately
+    # reject replayed event IDs or enforce its gateway's timestamp policy.
     #
     # @example Verify and dispatch a webhook
     #   verifier = Assinafy::Support::WebhookVerifier.new(ENV['WEBHOOK_SECRET'])
@@ -46,7 +48,7 @@ module Assinafy
         expected = OpenSSL::HMAC.hexdigest('SHA256', @webhook_secret, body)
         provided = signature.to_s.strip
 
-        secure_compare(expected, provided)
+        OpenSSL.fixed_length_secure_compare(expected, provided)
       rescue StandardError
         false
       end
@@ -121,16 +123,6 @@ module Assinafy
         return {} unless event.is_a?(Hash)
 
         event['payload'] || event['object'] || {}
-      end
-
-      private
-
-      def secure_compare(a, b)
-        return false if a.bytesize != b.bytesize
-
-        result = 0
-        a.bytes.zip(b.bytes) { |x, y| result |= x ^ y }
-        result == 0
       end
     end
   end

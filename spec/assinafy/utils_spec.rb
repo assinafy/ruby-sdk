@@ -21,6 +21,16 @@ RSpec.describe Assinafy::Utils do
     it 'returns nil unchanged' do
       expect(described_class.handle_assinafy_response(nil)).to be_nil
     end
+
+    it 'returns nil for a successful envelope without data' do
+      expect(described_class.handle_assinafy_response({ 'status' => 200, 'message' => 'OK' })).to be_nil
+    end
+
+    it 'raises for an error envelope without data' do
+      expect do
+        described_class.handle_assinafy_response({ 'status' => 400, 'message' => 'Bad request' })
+      end.to raise_error(Assinafy::ApiError, 'Bad request')
+    end
   end
 
   describe '.clean_params' do
@@ -31,6 +41,10 @@ RSpec.describe Assinafy::Utils do
 
     it 'returns an empty hash when all values are nil' do
       expect(described_class.clean_params({ a: nil, b: nil })).to eq({})
+    end
+
+    it 'rejects non-Hash parameters' do
+      expect { described_class.clean_params([]) }.to raise_error(Assinafy::ValidationError)
     end
   end
 
@@ -51,6 +65,20 @@ RSpec.describe Assinafy::Utils do
         'full_name'          => 'John',
         'signer-access-code' => 'code'
       )
+    end
+
+    it 'rejects cyclic input without overflowing the stack' do
+      payload = {}
+      payload[:self] = payload
+
+      expect { described_class.body_params(payload) }.to raise_error(Assinafy::ValidationError, /cycle/)
+    end
+
+    it 'rejects cyclic arrays without overflowing the stack' do
+      values = []
+      values << values
+
+      expect { described_class.body_params(values: values) }.to raise_error(Assinafy::ValidationError, /cycle/)
     end
   end
 end

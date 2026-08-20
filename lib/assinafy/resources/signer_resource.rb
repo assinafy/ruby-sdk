@@ -24,19 +24,19 @@ module Assinafy
       # @return [Hash] signer object (envelope `data` unwrapped)
       # @see POST /accounts/{account_id}/signers
       # @example Create a signer
-      #   signer = client.signers.create(full_name: 'Audit Bill A2', email: 'bill@febacapital.com')
+      #   signer = client.signers.create(full_name: 'Example Signer', email: 'signer@example.com')
       #
       #   # Request body the SDK sends (nil/omitted optional fields are stripped):
       #   #   {
-      #   #     "full_name": "Audit Bill A2",
-      #   #     "email": "bill@febacapital.com"
+      #   #     "full_name": "Example Signer",
+      #   #     "email": "signer@example.com"
       #   #   }
       #
       #   # => {
       #   #   "resource"              => "signer",
-      #   #   "id"                    => "19e6b92e7895332ed9708535d8c",
-      #   #   "full_name"             => "Audit Bill A2",
-      #   #   "email"                 => "bill@febacapital.com",
+      #   #   "id"                    => "signer-id",
+      #   #   "full_name"             => "Example Signer",
+      #   #   "email"                 => "signer@example.com",
       #   #   "whatsapp_phone_number" => nil,
       #   #   "has_accepted_terms"    => false
       #   # }
@@ -44,7 +44,7 @@ module Assinafy
         body   = signer_payload(payload, require_full_name: true)
         acc_id = account_id(account_id_override)
 
-        @logger.info("Creating signer #{body['email'] || body['full_name']}")
+        @logger.info('Creating signer')
 
         call('Failed to create signer') do
           http_post("accounts/#{acc_id}/signers", body)
@@ -58,13 +58,13 @@ module Assinafy
       # @return [Hash] signer object (envelope `data` unwrapped)
       # @see GET /accounts/{account_id}/signers/{signer_id}
       # @example Fetch a signer by ID
-      #   signer = client.signers.get('19e6b92e7895332ed9708535d8c')
+      #   signer = client.signers.get('signer-id')
       #
       #   # => {
       #   #   "resource"              => "signer",
-      #   #   "id"                    => "19e6b92e7895332ed9708535d8c",
-      #   #   "full_name"             => "Audit Bill A2",
-      #   #   "email"                 => "bill@febacapital.com",
+      #   #   "id"                    => "signer-id",
+      #   #   "full_name"             => "Example Signer",
+      #   #   "email"                 => "signer@example.com",
       #   #   "whatsapp_phone_number" => nil,
       #   #   "has_accepted_terms"    => false
       #   # }
@@ -79,7 +79,7 @@ module Assinafy
 
       # List signers in the workspace, with pagination metadata.
       #
-      # @param params [Hash] query parameters (`search`, `sort`, `page`, `per_page`, ...)
+      # @param params [Hash] query parameters (`search`, `page`, `per_page`)
       # @param account_id_override [String, nil]
       # @return [Hash{Symbol=>Array,Hash}] `{ data: [...], meta: { ... } }`
       # @see GET /accounts/{account_id}/signers
@@ -89,9 +89,9 @@ module Assinafy
       #   # => {
       #   #   data: [
       #   #     {
-      #   #       "id"                    => "19e6b92e7895332ed9708535d8c",
-      #   #       "full_name"             => "Audit Bill A2",
-      #   #       "email"                 => "bill@febacapital.com",
+      #   #       "id"                    => "signer-id",
+      #   #       "full_name"             => "Example Signer",
+      #   #       "email"                 => "signer@example.com",
       #   #       "whatsapp_phone_number" => nil,
       #   #       "has_accepted_terms"    => false
       #   #     }
@@ -107,33 +107,40 @@ module Assinafy
         end
       end
 
-      # Update a signer. Same payload shape as {#create} but with no required
-      # fields. This is a PARTIAL update: fields you do not pass are omitted from
-      # the request (left unchanged), not nulled out.
+      # Partially update a signer. Omitted fields are left unchanged. Updating
+      # `email` or `whatsapp_phone_number` is rejected while that channel is
+      # verified on an in-flight document; changing an unverified channel rotates
+      # its access and verification codes.
       #
       # @param signer_id           [String]
       # @param payload             [Hash]
+      # @option payload [String] :full_name
+      # @option payload [String] :email
+      # @option payload [String] :whatsapp_phone_number E.164; normalized on save
+      # @option payload [String] :phone alias for `:whatsapp_phone_number`
+      # @option payload [String] :government_id CPF/CNPJ; digits only on save
       # @param account_id_override [String, nil]
       # @return [Hash] updated signer object (envelope `data` unwrapped)
       # @see PUT /accounts/{account_id}/signers/{signer_id}
-      # @example Update a signer's full name (partial update — only full_name is sent)
-      #   signer = client.signers.update('19e6b92e7895332ed9708535d8c', full_name: 'Audit Bill A3')
+      # @example Update a signer's full name and government ID
+      #   signer = client.signers.update('signer-id', full_name: 'Updated Signer',
+      #                                                government_id: '00000000000')
       #
       #   # Request body the SDK sends (omitted fields are not nulled):
-      #   #   { "full_name": "Audit Bill A3" }
+      #   #   { "full_name": "Updated Signer", "government_id": "00000000000" }
       #
       #   # => {
       #   #   "resource"              => "signer",
-      #   #   "id"                    => "19e6b92e7895332ed9708535d8c",
-      #   #   "full_name"             => "Audit Bill A3",
-      #   #   "email"                 => "bill@febacapital.com",
+      #   #   "id"                    => "signer-id",
+      #   #   "full_name"             => "Updated Signer",
+      #   #   "email"                 => "signer@example.com",
       #   #   "whatsapp_phone_number" => nil,
       #   #   "has_accepted_terms"    => false
       #   # }
       def update(signer_id, payload, account_id_override = nil)
         acc_id = account_id(account_id_override)
         sid    = require_id(signer_id, 'Signer ID')
-        body   = signer_payload(payload, require_full_name: false)
+        body   = signer_payload(payload, require_full_name: false, include_government_id: true)
 
         call('Failed to update signer') do
           http_put("accounts/#{acc_id}/signers/#{sid}", body)
@@ -147,7 +154,7 @@ module Assinafy
       # @return [nil] the SDK returns nil on success (response body is discarded)
       # @see DELETE /accounts/{account_id}/signers/{signer_id}
       # @example Delete a signer
-      #   client.signers.delete('19e6b92e7895332ed9708535d8c')
+      #   client.signers.delete('signer-id')
       #   # => nil
       def delete(signer_id, account_id_override = nil)
         acc_id = account_id(account_id_override)
@@ -168,14 +175,14 @@ module Assinafy
       # @param account_id_override [String, nil]
       # @return [Hash, nil] the matching signer object, or nil when none matches
       # @example Find a signer by email
-      #   signer = client.signers.find_by_email('bill@febacapital.com')
+      #   signer = client.signers.find_by_email('signer@example.com')
       #
-      #   # Internally pages through GET /accounts/{account_id}/signers?search=...&per_page=50
+      #   # Internally pages through GET /accounts/{account_id}/signers?search=...&per-page=50
       #   # and returns the single matching signer Hash (case-insensitive on email):
       #   # => {
-      #   #   "id"                    => "19e6b92e7895332ed9708535d8c",
-      #   #   "full_name"             => "Audit Bill A2",
-      #   #   "email"                 => "bill@febacapital.com",
+      #   #   "id"                    => "signer-id",
+      #   #   "full_name"             => "Example Signer",
+      #   #   "email"                 => "signer@example.com",
       #   #   "whatsapp_phone_number" => nil,
       #   #   "has_accepted_terms"    => false
       #   # }
@@ -192,7 +199,7 @@ module Assinafy
           return match if match
 
           meta = result[:meta]
-          break unless meta && meta[:current_page] && meta[:last_page] && meta[:current_page] < meta[:last_page]
+          break unless meta && meta[:last_page] && page < meta[:last_page]
 
           page += 1
         end
@@ -210,17 +217,18 @@ module Assinafy
       # @return [Hash] signer object plus self-only fields (envelope `data` unwrapped)
       # @see GET /signers/self
       # @example Fetch the signer's own profile
-      #   me = client.signers.self_data(signer_access_code: '9uAWyOXx9hgzCKdCuahkinwvg8tWJ2RC')
+      #   me = client.signers.self_data(signer_access_code: 'signer-access-code')
       #
       #   # => {
       #   #   "resource"              => "signer",
-      #   #   "id"                    => "uahkinwvg8tWJ2RC",
+      #   #   "id"                    => "signer-id",
       #   #   "full_name"             => "Signer Name",
       #   #   "email"                 => "signer@example.com",
-      #   #   "whatsapp_phone_number" => "+5548999990000",
+      #   #   "whatsapp_phone_number" => "+15555550100",
       #   #   "has_accepted_terms"    => false,
       #   #   "has_signature"         => false, # self-only field
-      #   #   "has_initial"           => false  # self-only field
+      #   #   "has_initial"           => false, # self-only field
+      #   #   "is_signature_reusable" => false  # self-only field
       #   # }
       def self_data(signer_access_code:)
         call('Failed to fetch signer self') do
@@ -232,27 +240,22 @@ module Assinafy
       #
       # The `signer-access-code` is sent as the documented query parameter (the
       # `signerAccessCode` security scheme is `in: query`), consistent with every
-      # other signer-authenticated endpoint. It is also mirrored in the body for
-      # backwards compatibility.
+      # other signer-authenticated endpoint. This operation has no request body.
       #
       # @param signer_access_code [String]
-      # @return [Hash] partial signer object reflecting the acceptance (envelope `data` unwrapped)
+      # @return [nil] the documented success envelope has no `data` payload
       # @see PUT /signers/accept-terms
       # @example Accept the terms of use
-      #   result = client.signers.accept_terms(signer_access_code: '9uAWyOXx9hgzCKdCuahkinwvg8tWJ2RC')
+      #   result = client.signers.accept_terms(signer_access_code: 'signer-access-code')
       #
-      #   # Request: PUT /signers/accept-terms?signer-access-code=9uAWyOXx9hgzCKdCuahkinwvg8tWJ2RC
+      #   # Request: PUT /signers/accept-terms?signer-access-code=signer-access-code
+      #   # Body: none
       #
-      #   # => {
-      #   #   "full_name"          => "Signer Name",
-      #   #   "email"              => "signer@example.com",
-      #   #   "has_accepted_terms" => true
-      #   # }
+      #   # Response: { "status": 200, "message": "Terms accepted" }
+      #   # => nil
       def accept_terms(signer_access_code:)
         call('Failed to accept signer terms') do
-          http_put('signers/accept-terms',
-                   body_params(signer_access_code: signer_access_code),
-                   signer_access_code: signer_access_code)
+          http_put('signers/accept-terms', nil, signer_access_code: signer_access_code)
         end
       end
 
@@ -260,28 +263,24 @@ module Assinafy
       #
       # @param verification_code  [String]
       # @param signer_access_code [String]
-      # @return [Hash] the raw response Hash; this endpoint sends no `data` envelope,
-      #   so the body is returned verbatim (e.g. `{ "message" => "Code verified successfully" }`)
+      # @return [nil] the documented success envelope has no `data` payload
       # @see POST /verify
       # @example Verify the signer's email with a one-time code
       #   result = client.signers.verify_email(
       #     verification_code:  '123456',
-      #     signer_access_code: '9uAWyOXx9hgzCKdCuahkinwvg8tWJ2RC'
+      #     signer_access_code: 'signer-access-code'
       #   )
       #
-      #   # Request: POST /verify?signer-access-code=9uAWyOXx9hgzCKdCuahkinwvg8tWJ2RC
-      #   # Body (the documented `verification-code`; the access code is also mirrored here):
-      #   #   { "verification-code": "123456", "signer-access-code": "9uAWyOXx9hgzCKdCuahkinwvg8tWJ2RC" }
+      #   # Request: POST /verify?signer-access-code=signer-access-code
+      #   # Body: { "verification-code": "123456" }
       #
-      #   # => { "message" => "Code verified successfully" }
+      #   # Response: { "status": 200, "message": "Code verified successfully" }
+      #   # => nil
       def verify_email(verification_code:, signer_access_code:)
         call('Failed to verify signer email') do
           http_post(
             'verify',
-            body_params(
-              verification_code:  verification_code,
-              signer_access_code: signer_access_code
-            ),
+            body_params(verification_code: verification_code),
             signer_access_code: signer_access_code
           )
         end
@@ -299,16 +298,16 @@ module Assinafy
       # @see PUT /documents/{documentId}/signers/confirm-data
       # @example Confirm the signer's data
       #   result = client.signers.confirm_data(
-      #     'c57d51eaad68a7',
-      #     { full_name: 'Signer Name', email: 'signer@example.com', government_id: '15774136604' },
-      #     signer_access_code: '9uAWyOXx9hgzCKdCuahkinwvg8tWJ2RC'
+      #     'document-id',
+      #     { full_name: 'Signer Name', email: 'signer@example.com', government_id: '00000000000' },
+      #     signer_access_code: 'signer-access-code'
       #   )
       #
       #   # signer-access-code is sent as a query param; the JSON body the SDK sends:
-      #   #   { "full_name": "Signer Name", "email": "signer@example.com", "government_id": "15774136604" }
+      #   #   { "full_name": "Signer Name", "email": "signer@example.com", "government_id": "00000000000" }
       #
       #   # => {
-      #   #   "resource" => "signer", "id" => "62d6...", "full_name" => "Signer Name",
+      #   #   "resource" => "signer", "id" => "signer-id", "full_name" => "Signer Name",
       #   #   "email" => "signer@example.com", "whatsapp_phone_number" => nil, "has_accepted_terms" => false
       #   # }
       def confirm_data(document_id, payload, signer_access_code:)
@@ -329,14 +328,14 @@ module Assinafy
       # @param content_type       [String] e.g. `image/png`
       # @param reuse              [Boolean, nil] when true, marks the signature as
       #   reusable for future documents (documented `reuse` query flag)
-      # @return [nil] the endpoint returns `{ status:, message: }` with no `data`,
-      #   so the unwrapped result is `nil`
+      # @return [nil, Array] `nil` for the OpenAPI's no-data envelope; some deployed
+      #   versions return `data: []`, which the SDK passes through as an empty Array
       # @see POST /signature
       # @example Upload a PNG signature image
       #   bytes  = File.binread('signature.png')
       #   client.signers.upload_signature(
       #     bytes,
-      #     signer_access_code: '9uAWyOXx9hgzCKdCuahkinwvg8tWJ2RC',
+      #     signer_access_code: 'signer-access-code',
       #     type:               'signature',
       #     content_type:       'image/png'
       #   )
@@ -344,7 +343,8 @@ module Assinafy
       #   # The SDK sends the RAW image bytes as the body, with
       #   # Content-Type: image/png and ?signer-access-code=...&type=signature query params.
       #
-      #   # => nil # the envelope carries only { status:, message: } with no data payload
+      #   # => nil # documented no-data envelope
+      #   # => []  # when a deployed API version returns data: []
       def upload_signature(content, signer_access_code:, type: 'signature', content_type: 'image/png', reuse: nil)
         sig_type = signature_type(type)
 
@@ -367,7 +367,7 @@ module Assinafy
       # @see GET /signature/{type}
       # @example Download and save the signer's signature image
       #   png = client.signers.download_signature(
-      #     signer_access_code: '9uAWyOXx9hgzCKdCuahkinwvg8tWJ2RC',
+      #     signer_access_code: 'signer-access-code',
       #     type:               'signature'
       #   )
       #
@@ -390,7 +390,7 @@ module Assinafy
         end
       end
 
-      def signer_payload(payload, require_full_name:)
+      def signer_payload(payload, require_full_name:, include_government_id: false)
         raw = require_payload(payload, 'Signer payload')
         p   = raw.transform_keys(&:to_s)
 
@@ -400,11 +400,15 @@ module Assinafy
         email = p['email']
         assert_email!(email) if email && !email.to_s.empty?
 
-        body_params(
+        body = body_params(
           full_name:             full_name,
           email:                 email,
           whatsapp_phone_number: p['whatsapp_phone_number'] || p['phone']
         )
+        if include_government_id && !p['government_id'].nil?
+          body['government_id'] = p['government_id']
+        end
+        body
       end
 
       def signature_type(type)

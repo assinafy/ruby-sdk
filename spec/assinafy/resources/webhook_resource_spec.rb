@@ -5,6 +5,18 @@ RSpec.describe Assinafy::Resources::WebhookResource do
   let(:connection) { build_test_connection(base_url) }
 
   describe '#register' do
+    it 'rejects invalid event and active-state types' do
+      resource = described_class.new(connection, 'acc')
+
+      expect do
+        resource.register(url: 'https://example.com/hook', email: 'ops@example.com', events: [nil])
+      end.to raise_error(Assinafy::ValidationError)
+      expect do
+        resource.register(url: 'https://example.com/hook', email: 'ops@example.com', events: ['document_ready'],
+                          is_active: 'false')
+      end.to raise_error(Assinafy::ValidationError)
+    end
+
     it 'updates subscriptions with explicit events' do
       stub_request(:put, "#{base_url}/accounts/acc/webhooks/subscriptions")
         .to_return(api_envelope({ 'is_active' => true }))

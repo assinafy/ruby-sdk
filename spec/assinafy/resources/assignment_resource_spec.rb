@@ -20,6 +20,19 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
   end
 
   describe '.build_payload' do
+    it 'rejects invalid payloads and methods' do
+      expect { described_class.build_payload([]) }.to raise_error(Assinafy::ValidationError)
+      expect do
+        described_class.build_payload(method: 'typo', signers: ['s1'])
+      end.to raise_error(Assinafy::ValidationError)
+    end
+
+    it 'omits an empty signers array from collect payloads' do
+      expect(described_class.build_payload(method: 'collect', entries: [{ page_id: 'p1', fields: [] }])).to eq(
+        'method' => 'collect', 'entries' => [{ 'page_id' => 'p1', 'fields' => [] }]
+      )
+    end
+
     it 'normalises string signer ids into {id} hashes' do
       body = described_class.build_payload(signers: %w[a b])
       expect(body).to eq({ 'method' => 'virtual', 'signers' => [{ 'id' => 'a' }, { 'id' => 'b' }] })

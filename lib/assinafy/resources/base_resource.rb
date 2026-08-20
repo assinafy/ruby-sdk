@@ -7,6 +7,7 @@ module Assinafy
     # pagination header parsing, and a single `request`/`call` pipeline that
     # wraps Faraday and Assinafy errors into the SDK's own error hierarchy.
     class BaseResource
+      PATH_SEGMENT = /\A[A-Za-z0-9._~-]+\z/
       PAGINATION_HEADERS = {
         current_page: 'x-pagination-current-page',
         per_page:     'x-pagination-per-page',
@@ -26,12 +27,7 @@ module Assinafy
       protected
 
       def account_id(explicit = nil)
-        id = explicit || @default_account_id
-        return id if id
-
-        raise ValidationError.new(
-          'Account ID is required. Provide it as a parameter or set a default in the client.'
-        )
+        require_id(explicit.nil? ? @default_account_id : explicit, 'Account ID')
       end
 
       # Ensure a required scalar argument is present (not nil/blank).
@@ -43,7 +39,18 @@ module Assinafy
       end
 
       def require_id(value, name)
-        require_present(value, name)
+        id = require_present(value, name)
+        raise ValidationError.new("#{name} must be a String") unless id.is_a?(String)
+
+        return id if PATH_SEGMENT.match?(id) && id != '.' && id != '..'
+
+        raise ValidationError.new("#{name} contains invalid characters")
+      end
+
+      def require_boolean(value, name)
+        return value if [true, false].include?(value)
+
+        raise ValidationError.new("#{name} must be true or false")
       end
 
       def require_payload(payload, name = 'Payload')
@@ -72,25 +79,34 @@ module Assinafy
       # `:buffer` + `:file_name` (raw bytes).
       #
       # @param source [String, Hash]
+      # @param max_bytes [Integer, nil] read at most one byte beyond this limit
       # @return [Array(String, String)] `[buffer, file_name]`
       # @raise [ValidationError] on an unusable source
-      def read_source(source)
+      def read_source(source, max_bytes: nil)
         case source
         when String
-          [File.binread(source), File.basename(source)]
+          [read_file(source, max_bytes), File.basename(source)]
         when Hash
           if source[:buffer]
             raise ValidationError.new('file_name is required when uploading a buffer') unless source[:file_name]
 
             [source[:buffer], source[:file_name]]
           elsif source[:file_path]
-            [File.binread(source[:file_path]), source[:file_name] || File.basename(source[:file_path])]
+            [read_file(source[:file_path], max_bytes), source[:file_name] || File.basename(source[:file_path])]
           else
             raise ValidationError.new('Invalid upload source: provide :file_path or :buffer')
           end
         else
           raise ValidationError.new('Invalid upload source: provide a path String or a Hash with :file_path/:buffer')
         end
+      rescue SystemCallError, ArgumentError, TypeError => e
+        raise ValidationError.new("Unable to read upload source: #{e.message}", { cause: e.class.name })
+      end
+
+      def read_file(path, max_bytes)
+        return File.binread(path) unless max_bytes
+
+        File.binread(path, max_bytes + 1)
       end
 
       # Wrap raw bytes in a Faraday::FilePart for a multipart request body.
@@ -160,12 +176,17 @@ module Assinafy
       end
 
       def call_void(label)
-        request(label) { yield }
+        call(label) { yield }
         nil
       end
 
       def call_binary(label)
-        (request(label) { yield }.body || '').b
+        body = request(label) { yield }.body
+        body = Utils.handle_assinafy_response(body) if body.is_a?(Hash)
+        return ''.b if body.nil?
+        return body.b if body.is_a?(String)
+
+        raise Assinafy::Error.new("#{label}: expected a binary response", { body_class: body.class.name })
       end
 
       def call_list(label)
@@ -183,7 +204,7 @@ module Assinafy
         response = yield
         check_status!(response, label)
         response
-      rescue Faraday::ConnectionFailed, Faraday::TimeoutError => e
+      rescue Faraday::ConnectionFailed, Faraday::TimeoutError, Faraday::SSLError => e
         raise NetworkError.new("#{label}: #{e.message}", { cause: e.class.name })
       rescue Assinafy::Error
         raise

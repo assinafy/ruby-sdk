@@ -10,6 +10,7 @@ module Assinafy
     # documentation of these endpoints.
     class AssignmentResource < BaseResource
       OPTIONAL_FIELDS   = %i[message expires_at copy_receivers].freeze
+      METHODS           = %w[virtual collect].freeze
       SIGN_ITEM_KEY_MAP = {
         'item_id'  => 'itemId',
         'field_id' => 'fieldId',
@@ -25,6 +26,9 @@ module Assinafy
         # - `signers: [{ id:, verification_method:, notification_methods:, step: }]`
         # - Legacy `signer_ids:`/`signerIds:` arrays of IDs
         #
+        # @note The OpenAPI marks top-level `signers` as required, but the sandbox
+        #   accepts `collect` payloads that reference signer IDs only in positioned
+        #   fields. This builder preserves that live-compatible form.
         # @param payload [Hash]
         # @param options [Hash]
         # @option options [Boolean] :allow_signers_without_id allow estimate-cost
@@ -39,34 +43,45 @@ module Assinafy
         #     signers:        [{ id: "s1", verification_method: "Email", notification_methods: ["Email"], step: 1 }],
         #     message:        "Please sign",
         #     expires_at:     "2026-12-31T23:59:00Z",
-        #     copy_receivers: ["cc@example.com"]
+        #     copy_receivers: ["copy-signer-id"]
         #   )
         #   # => {
         #   #   "method"     => "virtual",
         #   #   "signers"    => [{ "id" => "s1", "verification_method" => "Email",
         #   #                      "notification_methods" => ["Email"], "step" => 1 }],
         #   #   "message"    => "Please sign", "expires_at" => "2026-12-31T23:59:00Z",
-        #   #   "copy_receivers" => ["cc@example.com"]
+        #   #   "copy_receivers" => ["copy-signer-id"]
         #   # }
         # @example Estimate-cost payload — method-only descriptor with no id (allow flag set)
         #   Assinafy::Resources::AssignmentResource.build_payload(
         #     { signers: [{ verification_method: "Whatsapp" }] }, { allow_signers_without_id: true }
         #   )
         #   # => { "method" => "virtual", "signers" => [{ "verification_method" => "Whatsapp" }] }
-        # @example Collect method — positioned-field entries instead of bare signers
+        # @example Collect method — positioned fields include all required display settings
         #   Assinafy::Resources::AssignmentResource.build_payload(
-        #     method: "collect", entries: [{ page_id: "p1", fields: [] }]
+        #     method: "collect",
+        #     entries: [{
+        #       page_id: "page-id",
+        #       fields: [{
+        #         signer_id: "signer-id",
+        #         field_id: "field-id",
+        #         display_settings: { left: 100, top: 100, width: 240, height: 48, fontSize: 16 }
+        #       }]
+        #     }]
         #   )
-        #   # => { "method" => "collect", "entries" => [{ "page_id" => "p1", "fields" => [] }] }
+        #   # => { "method" => "collect", "entries" => [{ ... }] }
         def build_payload(payload, options = {})
-          p       = payload.transform_keys(&:to_sym)
+          p = Utils.clean_params(payload).transform_keys(&:to_sym) if payload.is_a?(Hash)
+          raise ValidationError.new('Assignment payload must be a Hash') unless p
+
           signers = extract_signer_refs(p)
           entries = p[:entries]
           method  = (p[:method] || 'virtual').to_s
 
           validate_method!(method, signers, entries, p)
 
-          result = { method: method, signers: signers.map { |ref| normalise_signer_ref(ref, options) } }
+          result = { method: method }
+          result[:signers] = signers.map { |ref| normalise_signer_ref(ref, options) } unless signers.empty?
           OPTIONAL_FIELDS.each { |key| result[key] = p[key] if p[key] }
           result[:entries] = entries if entries
           Utils.body_params(result)
@@ -75,6 +90,10 @@ module Assinafy
         private
 
         def validate_method!(method, signers, entries, payload)
+          unless METHODS.include?(method)
+            raise ValidationError.new("Assignment method must be one of: #{METHODS.join(', ')}")
+          end
+
           if method == 'virtual' && signers.empty?
             raise ValidationError.new(
               'At least one signer is required',
@@ -128,7 +147,7 @@ module Assinafy
       # supplied as the `accountId` query parameter — note the camelCase, which
       # is unusual for this otherwise snake_case API (verified live).
       #
-      # @param params [Hash] extra query parameters (`status`, `method`, `page`, `per_page`, ...)
+      # @param params [Hash] documented `page` and `per_page` query parameters
       # @param account_id_override [String, nil]
       # @return [Hash{Symbol=>Array,Hash}] `{ data: [assignment, ...], meta: {..} | nil }`
       # @see GET /assignments
@@ -140,14 +159,14 @@ module Assinafy
       #   {
       #     data: [
       #       {
-      #         'id' => '103033c9d2cec233bf65eea04999',
-      #         'sender_email' => 'bill@febacapital.com',
+      #         'id' => 'assignment-id',
+      #         'sender_email' => 'sender@example.com',
       #         'method' => 'virtual',
       #         'expires_at' => nil,
       #         'message' => 'Please sign this contract',
       #         'signers' => [
-      #           { 'id' => '19e6b92e7895332ed9708535d8c', 'full_name' => 'Audit Bill A2',
-      #             'email' => 'bill@febacapital.com', 'completed' => false, 'step' => 1 }
+      #           { 'id' => 'signer-id', 'full_name' => 'Example Signer',
+      #             'email' => 'signer@example.com', 'completed' => false, 'step' => 1 }
       #         ]
       #         # ... (see docs for the full assignment shape)
       #       }
@@ -163,7 +182,8 @@ module Assinafy
       end
 
       # Create an assignment for a document. See {.build_payload} for the
-      # accepted shapes.
+      # accepted shapes, including the sandbox-compatible `collect` form without
+      # a top-level `signers` array.
       #
       # @param document_id [String]
       # @param payload     [Hash]
@@ -171,29 +191,28 @@ module Assinafy
       #   items[], summary{signer_count, completed_count, signers[]}, signing_urls[], copy_receivers[])
       # @see POST /documents/{documentId}/assignments
       # @example Create a virtual assignment for one signer
-      #   resource.create("1032009d72b364f377ff270405cc", signers: %w[19e6b92e7895332ed9708535d8c],
-      #                   message: "SDK audit E2E - please ignore")
+      #   resource.create("document-id", signers: %w[signer-id], message: "Please sign")
       #   # Request body the SDK sends:
-      #   # { "method" => "virtual", "signers" => [{ "id" => "19e6b92e7895332ed9708535d8c" }],
-      #   #   "message" => "SDK audit E2E - please ignore" }
+      #   # { "method" => "virtual", "signers" => [{ "id" => "signer-id" }],
+      #   #   "message" => "Please sign" }
       #   # => {
-      #   #   "resource" => "assignment", "id" => "19e99aa0633e32ac13f845c08db",
-      #   #   "sender_email" => "bill@febacapital.com", "method" => "virtual",
-      #   #   "expires_at" => nil, "message" => "SDK audit E2E - please ignore",
-      #   #   "signers" => [{ "id" => "19e6b92e7895332ed9708535d8c", "full_name" => "Audit Bill A2",
-      #   #     "email" => "bill@febacapital.com", "whatsapp_phone_number" => nil,
+      #   #   "resource" => "assignment", "id" => "assignment-id",
+      #   #   "sender_email" => "sender@example.com", "method" => "virtual",
+      #   #   "expires_at" => nil, "message" => "Please sign",
+      #   #   "signers" => [{ "id" => "signer-id", "full_name" => "Example Signer",
+      #   #     "email" => "signer@example.com", "whatsapp_phone_number" => nil,
       #   #     "has_accepted_terms" => false, "completed" => false, "notification_history" => [],
       #   #     "verification_method" => "Email", "notification_methods" => ["Email"],
       #   #     "step" => 1, "notified" => true }],
       #   #   "copy_receivers" => [],
-      #   #   "items" => [{ "id" => "103200a43e372db16f48a6f0f2d4", "page" => nil,
-      #   #     "signer" => { "id" => "19e6b92e7895332ed9708535d8c", ... },
-      #   #     "field" => { "id" => "102d25a48bc7357b93f9b8e01b24", "name" => "Virtual",
+      #   #   "items" => [{ "id" => "assignment-item-id", "page" => nil,
+      #   #     "signer" => { "id" => "signer-id", ... },
+      #   #     "field" => { "id" => "field-id", "name" => "Virtual",
       #   #       "type" => "virtual", "is_pre_defined" => true, ... },
       #   #     "display_settings" => [], "value" => nil, "completed" => false }],
       #   #   "summary" => { "signer_count" => 1, "completed_count" => 0, "signers" => [{ ... }] },
-      #   #   "signing_urls" => [{ "signer_id" => "19e6b92e7895332ed9708535d8c",
-      #   #     "url" => "https://app-sandbox.assinafy.com.br/sign/103200a3...?email=bill%40febacapital.com" }]
+      #   #   "signing_urls" => [{ "signer_id" => "signer-id",
+      #   #     "url" => "https://app-sandbox.assinafy.com.br/sign/document-id?email=signer%40example.com" }]
       #   # } # ... (see docs for full shape)
       def create(document_id, payload)
         doc_id = require_id(document_id, 'Document ID')
@@ -208,7 +227,7 @@ module Assinafy
 
       # Estimate the credit cost of a potential assignment, without creating it.
       # Accepts the same payload as {#create}, but signer descriptors may omit
-      # `id` when only `verification_method`/`notification_methods` are needed.
+      # `id`. An empty descriptor (`{}`) defaults both methods to `Email`.
       #
       # @param document_id [String]
       # @param payload     [Hash]
@@ -217,7 +236,7 @@ module Assinafy
       #   blocking_reason, message)
       # @see POST /documents/{documentId}/assignments/estimate-cost
       # @example Estimate cost of inviting a WhatsApp signer (no id needed)
-      #   resource.estimate_cost("1032009d72b364f377ff270405cc",
+      #   resource.estimate_cost("document-id",
       #                          signers: [{ verification_method: "Whatsapp" }])
       #   # Request body the SDK sends:
       #   # { "method" => "virtual", "signers" => [{ "verification_method" => "Whatsapp" }] }
@@ -249,17 +268,17 @@ module Assinafy
       #   the new value — nil when cleared)
       # @see PUT /documents/{documentId}/assignments/{assignmentId}/reset-expiration
       # @example Set a new expiration timestamp
-      #   resource.reset_expiration("1032009d72b364f377ff270405cc", "19e99aa0633e32ac13f845c08db",
+      #   resource.reset_expiration("document-id", "assignment-id",
       #                             "2026-12-31T23:59:00Z")
       #   # Request body the SDK sends: { "expires_at" => "2026-12-31T23:59:00Z" }
-      #   # => { "resource" => "assignment", "id" => "19e99aa0633e32ac13f845c08db",
+      #   # => { "resource" => "assignment", "id" => "assignment-id",
       #   #      "method" => "virtual", "expires_at" => "2026-12-31T23:59:00Z",
       #   #      "signers" => [{ ... }], "items" => [{ ... }], "summary" => { ... },
       #   #      "signing_urls" => [{ ... }], "copy_receivers" => [] } # ... (see docs for full shape)
       # @example Clear the expiration (nil is sent verbatim as JSON null)
-      #   resource.reset_expiration("1032009d72b364f377ff270405cc", "19e99aa0633e32ac13f845c08db", nil)
+      #   resource.reset_expiration("document-id", "assignment-id", nil)
       #   # Request body the SDK sends: { "expires_at" => nil }
-      #   # => { "resource" => "assignment", "id" => "19e99aa0633e32ac13f845c08db",
+      #   # => { "resource" => "assignment", "id" => "assignment-id",
       #   #      "method" => "virtual", "expires_at" => nil, ... } # ... (see docs for full shape)
       def reset_expiration(document_id, assignment_id, expires_at)
         doc_id = require_id(document_id, 'Document ID')
@@ -280,9 +299,9 @@ module Assinafy
       # @return [Hash] delivery confirmation (is_sent, document_id, signer_id)
       # @see PUT /documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/resend
       # @example Resend the signing notification to a signer
-      #   resource.resend_notification("c57d51eaad68a7", "d51edaee68a7", "a51edaee68a7")
+      #   resource.resend_notification("document-id", "assignment-id", "signer-id")
       #   # (no request body)
-      #   # => { "is_sent" => true, "document_id" => "c57d51eaad68a7", "signer_id" => "a51edaee68a7" }
+      #   # => { "is_sent" => true, "document_id" => "document-id", "signer_id" => "signer-id" }
       def resend_notification(document_id, assignment_id, signer_id)
         doc_id = require_id(document_id, 'Document ID')
         asg_id = require_id(assignment_id, 'Assignment ID')
@@ -298,18 +317,21 @@ module Assinafy
       # @param document_id   [String]
       # @param assignment_id [String]
       # @param signer_id     [String]
-      # @return [Hash] cost breakdown (total, breakdown[]{code, name, cost}, credit_balance,
-      #   has_sufficient_credits)
+      # @return [Hash] cost breakdown (documents, credits, needs_extra_document, extra_document_cost,
+      #   total_credits, breakdown[], document_balance, credit_balance, has_sufficient_resources,
+      #   blocking_reason, message)
       # @see POST /documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/estimate-resend-cost
-      # @example Preview the cost of resending to a WhatsApp signer (0.2 credits)
-      #   resource.estimate_resend_cost("60f720572d7fecf7c16c8463", "61f720572d7fecf7c16c8464",
-      #                                 "615605f50e968054a5b7c9b8")
+      # @example Preview the cost of resending to a WhatsApp signer
+      #   resource.estimate_resend_cost("document-id", "assignment-id", "signer-id")
       #   # (no request body)
       #   # => {
-      #   #   "total" => 0.2,
-      #   #   "breakdown" => [{ "code" => "NotificationWhatsappResend",
-      #   #                     "name" => "Whatsapp Notification Resend", "cost" => 0.2 }],
-      #   #   "credit_balance" => 100, "has_sufficient_credits" => true
+      #   #   "documents" => 1, "credits" => 0.45, "needs_extra_document" => false,
+      #   #   "extra_document_cost" => 0, "total_credits" => 0.45,
+      #   #   "breakdown" => [{ "code" => "NotificationWhatsapp",
+      #   #                     "name" => "Whatsapp Notification", "cost" => 0.45,
+      #   #                     "quantity" => 1, "unit_cost" => 0.45 }],
+      #   #   "document_balance" => 10, "credit_balance" => 100,
+      #   #   "has_sufficient_resources" => true, "blocking_reason" => nil, "message" => nil
       #   # }
       def estimate_resend_cost(document_id, assignment_id, signer_id)
         doc_id = require_id(document_id, 'Document ID')
@@ -329,20 +351,20 @@ module Assinafy
       #   embedded current_signer and assignment (items filtered to the current signer); no pages array
       # @see GET /sign
       # @example Resolve the document a signer was invited to sign
-      #   resource.signer_document(signer_access_code: "9uAWyOXx9hgzCKdCuahkinwvg8tWJ2RC")
+      #   resource.signer_document(signer_access_code: "signer-access-code")
       #   # (no request body — signer-access-code is a query param)
       #   # => {
-      #   #   "id" => "6981dbd199996981d", "account_id" => "1a", "name" => "my_document.pdf",
+      #   #   "id" => "document-id", "account_id" => "account-id", "name" => "my_document.pdf",
       #   #   "status" => "metadata_ready",
       #   #   "artifacts" => { "original" => "https://.../download/original",
       #   #                    "thumbnail" => "https://.../thumbnail" },
       #   #   "is_closed" => false, "signing_url" => "%ui_base_url%/sign/doc1",
       #   #   "decline_reason" => nil, "declined_by" => nil,
-      #   #   "current_signer" => { "id" => "62d6ee35c7741ca4006b9e11", "full_name" => "Signer Name",
+      #   #   "current_signer" => { "id" => "signer-id", "full_name" => "Signer Name",
       #   #     "email" => "signer@example.com", "has_accepted_terms" => false,
       #   #     "verification_method" => "Email", "notification_methods" => ["Email"] },
       #   #   "assignment" => { "id" => "1", "method" => "virtual", "expires_at" => nil,
-      #   #     "items" => [{ "id" => "dbd199996981d", "field" => { "type" => "virtual" }, ... }] }
+      #   #     "items" => [{ "id" => "assignment-item-id", "field" => { "type" => "virtual" }, ... }] }
       #   # } # ... (see docs for full shape)
       def signer_document(signer_access_code:, has_accepted_terms: nil)
         call('Failed to fetch signer assignment document') do
@@ -366,13 +388,13 @@ module Assinafy
       #   verifiable with a workspace API key.
       # @see POST /documents/{documentId}/assignments/{assignmentId}
       # @example Sign with snake_case keys — mapped to camelCase itemId/fieldId/pageId
-      #   resource.sign("c57d51eaad68a7", "d51edaee68a7",
-      #     [{ item_id: "615606efcde1a39c9d21e30e", field_id: "6152120297080d55bdd13197",
-      #        page_id: "615213ed81b071f4293b2fc2", value: "Signed by Sonny Bayer" }],
-      #     signer_access_code: "9uAWyOXx9hgzCKdCuahkinwvg8tWJ2RC")
+      #   resource.sign("document-id", "assignment-id",
+      #     [{ item_id: "assignment-item-id", field_id: "field-id",
+      #        page_id: "page-id", value: "Signed by Example Signer" }],
+      #     signer_access_code: "signer-access-code")
       #   # Request body the SDK sends (snake_case keys mapped to camelCase):
-      #   # [{ "itemId" => "615606efcde1a39c9d21e30e", "fieldId" => "6152120297080d55bdd13197",
-      #   #    "pageId" => "615213ed81b071f4293b2fc2", "value" => "Signed by Sonny Bayer" }]
+      #   # [{ "itemId" => "assignment-item-id", "fieldId" => "field-id",
+      #   #    "pageId" => "page-id", "value" => "Signed by Example Signer" }]
       #   # => {} # per the API reference (unverified via workspace key)
       def sign(document_id, assignment_id, items, signer_access_code:)
         doc_id = require_id(document_id, 'Document ID')
@@ -394,15 +416,15 @@ module Assinafy
       # @return [Array] empty array on success (the API returns no payload)
       # @see PUT /documents/{documentId}/assignments/{assignmentId}/reject
       # @example Decline an assignment as the signer
-      #   resource.decline("c57d51eaad68a7", "d51edaee68a7",
+      #   resource.decline("document-id", "assignment-id",
       #                    decline_reason: "I do not agree with clause 2.",
-      #                    signer_access_code: "1e7d51e68a7")
+      #                    signer_access_code: "signer-access-code")
       #   # Request body the SDK sends: { "decline_reason" => "I do not agree with clause 2." }
       #   # => []
       def decline(document_id, assignment_id, decline_reason:, signer_access_code:)
         doc_id = require_id(document_id, 'Document ID')
         asg_id = require_id(assignment_id, 'Assignment ID')
-        reason = require_id(decline_reason, 'Decline reason')
+        reason = require_present(decline_reason, 'Decline reason')
 
         call('Failed to decline assignment') do
           http_put("documents/#{doc_id}/assignments/#{asg_id}/reject",
@@ -420,14 +442,14 @@ module Assinafy
       #   signer_id); empty array when no WhatsApp notifications were sent
       # @see GET /documents/{documentId}/assignments/{assignmentId}/whatsapp-notifications
       # @example List WhatsApp notifications sent for an assignment
-      #   resource.whatsapp_notifications("c57d51eaad68a7", "d51edaee68a7")
+      #   resource.whatsapp_notifications("document-id", "assignment-id")
       #   # (no request body)
       #   # => [
       #   #   { "sent_at" => 1710000000,
       #   #     "header" => "Documento para assinatura: Contrato de Servico",
       #   #     "body" => "Oi, Maria.\n\nJoao Silva enviou um documento...",
       #   #     "buttons" => [{ "text" => "Abrir documento" }],
-      #   #     "phone_number" => "+5511999990001", "signer_id" => "a51edaee68a7" }
+      #   #     "phone_number" => "+15555550100", "signer_id" => "signer-id" }
       #   # ]
       #   # => [] # when no WhatsApp notifications were sent (e.g. email-only assignment)
       def whatsapp_notifications(document_id, assignment_id)

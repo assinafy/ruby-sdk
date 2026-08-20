@@ -44,20 +44,24 @@ module Assinafy
       def register(payload, account_id_override = nil)
         p = require_payload(payload, 'Webhook payload').transform_keys(&:to_sym)
 
-        raise ValidationError.new('Webhook URL is required')   if p[:url].to_s.empty?
-        raise ValidationError.new('Webhook email is required') if p[:email].to_s.empty?
-        raise ValidationError.new('Webhook events are required') unless p[:events].is_a?(Array) && !p[:events].empty?
+        raise ValidationError.new('Webhook URL is required')   if p[:url].to_s.strip.empty?
+        raise ValidationError.new('Webhook email is required') if p[:email].to_s.strip.empty?
+
+        events = require_array(p[:events], 'Webhook events')
+        unless events.all? { |event| event.is_a?(String) && !event.strip.empty? }
+          raise ValidationError.new('Webhook events must be non-empty Strings')
+        end
 
         acc_id = account_id(account_id_override)
 
         body = {
           url:       p[:url],
           email:     p[:email],
-          events:    p[:events],
-          is_active: p.key?(:is_active) ? p[:is_active] : true
+          events:    events,
+          is_active: p.key?(:is_active) ? require_boolean(p[:is_active], 'is_active') : true
         }
 
-        @logger.info("Registering webhook #{p[:url]}")
+        @logger.info('Registering webhook subscription')
 
         call('Failed to register webhook') do
           http_put("accounts/#{acc_id}/webhooks/subscriptions", body_params(body))
@@ -80,7 +84,7 @@ module Assinafy
       #   #   events:     ["document_ready", "signer_signed_document"],
       #   #   is_active:  false,
       #   #   url:        "https://example.com/sdk-smoke-webhook",
-      #   #   email:      "sdk-smoke@assinafy.dev",
+      #   #   email:      "webhook@example.com",
       #   #   updated_at: "2026-06-05T21:13:24Z"
       #   # }
       def get(account_id_override = nil)
@@ -120,12 +124,12 @@ module Assinafy
 
       # Catalogue of supported event-type identifiers.
       #
-      # @return [Array<Hash>] each entry is { id:, description: } (15 event types available)
+      # @return [Array<Hash>] each entry is { id:, description: } (18 event types available)
       # @see GET /webhooks/event-types
       # @example List subscribable event types
       #   client.webhooks.list_event_types
       #   # GET /webhooks/event-types
-      #   # => unwrapped data payload returned (15 entries):
+      #   # => unwrapped data payload returned (18 entries):
       #   # [
       #   #   { id: "document_uploaded",        description: "Triggered when the User has uploaded a Document" },
       #   #   { id: "document_metadata_ready",  description: "Triggered when the document is ready to be prepared..." },
@@ -135,7 +139,7 @@ module Assinafy
       #   #   { id: "document_ready",           description: "Triggered when the last Signer signs the Document..." },
       #   #   { id: "signer_created",           description: "Triggered when the User created a Signer" },
       #   #   { id: "signer_email_verified",    description: "Triggered when Signer's email has been verified..." }
-      #   #   # ... (see docs for the full 15-event catalogue)
+      #   #   # ... (see docs for the full 18-event catalogue)
       #   # ]
       def list_event_types
         call('Failed to list webhook event types') do
@@ -157,7 +161,7 @@ module Assinafy
       #   # {
       #   #   data: [
       #   #     {
-      #   #       id:            "103b0278ca67eee5e34a430213bf",
+      #   #       id:            "dispatch-id",
       #   #       event:         "signature_requested",
       #   #       activity_id:   15431,
       #   #       endpoint:      "https://example.com/webhook",
@@ -188,12 +192,12 @@ module Assinafy
       # @return [Hash] the freshly created dispatch entry (same shape as {#list_dispatches}, plus `resource`)
       # @see POST /accounts/{account_id}/webhooks/{dispatch_id}/retry
       # @example Force a single dispatch to be re-attempted
-      #   client.webhooks.retry_dispatch('a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')
-      #   # POST /accounts/{account_id}/webhooks/a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6/retry  (no request body)
+      #   client.webhooks.retry_dispatch('dispatch-id')
+      #   # POST /accounts/{account_id}/webhooks/dispatch-id/retry  (no request body)
       #   # => unwrapped data payload returned:
       #   # {
       #   #   resource:      "activity_dispatching_history",
-      #   #   id:            "103b0278ca67eee5e34a430213bf",
+      #   #   id:            "dispatch-id",
       #   #   event:         "signature_requested",
       #   #   activity_id:   15431,
       #   #   endpoint:      "https://example.com/webhook",

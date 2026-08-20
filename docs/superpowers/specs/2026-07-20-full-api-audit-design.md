@@ -1,6 +1,6 @@
 # Full API Audit — Assinafy Ruby SDK (v1.4.0 → v1.5.0)
 
-Status: **Approved** (2026-07-20)
+Status: **Historical design snapshot** (approved 2026-07-20; superseded by the implemented audit report)
 Source of truth: `https://api.assinafy.com.br/v1/docs/openapi.json` (OpenAPI 3.0.0, 68 paths / 89 operations / 37 schemas)
 Sandbox: `https://sandbox.assinafy.com.br/v1` (live-tested with the provided sandbox key)
 
@@ -15,8 +15,8 @@ is dead, and any such removal is surfaced to the maintainer before it happens.
 
 ## Decisions (locked)
 
-1. **Live testing:** Full end-to-end against sandbox — real signature-request emails to
-   `bill@febacapital.com` / `billm@billm.org`, deletes for cleanup.
+1. **Live testing:** Full end-to-end against sandbox — signature-request emails to explicitly
+   configured test recipients, with deletes for cleanup.
 2. **Ruby target:** keep gemspec floor `>= 3.2`; CI matrix `[3.2, 3.3, 3.4, 4.0]`; fix
    `.ruby-version` drift.
 3. **Deliverable:** opt-in live integration suite (`ASSINAFY_LIVE=1`) + captured fixtures +

@@ -38,6 +38,10 @@ RSpec.describe Assinafy::Resources::AccountResource do
 
       expect(resource.get['id']).to eq('acc')
     end
+
+    it 'rejects a blank account ID' do
+      expect { described_class.new(connection, '').get }.to raise_error(Assinafy::ValidationError)
+    end
   end
 
   describe '#update' do
@@ -51,6 +55,15 @@ RSpec.describe Assinafy::Resources::AccountResource do
   end
 
   describe '#delete' do
+    it 'rejects non-boolean force values' do
+      expect { resource.delete(force: 'false') }.to raise_error(Assinafy::ValidationError)
+    end
+
+    it 'rejects an explicit invalid account override instead of using the default' do
+      expect { resource.delete(account_id_override: false) }.to raise_error(Assinafy::ValidationError)
+      expect(a_request(:delete, %r{/accounts/})).not_to have_been_made
+    end
+
     it 'DELETEs with a force flag in the body and returns nil' do
       stub_request(:delete, "#{base_url}/accounts/xyz")
         .with(body: hash_including('force' => true))
@@ -60,6 +73,14 @@ RSpec.describe Assinafy::Resources::AccountResource do
       expect(
         a_request(:delete, "#{base_url}/accounts/xyz").with(body: hash_including('force' => true))
       ).to have_been_made
+    end
+
+    it 'raises when a successful HTTP response contains an error envelope' do
+      stub_request(:delete, "#{base_url}/accounts/xyz")
+        .to_return(json_response({ 'status' => 409, 'data' => nil, 'message' => 'Account is in use' }))
+
+      expect { resource.delete(account_id_override: 'xyz') }
+        .to raise_error(Assinafy::ApiError) { |error| expect(error.status_code).to eq(409) }
     end
   end
 

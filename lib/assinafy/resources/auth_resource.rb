@@ -26,16 +26,16 @@ module Assinafy
       #   #
       #   # Returns the unwrapped data payload (envelope { status, message, data } stripped):
       #   # {
-      #   #   "access_token" => "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1Ni...",
+      #   #   "access_token" => "access-token-placeholder",
       #   #   "user" => {
-      #   #     "id" => "bgjazeo5r9v2lq7l36dx48np", "name" => "John Smith",
-      #   #     "email" => "user@example.com", "telephone" => "17989206641",
-      #   #     "government_id" => "15774136604", "is_email_verified" => false,
+      #   #     "id" => "user-id", "name" => "Example User",
+      #   #     "email" => "user@example.com", "telephone" => "+15555550100",
+      #   #     "government_id" => "00000000000", "is_email_verified" => false,
       #   #     "has_accepted_terms" => true, "created_at" => "2023-03-03T11:51:34Z",
       #   #     "to_be_deleted_at" => nil
       #   #   },
       #   #   "accounts" => [
-      #   #     { "id" => "6401df46d6a6b0c692d9ec49", "name" => "JS", "roles" => ["owner"],
+      #   #     { "id" => "account-id", "name" => "Example Workspace", "roles" => ["owner"],
       #   #       "is_delete_allowed" => true, "created_at" => "2023-03-03T11:51:34Z" }
       #   #   ]
       #   # }
@@ -57,16 +57,16 @@ module Assinafy
       # @see POST /authentication/social-login
       #
       # @example Request and response
-      #   resource.social_login(provider: 'google', token: 'yOTUvImV4cCI...', has_accepted_terms: true)
+      #   resource.social_login(provider: 'google', token: 'provider-token', has_accepted_terms: true)
       #   # Request body sent by the SDK:
-      #   #   { "provider": "google", "token": "yOTUvImV4cCI...", "has_accepted_terms": true }
+      #   #   { "provider": "google", "token": "provider-token", "has_accepted_terms": true }
       #   #
       #   # Returns the unwrapped data payload (envelope stripped); same shape as #login:
       #   # {
-      #   #   "access_token" => "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1Ni...",
-      #   #   "user" => { "id" => "bgjazeo5r9v2lq7l36dx48np", "name" => "John Smith", ... },
+      #   #   "access_token" => "access-token-placeholder",
+      #   #   "user" => { "id" => "user-id", "name" => "Example User", ... },
       #   #   "accounts" => [
-      #   #     { "id" => "6401df46d6a6b0c692d9ec49", "name" => "JS", "roles" => ["owner"],
+      #   #     { "id" => "account-id", "name" => "Example Workspace", "roles" => ["owner"],
       #   #       "is_delete_allowed" => true, "created_at" => "2023-03-03T11:51:34Z" }
       #   #   ]
       #   # }
@@ -83,33 +83,18 @@ module Assinafy
         end
       end
 
-      # Build the browser URL that starts the OAuth social-login redirect flow.
-      #
-      # `GET /auth/authenticate` is a browser redirect to the identity provider,
-      # not a JSON endpoint, so the SDK exposes it as a pure URL builder — it
-      # makes no network request. Send the returned URL to the user's browser.
-      #
-      # @param authclient [String, nil] optional client identifier passed through
-      #   as the `authclient` query parameter
-      # @return [String] the fully-qualified authorize URL
-      # @see GET /auth/authenticate
-      # @example Build the social-login start URL
-      #   client.auth.social_login_url(authclient: 'web')
-      #   # => "https://api.assinafy.com.br/v1/auth/authenticate?authclient=web"
-      def social_login_url(authclient: nil)
-        @connection.build_url('auth/authenticate', query_params(authclient: authclient)).to_s
-      end
-
       # Link a third-party identity provider to the authenticated user's account.
       #
       # @param provider [String] the provider type; currently only `google`
       # @param token    [String] provider-issued OAuth/OIDC token
-      # @return [Hash] unwrapped payload confirming the linked provider
+      # @return [nil] the documented success envelope has no `data` payload
       # @see POST /auth/link-social-login
       # @example Link a Google account
-      #   client.auth.link_social_login(provider: 'google', token: 'ya29.a0Af...')
+      #   client.auth.link_social_login(provider: 'google', token: 'provider-token')
       #   # Request body sent by the SDK:
-      #   #   { "provider": "google", "token": "ya29.a0Af..." }
+      #   #   { "provider": "google", "token": "provider-token" }
+      #   # Response: { "status": 200, "message": "Provider linked" }
+      #   # => nil
       def link_social_login(provider:, token:)
         call('Failed to link social login') do
           @connection.post('auth/link-social-login', body_params(provider: provider, token: token))
@@ -133,7 +118,7 @@ module Assinafy
       #   #   { "password": "secret" }
       #   #
       #   # Returns the unwrapped data payload (envelope stripped):
-      #   # { "api_key" => "mIpe_zdJfKUpMK9Va3XuYgzPXMxz49fIaRCWXseVkpVAX608A9j3i_D67qU5qW3M" }
+      #   # { "api_key" => "api-key-created-once" }
       def create_api_key(password:)
         call('Failed to create API key') do
           @connection.post('users/api-keys', body_params(password: password))
@@ -196,9 +181,11 @@ module Assinafy
       # @see PUT /authentication/change-password
       #
       # @example Request and response
-      #   resource.change_password(email: 'user@example.com', password: 'X3$_!456aTa', new_password: 'X3$_!456aT')
+      #   resource.change_password(email: 'user@example.com', password: 'current-password',
+      #                            new_password: 'new-password')
       #   # Request body sent by the SDK:
-      #   #   { "email": "user@example.com", "password": "X3$_!456aTa", "new_password": "X3$_!456aT" }
+      #   #   { "email": "user@example.com", "password": "current-password",
+      #   #     "new_password": "new-password" }
       #   #
       #   # Returns the unwrapped data payload (envelope stripped):
       #   # { "email" => "user@example.com" }
@@ -244,9 +231,10 @@ module Assinafy
       # @see PUT /authentication/reset-password
       #
       # @example Request and response
-      #   resource.reset_password(email: 'user@example.com', new_password: '62b3ac64d6c55', token: 'b3ac64d6c55...')
+      #   resource.reset_password(email: 'user@example.com', new_password: 'new-password',
+      #                           token: 'reset-token')
       #   # Request body sent by the SDK (nil token would be omitted by body_params):
-      #   #   { "email": "user@example.com", "token": "b3ac64d6c55...", "new_password": "62b3ac64d6c55" }
+      #   #   { "email": "user@example.com", "token": "reset-token", "new_password": "new-password" }
       #   #
       #   # Returns the unwrapped data payload (envelope stripped):
       #   # { "email" => "user@example.com" }

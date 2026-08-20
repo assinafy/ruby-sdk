@@ -27,11 +27,11 @@ module Assinafy
       # @return [Hash] the document (envelope `data` unwrapped)
       # @see GET /signers/{signer_id}/document
       # @example Fetch the document tied to an access code
-      #   doc = client.signer_documents.current('62d6ee35c7741ca4006b9e11', signer_access_code: '1ca4006b9e11')
+      #   doc = client.signer_documents.current('signer-id', signer_access_code: 'signer-access-code')
       #
       #   # => {
-      #   #   "id"             => "6981dbd199996981d",
-      #   #   "account_id"     => "1a",
+      #   #   "id"             => "document-id",
+      #   #   "account_id"     => "account-id",
       #   #   "name"           => "my_document.pdf",
       #   #   "status"         => "metadata_ready",
       #   #   "artifacts"      => { "original" => "https://...", "thumbnail" => "https://..." },
@@ -41,7 +41,8 @@ module Assinafy
       #   #   "declined_by"    => nil,
       #   #   "created_at"     => "2023-07-21T13:43:17Z",
       #   #   "updated_at"     => "2023-07-21T13:43:17Z",
-      #   #   "current_signer" => { "id" => "62d6...", "full_name" => "Signer Name", "email" => "...",
+      #   #   "current_signer" => { "id" => "signer-id", "full_name" => "Signer Name",
+      #   #                         "email" => "signer@example.com",
       #   #                         "verification_method" => "Email", "notification_methods" => ["Email"] },
       #   #   "assignment"     => { "id" => "1", "method" => "virtual", "items" => [{ ... }] }
       #   #   # ... (see docs for full shape)
@@ -62,20 +63,20 @@ module Assinafy
       # it is omitted from the query and the header auth is used.
       #
       # @param signer_id          [String]
-      # @param params             [Hash] `status`, `method`, `search`, `sort`, `page`, `per_page`
+      # @param params             [Hash] documented `page` and `per_page` query parameters
       # @param signer_access_code [String, nil]
       # @return [Hash{Symbol=>Array,Hash}] `{ data: [...], meta: { current_page:, per_page:, total:, last_page: } }`
       # @see GET /signers/{signer_id}/documents
-      # @example List the signer's documents, filtered by status
-      #   page = client.signer_documents.list('62d6ee35c7741ca4006b9e11',
-      #                                       { status: 'pending_signature' },
-      #                                       signer_access_code: '1ca4006b9e11')
+      # @example List the signer's documents with pagination
+      #   page = client.signer_documents.list('signer-id',
+      #                                       { page: 1, per_page: 15 },
+      #                                       signer_access_code: 'signer-access-code')
       #
       #   # => {
       #   #   data: [
       #   #     {
-      #   #       "id"         => "6981dbd199996981d",
-      #   #       "account_id" => "1a",
+      #   #       "id"         => "document-id",
+      #   #       "account_id" => "account-id",
       #   #       "name"       => "my_document.pdf",
       #   #       "status"     => "metadata_ready",
       #   #       "assignment" => { "id" => "1", "method" => "virtual", "signers" => [{ ... }],
@@ -103,17 +104,17 @@ module Assinafy
       #
       # @param signer_id          [String]
       # @param query              [String] free-text search term
-      # @param params             [Hash] extra query parameters (`page`, `per_page`, ...)
+      # @param params             [Hash] optional deployment-specific query parameters
       # @param signer_access_code [String, nil]
       # @return [Hash{Symbol=>Array,Hash}] `{ data: [...], meta: {..} | nil }`
       # @see GET /signers/{signer_id}/documents/search
       # @example Search the signer's documents
-      #   page = client.signer_documents.search('62d6ee35c7741ca4006b9e11', 'contract')
+      #   page = client.signer_documents.search('signer-id', 'contract')
       #
-      #   # Request: GET /signers/{signer_id}/documents/search?query=contract
+      #   # Request: GET /signers/{signer_id}/documents/search?search=contract
       #   # => {
       #   #   data: [
-      #   #     { "id" => "103b0274...", "account_id" => "1a", "name" => "audit.pdf",
+      #   #     { "id" => "document-id", "account_id" => "account-id", "name" => "contract.pdf",
       #   #       "status" => "pending_signature", "template_id" => nil,
       #   #       "artifacts" => { "original" => "https://...", "thumbnail" => "https://..." },
       #   #       "is_closed" => false, "signing_url" => "https://...", "tags" => []
@@ -127,7 +128,7 @@ module Assinafy
 
         call_list('Failed to search signer documents') do
           http_get("signers/#{sid}/documents/search",
-                   params.merge(query: query, signer_access_code: signer_access_code))
+                   params.merge(search: query, signer_access_code: signer_access_code))
         end
       end
 
@@ -140,10 +141,11 @@ module Assinafy
       # @return [Array] empty array on success (envelope `data` unwrapped)
       # @see PUT /signers/documents/sign-multiple
       # @example Sign two documents at once
-      #   client.signer_documents.sign_multiple(%w[documentid1 documentid2], signer_access_code: '9uAWyOXx')
+      #   client.signer_documents.sign_multiple(%w[document-1 document-2],
+      #                                             signer_access_code: 'signer-access-code')
       #
       #   # Request body the SDK sends:
-      #   #   { "document_ids": ["documentid1", "documentid2"] }
+      #   #   { "document_ids": ["document-1", "document-2"] }
       #
       #   # => []
       def sign_multiple(document_ids, signer_access_code:)
@@ -164,17 +166,17 @@ module Assinafy
       # @return [Array] empty array on success (envelope `data` unwrapped)
       # @see PUT /signers/documents/decline-multiple
       # @example Decline two documents with a reason
-      #   client.signer_documents.decline_multiple(%w[documentid1 documentid2],
+      #   client.signer_documents.decline_multiple(%w[document-1 document-2],
       #                                            decline_reason: 'Unfavorable terms.',
-      #                                            signer_access_code: '9uAWyOXx')
+      #                                            signer_access_code: 'signer-access-code')
       #
       #   # Request body the SDK sends:
-      #   #   { "document_ids": ["documentid1", "documentid2"], "decline_reason": "Unfavorable terms." }
+      #   #   { "document_ids": ["document-1", "document-2"], "decline_reason": "Unfavorable terms." }
       #
       #   # => []
       def decline_multiple(document_ids, decline_reason:, signer_access_code:)
         ids    = require_array(document_ids, 'Document IDs')
-        reason = require_id(decline_reason, 'Decline reason')
+        reason = require_present(decline_reason, 'Decline reason')
 
         call('Failed to decline documents') do
           http_put('signers/documents/decline-multiple',
@@ -191,12 +193,13 @@ module Assinafy
       #
       # @param signer_id          [String]
       # @param document_id        [String]
-      # @param artifact_name      [String] one of `original`, `certificated`, `certificate-page`, `bundle`
+      # @param artifact_name      [String] `original`, `certificated`, `certificate-page`, `pades`, or
+      #   `bundle`
       # @param signer_access_code [String, nil] optional
       # @return [String] binary file body (ASCII-8BIT), e.g. the raw PDF bytes
       # @see GET /signers/{signer_id}/documents/{document_id}/download/{artifact_name}
       # @example Download the original PDF and write it to disk (no access code needed)
-      #   pdf = client.signer_documents.download('62d6ee35c7741ca4006b9e11', 'doc-1', 'original')
+      #   pdf = client.signer_documents.download('signer-id', 'document-id', 'original')
       #
       #   # Response is the raw artifact body (Content-Type: application/pdf):
       #   #   => "%PDF-1.7\n..." (binary string)
@@ -205,6 +208,9 @@ module Assinafy
         sid = require_id(signer_id, 'Signer ID')
         did = require_id(document_id, 'Document ID')
         art = require_id(artifact_name, 'Artifact name')
+        unless DocumentResource::ARTIFACT_TYPES.include?(art)
+          raise ValidationError.new('Invalid artifact type', { artifact_name: artifact_name })
+        end
 
         call_binary('Failed to download signer document') do
           http_get("signers/#{sid}/documents/#{did}/download/#{art}",

@@ -9,14 +9,13 @@ module Assinafy
     class TemplateResource < BaseResource
       # List templates with pagination metadata.
       #
-      # @param params [Hash] documented filters are `search`, `page`, `per-page`; any additional
-      #   keys (`status`, `tags`, `sort`) are passed through verbatim if the API supports them
+      # @param params [Hash] documented `search`, `page`, and `per_page` query parameters
       # @param account_id_override [String, nil]
       # @return [Hash{Symbol=>Array,Hash}] `{ data: [Template, ...], meta: { current_page:, per_page:, ... } }`
       # @see GET /accounts/{account_id}/templates
       #
-      # @example List ready templates and read pagination metadata
-      #   client.templates.list(status: 'ready', per_page: 3)
+      # @example Search templates and read pagination metadata
+      #   client.templates.list(search: 'contract', per_page: 3)
       #   # Returns the unwrapped { data:, meta: } payload:
       #   # {
       #   #   data: [

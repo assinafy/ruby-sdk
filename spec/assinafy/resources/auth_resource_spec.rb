@@ -5,24 +5,13 @@ RSpec.describe Assinafy::Resources::AuthResource do
   let(:connection) { build_test_connection(base_url) }
   let(:resource)   { described_class.new(connection) }
 
-  describe '#social_login_url' do
-    it 'builds the authorize URL without making a network request' do
-      url = resource.social_login_url(authclient: 'web')
-      expect(url).to eq("#{base_url}/auth/authenticate?authclient=web")
-    end
-
-    it 'omits the query when no authclient is given' do
-      expect(resource.social_login_url).to eq("#{base_url}/auth/authenticate")
-    end
-  end
-
   describe '#link_social_login' do
-    it 'POSTs provider and token' do
+    it 'POSTs provider and token and handles the documented no-data response' do
       stub_request(:post, "#{base_url}/auth/link-social-login")
         .with(body: { 'provider' => 'google', 'token' => 'tok' })
-        .to_return(api_envelope({ 'provider' => 'google' }))
+        .to_return(json_response({ 'status' => 200, 'message' => 'Provider linked' }))
 
-      expect(resource.link_social_login(provider: 'google', token: 'tok')['provider']).to eq('google')
+      expect(resource.link_social_login(provider: 'google', token: 'tok')).to be_nil
     end
   end
 

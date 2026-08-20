@@ -73,6 +73,10 @@ RSpec.describe Assinafy::Resources::TagResource do
   end
 
   describe '#delete' do
+    it 'rejects non-boolean force values' do
+      expect { resource.delete('tag-1', force: 'false') }.to raise_error(Assinafy::ValidationError)
+    end
+
     it 'deletes a tag without force by default' do
       stub_request(:delete, "#{base_url}/accounts/acc/tags/tag-1")
         .to_return(api_envelope({ 'deleted' => true }))

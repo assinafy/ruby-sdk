@@ -77,7 +77,7 @@ module Assinafy
     end
   end
 
-  # Raised when Faraday reports a connection error or a timeout. The
+  # Raised when Faraday reports a connection, timeout, or TLS error. The
   # original exception's message is included.
   class NetworkError < Error; end
 end

@@ -9,7 +9,7 @@ Gem::Specification.new do |spec|
   spec.email   = ['sdk@assinafy.com.br']
 
   spec.summary     = 'Ruby SDK for the Assinafy digital signature API'
-  spec.description = 'Ruby SDK for Assinafy. Covers the documented authentication, ' \
+  spec.description = 'Ruby SDK for Assinafy. Covers the documented authentication, account, user, ' \
                      'document, signer, assignment, webhook, template, tag, and field APIs, plus the high-level ' \
                      'upload_and_request_signatures helper.'
   spec.homepage    = 'https://github.com/assinafy/ruby-sdk'
