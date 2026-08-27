@@ -84,9 +84,12 @@ client = Assinafy::Client.new(
 - `token:` sends `Authorization: Bearer ...` (legacy session token).
 - Configure exactly one credential. If both are supplied, the SDK sends only `X-Api-Key`.
 - A client can also be created with no credentials for authentication and public/signer endpoints.
+- `base_url:` must be an absolute `http`/`https` URL. Anything else — a scheme-less host, a relative path, or
+  another scheme — raises `Assinafy::ValidationError` instead of attaching your credentials to it. A trailing
+  slash is stripped.
 - Account-scoped methods document a per-call account override for multi-workspace tenants.
 - Provide a `Logger`-compatible `logger:` to observe upload/assignment/webhook lifecycle messages.
-- Requests send `User-Agent: Assinafy-Ruby-SDK/v1.5.1`; the suffix always follows `Assinafy::VERSION`.
+- Requests send `User-Agent: Assinafy-Ruby-SDK/v<Assinafy::VERSION>`; the suffix always follows the gem version.
 
 `Client.from_config(hash)` accepts string- or symbol-keyed hashes (e.g. parsed YAML).
 

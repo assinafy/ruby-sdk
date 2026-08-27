@@ -38,6 +38,35 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
       end.to raise_error(Assinafy::ValidationError)
     end
 
+    it 'rejects a non-String message or expires_at' do
+      expect do
+        described_class.build_payload(signers: %w[s1], message: 123)
+      end.to raise_error(Assinafy::ValidationError, /message must be a String/)
+
+      expect do
+        described_class.build_payload(signers: %w[s1], expires_at: 20_261_231)
+      end.to raise_error(Assinafy::ValidationError, /expires_at must be a String/)
+    end
+
+    it 'rejects copy_receivers that are not an Array of non-empty signer IDs' do
+      ['not-an-array', [{ id: 'x' }], [''], [nil]].each do |receivers|
+        expect do
+          described_class.build_payload(signers: %w[s1], copy_receivers: receivers)
+        end.to raise_error(Assinafy::ValidationError, /copy_receivers/)
+      end
+    end
+
+    it 'keeps well-formed optional fields' do
+      body = described_class.build_payload(
+        signers: %w[s1], message: 'Please sign',
+        expires_at: '2026-12-31T23:59:00Z', copy_receivers: %w[cc1]
+      )
+
+      expect(body).to include(
+        'message' => 'Please sign', 'expires_at' => '2026-12-31T23:59:00Z', 'copy_receivers' => %w[cc1]
+      )
+    end
+
     it 'omits an empty signers array from collect payloads' do
       expect(described_class.build_payload(method: 'collect', entries: [{ page_id: 'p1', fields: [] }])).to eq(
         'method' => 'collect', 'entries' => [{ 'page_id' => 'p1', 'fields' => [] }]

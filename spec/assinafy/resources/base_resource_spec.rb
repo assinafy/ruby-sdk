@@ -99,7 +99,7 @@ RSpec.describe Assinafy::Resources::BaseResource do
 
       resource
 
-      expect(connection.headers['User-Agent']).to eq('Assinafy-Ruby-SDK/v1.5.1')
+      expect(connection.headers['User-Agent']).to eq("Assinafy-Ruby-SDK/v#{Assinafy::VERSION}")
       expect(connection.headers['User-Agent']).to eq(Assinafy::USER_AGENT)
     end
 

@@ -168,6 +168,23 @@ environment before making these operations part of a critical workflow.
 | DELETE | `/v1/accounts/{account_id}/templates/{template_id}` | `TemplateResource#delete` | Bearer token or `X-Api-Key` | No request body; returns `nil` on success. |
 | GET | `/v1/accounts/{account_id}/templates/{template_id}/pages/{page_id}/download` | `TemplateResource#download_page` | Bearer token or `X-Api-Key` | No request body; returns binary image bytes. |
 
+### Assignment listing
+
+`GET /v1/assignments` needs an account context that the machine contract does not list. The SDK supplies it as
+the camelCase `accountId` query parameter (`AssignmentResource#list`), taken from the client default or the
+per-call override.
+
+### Assignment optional fields
+
+`message` and `expires_at` must be strings, and `copy_receivers` must be an array of non-empty signer IDs.
+`AssignmentResource.build_payload` rejects other shapes locally, so `Client#upload_and_request_signatures`
+fails before it uploads a document or creates signers.
+
+### Base URL
+
+`base_url` must be an absolute `http`/`https` URL with a host. Other schemes, scheme-less hosts, and relative
+paths raise `Assinafy::ValidationError` at construction rather than sending credentials to them.
+
 ### Document tags
 
 `DocumentResource#replace_tags` and `#append_tags` accept arrays of tag IDs. The deployed sandbox also accepts

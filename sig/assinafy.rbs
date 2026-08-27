@@ -68,6 +68,7 @@ module Assinafy
   class Configuration
     DEFAULT_BASE_URL: String
     DEFAULT_TIMEOUT: Integer
+    BASE_URL_SCHEMES: Array[String]
 
     attr_accessor api_key: String?
     attr_accessor token: String?

@@ -98,7 +98,7 @@ module Assinafy
       #   # => nil
       def link_social_login(provider:, token:)
         call('Failed to link social login') do
-          @connection.post('auth/link-social-login', body_params(provider: provider, token: token))
+          http_post('auth/link-social-login', body_params(provider: provider, token: token))
         end
       end
 
@@ -122,7 +122,7 @@ module Assinafy
       #   # { "api_key" => "api-key-created-once" }
       def create_api_key(password:)
         call('Failed to create API key') do
-          @connection.post('users/api-keys', body_params(password: password))
+          http_post('users/api-keys', body_params(password: password))
         end
       end
 
@@ -146,7 +146,7 @@ module Assinafy
       #   resource.get_api_key # => nil
       def get_api_key
         call('Failed to get API key') do
-          @connection.get('users/api-keys')
+          http_get('users/api-keys')
         end
       end
 
@@ -168,7 +168,7 @@ module Assinafy
       #   # => nil
       def delete_api_key
         call_void('Failed to delete API key') do
-          @connection.delete('users/api-keys')
+          http_delete('users/api-keys')
         end
       end
 
@@ -192,7 +192,7 @@ module Assinafy
       #   # { "email" => "user@example.com" }
       def change_password(email:, password:, new_password:)
         call('Failed to change password') do
-          @connection.put(
+          http_put(
             'authentication/change-password',
             body_params(email: email, password: password, new_password: new_password)
           )

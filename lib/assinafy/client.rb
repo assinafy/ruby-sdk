@@ -193,6 +193,13 @@ module Assinafy
                                       copy_receivers: nil, account_id: nil)
       validate_signature_workflow!(signers, wait_for_ready)
 
+      # Placeholder IDs stand in for the signers created below, so the whole
+      # assignment body is validated before anything is uploaded or created.
+      assignment_payload = { method: 'virtual', signers: Array.new(signers.length, 'preflight'),
+                             message: message, expires_at: expires_at,
+                             copy_receivers: copy_receivers }
+      Resources::AssignmentResource.build_payload(assignment_payload)
+
       @logger.info("Starting upload and signature workflow for #{signers.length} signer(s)")
 
       upload_opts = account_id.nil? ? {} : { account_id: account_id }
@@ -205,10 +212,7 @@ module Assinafy
           signer_ids << signer_id!(@signers.create(signer, account_id))
         end
 
-        assignment_payload = { method: 'virtual', signers: signer_ids,
-                               message: message, expires_at: expires_at,
-                               copy_receivers: copy_receivers }
-        assignment = @assignments.create(document['id'], assignment_payload)
+        assignment = @assignments.create(document['id'], assignment_payload.merge(signers: signer_ids))
         created_resource_id!(assignment, 'Assignment')
 
         @logger.info("Upload and signature workflow completed for document #{document['id']}")

@@ -79,6 +79,7 @@ module Assinafy
           method  = (p[:method] || 'virtual').to_s
 
           validate_method!(method, signers, entries, p)
+          validate_optional_fields!(p)
 
           result = { method: method }
           result[:signers] = signers.map { |ref| normalise_signer_ref(ref, options) } unless signers.empty?
@@ -104,6 +105,28 @@ module Assinafy
           return unless method == 'collect' && (!entries.is_a?(Array) || entries.empty?)
 
           raise ValidationError.new('entries are required for collect assignments')
+        end
+
+        # `message`/`expires_at`/`copy_receivers` are forwarded verbatim, so a
+        # wrong type here would only fail server-side — after the caller has
+        # already uploaded a document and created signers.
+        def validate_optional_fields!(payload)
+          %i[message expires_at].each do |key|
+            value = payload[key]
+            next if value.nil? || value.is_a?(String)
+
+            raise ValidationError.new("#{key} must be a String", { key => value })
+          end
+
+          receivers = payload[:copy_receivers]
+          return if receivers.nil?
+
+          unless receivers.is_a?(Array) && receivers.all? { |id| id.is_a?(String) && !id.strip.empty? }
+            raise ValidationError.new(
+              'copy_receivers must be an Array of signer IDs',
+              { copy_receivers: receivers }
+            )
+          end
         end
 
         def extract_signer_refs(payload)

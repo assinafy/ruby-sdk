@@ -10,6 +10,7 @@ target :assinafy do
   library 'json'
   library 'openssl'
   library 'stringio'
+  library 'uri'
 
   configure_code_diagnostics(D::Ruby.strict) do |diagnostics|
     diagnostics[D::Ruby::UnannotatedEmptyCollection] = nil

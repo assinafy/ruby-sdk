@@ -2,6 +2,25 @@
 
 All notable changes to the `assinafy` Ruby gem are documented here.
 
+## 1.5.2
+
+### Fixed
+
+- `base_url` must now be an absolute `http`/`https` URL with a host. Other schemes, scheme-less
+  hosts, and relative paths raise `Assinafy::ValidationError` at construction instead of sending
+  credentials to them or surfacing a raw `URI::InvalidURIError`.
+- `AssignmentResource.build_payload` now rejects a non-String `message` or `expires_at` and a
+  `copy_receivers` value that is not an array of non-empty signer IDs, instead of forwarding them
+  to the API verbatim.
+- `Client#upload_and_request_signatures` validates the whole assignment body before uploading, so
+  malformed `message`, `expires_at`, or `copy_receivers` values no longer leave an uploaded
+  document and freshly created signers behind.
+
+### Changed
+
+- Authentication and API-key operations route through the shared resource request helpers used by
+  every other resource.
+
 ## 1.5.1
 
 ### Added

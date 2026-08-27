@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'uri'
+
 require_relative 'errors'
 
 module Assinafy
@@ -24,6 +26,9 @@ module Assinafy
     DEFAULT_BASE_URL = 'https://api.assinafy.com.br/v1'
     # Default Faraday open/read timeout, in seconds.
     DEFAULT_TIMEOUT  = 30
+    # Schemes accepted for {#base_url}. Credentials are attached to every request
+    # sent to this host, so anything that is not absolute HTTP(S) is rejected.
+    BASE_URL_SCHEMES = %w[http https].freeze
 
     # @!attribute [rw] api_key
     #   @return [String, nil] sent as `X-Api-Key`
@@ -65,17 +70,17 @@ module Assinafy
     # @example Trailing slash on base_url is stripped
     #   Assinafy::Configuration.new(base_url: 'https://api.assinafy.com.br/v1/').base_url
     #   # => "https://api.assinafy.com.br/v1"
+    #
+    # @example A base_url that is not an absolute http(s) URL is rejected
+    #   Assinafy::Configuration.new(base_url: 'api.assinafy.com.br/v1')
+    #   # raises Assinafy::ValidationError ("Base URL must be an absolute http(s) URL")
     def initialize(api_key: nil, token: nil, account_id: nil,
                    base_url: DEFAULT_BASE_URL, webhook_secret: nil,
                    timeout: DEFAULT_TIMEOUT, logger: nil)
       @api_key        = api_key
       @token          = token
       @account_id     = account_id
-      raise ValidationError.new('Base URL is required') unless base_url.is_a?(String)
-
-      @base_url = base_url.strip.sub(%r{/+\z}, '')
-      raise ValidationError.new('Base URL is required') if @base_url.empty?
-
+      @base_url       = normalize_base_url(base_url)
       @webhook_secret = webhook_secret
       @timeout        = normalize_timeout(timeout)
       @logger         = logger
@@ -145,6 +150,25 @@ module Assinafy
     end
 
     private
+
+    # Strip the trailing slash and require an absolute http(s) URL with a host.
+    # Without this the SDK would happily attach `X-Api-Key` to an `ftp:` or
+    # scheme-less base, or surface a raw URI::InvalidURIError from Faraday.
+    def normalize_base_url(value)
+      raise ValidationError.new('Base URL is required') unless value.is_a?(String)
+
+      url = value.strip.sub(%r{/+\z}, '')
+      raise ValidationError.new('Base URL is required') if url.empty?
+
+      uri = URI.parse(url)
+      unless BASE_URL_SCHEMES.include?(uri.scheme) && !uri.host.to_s.empty?
+        raise ValidationError.new('Base URL must be an absolute http(s) URL', { base_url: value })
+      end
+
+      url
+    rescue URI::InvalidURIError => e
+      raise ValidationError.new("Base URL is not a valid URL: #{e.message}", { base_url: value })
+    end
 
     def normalize_timeout(value)
       raw = value.nil? ? DEFAULT_TIMEOUT : value

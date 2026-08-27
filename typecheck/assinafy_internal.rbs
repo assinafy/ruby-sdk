@@ -2,6 +2,7 @@ module Assinafy
   class Configuration
     private
 
+    def normalize_base_url: (untyped value) -> String
     def normalize_timeout: (Integer | String | nil value) -> Integer
   end
 
@@ -129,6 +130,7 @@ module Assinafy
         untyped entries,
         params payload
       ) -> void
+      def self.validate_optional_fields!: (params payload) -> void
       def self.extract_signer_refs: (params payload) -> Array[untyped]
       def self.normalise_signer_ref: (untyped ref, params options) -> Hash[Symbol, untyped]
       def self.string_signer_ref: (String ref) -> Hash[Symbol, String]

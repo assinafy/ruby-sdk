@@ -77,6 +77,21 @@ RSpec.describe Assinafy::Client do
       expect { described_class.new(timeout: 1.9) }.to raise_error(Assinafy::ValidationError)
     end
 
+    it 'rejects a base_url that is not an absolute http(s) URL' do
+      ['api.assinafy.com.br/v1', 'ftp://api.assinafy.com.br/v1', '/v1', 'javascript:alert(1)',
+       'https://', 'not a url', '//api.assinafy.com.br/v1'].each do |base_url|
+        expect { described_class.new(base_url: base_url) }
+          .to raise_error(Assinafy::ValidationError, /Base URL/)
+      end
+    end
+
+    it 'accepts http and https base URLs' do
+      %w[https://api.assinafy.com.br/v1 http://localhost:3000/v1].each do |base_url|
+        expect(described_class.new(base_url: base_url).faraday_connection.url_prefix.to_s)
+          .to start_with(base_url)
+      end
+    end
+
     it 'strips trailing slash from base_url' do
       client = described_class.new(
         api_key:    'k',
@@ -208,11 +223,11 @@ RSpec.describe Assinafy::Client do
     end
 
     it 'raises ValidationError when signers are not an Array of Hashes' do
-      expect do
-        client.upload_and_request_signatures(
-          source: pdf_source, signers: ['signer-id']
-        )
-      end.to raise_error(Assinafy::ValidationError)
+      [['signer-id'], nil, 'signer-id', 5, { full_name: 'Solo' }].each do |bad_signers|
+        expect do
+          client.upload_and_request_signatures(source: pdf_source, signers: bad_signers)
+        end.to raise_error(Assinafy::ValidationError)
+      end
     end
 
     it 'preflights every signer payload before uploading' do
@@ -235,6 +250,39 @@ RSpec.describe Assinafy::Client do
 
       expect(a_request(:post, "#{base_url}/accounts/acc/documents")).not_to have_been_made
       expect(a_request(:post, "#{base_url}/accounts/acc/signers")).not_to have_been_made
+    end
+
+    it 'preflights the assignment options before uploading' do
+      [{ message: 123 }, { expires_at: 20_261_231 }, { copy_receivers: 'cc-1' }, { copy_receivers: [''] }].each do |bad|
+        expect do
+          client.upload_and_request_signatures(source: pdf_source, signers: signers, **bad)
+        end.to raise_error(Assinafy::ValidationError)
+      end
+
+      expect(a_request(:post, "#{base_url}/accounts/acc/documents")).not_to have_been_made
+      expect(a_request(:post, "#{base_url}/accounts/acc/signers")).not_to have_been_made
+    end
+
+    it 'sends copy_receivers and expires_at through to the assignment body' do
+      stub_upload
+      stub_ready
+      stub_signers
+      stub_assignment
+
+      client.upload_and_request_signatures(
+        source: pdf_source, signers: signers,
+        expires_at: '2026-12-31T23:59:00Z', copy_receivers: %w[cc-1]
+      )
+
+      expect(
+        a_request(:post, "#{base_url}/documents/doc-1/assignments").with(
+          body: hash_including(
+            'signers'        => [{ 'id' => 'signer-1' }],
+            'expires_at'     => '2026-12-31T23:59:00Z',
+            'copy_receivers' => %w[cc-1]
+          )
+        )
+      ).to have_been_made
     end
 
     it 'validates wait_for_ready before uploading' do
