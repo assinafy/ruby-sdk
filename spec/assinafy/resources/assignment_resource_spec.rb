@@ -4,6 +4,10 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
   let(:base_url) { 'https://api.assinafy.com.br/v1' }
   let(:connection) { build_test_connection(base_url) }
 
+  def without_workspace_auth?(request)
+    !request.headers.key?('X-Api-Key') && !request.headers.key?('Authorization')
+  end
+
   describe '#list' do
     it 'GETs /assignments with the camelCase accountId query param' do
       resource = described_class.new(connection, 'acc')
@@ -16,6 +20,13 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
       expect(
         a_request(:get, "#{base_url}/assignments").with(query: hash_including('accountId' => 'acc'))
       ).to have_been_made
+    end
+
+    it 'rejects non-Hash query parameters before making a request' do
+      resource = described_class.new(connection, 'acc')
+
+      expect { resource.list([]) }.to raise_error(Assinafy::ValidationError, /query parameters/)
+      expect(a_request(:get, "#{base_url}/assignments")).not_to have_been_made
     end
   end
 
@@ -194,6 +205,15 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
       expect(result.first['signer_id']).to eq('sig')
       expect(a_request(:get, path)).to have_been_made
     end
+
+    it 'rejects a malformed non-Array success payload' do
+      path = "#{base_url}/documents/doc/assignments/asg/whatsapp-notifications"
+      stub_request(:get, path).to_return(api_envelope({ 'signer_id' => 'sig' }))
+
+      resource = described_class.new(connection, 'acc')
+      expect { resource.whatsapp_notifications('doc', 'asg') }
+        .to raise_error(Assinafy::Error, /Array data payload/)
+    end
   end
 
   describe '#estimate_cost' do
@@ -214,7 +234,9 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
   describe '#signer_document' do
     it 'calls GET /sign with signer-access-code' do
       stub_request(:get, "#{base_url}/sign")
-        .with(query: hash_including('signer-access-code' => 'code'))
+        .with(query: hash_including('signer-access-code' => 'code')) do |request|
+          without_workspace_auth?(request)
+        end
         .to_return(api_envelope({ 'id' => 'doc-1' }))
 
       resource = described_class.new(connection, 'acc')
@@ -225,12 +247,33 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
         a_request(:get, "#{base_url}/sign").with(query: hash_including('signer-access-code' => 'code'))
       ).to have_been_made
     end
+
+    it 'rejects nil and blank access codes before making a request' do
+      resource = described_class.new(connection, 'acc')
+
+      [nil, '', ' '].each do |code|
+        expect { resource.signer_document(signer_access_code: code) }
+          .to raise_error(Assinafy::ValidationError, /Signer access code/)
+      end
+      expect(a_request(:get, "#{base_url}/sign")).not_to have_been_made
+    end
+
+    it 'rejects a non-boolean terms flag before making a request' do
+      resource = described_class.new(connection, 'acc')
+
+      expect do
+        resource.signer_document(signer_access_code: 'code', has_accepted_terms: 'true')
+      end.to raise_error(Assinafy::ValidationError, /has_accepted_terms/)
+      expect(a_request(:get, "#{base_url}/sign")).not_to have_been_made
+    end
   end
 
   describe '#sign' do
     it 'maps snake_case item keys to the camelCase keys the API expects' do
       stub_request(:post, "#{base_url}/documents/doc/assignments/asg")
-        .with(query: hash_including('signer-access-code' => 'code'))
+        .with(query: hash_including('signer-access-code' => 'code')) do |request|
+          without_workspace_auth?(request)
+        end
         .to_return(api_envelope([]))
 
       resource = described_class.new(connection, 'acc')
@@ -252,7 +295,9 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
 
     it 'passes through already-camelCase item keys unchanged' do
       stub_request(:post, "#{base_url}/documents/doc/assignments/asg")
-        .with(query: hash_including('signer-access-code' => 'code'))
+        .with(query: hash_including('signer-access-code' => 'code')) do |request|
+          without_workspace_auth?(request)
+        end
         .to_return(api_envelope([]))
 
       resource = described_class.new(connection, 'acc')
@@ -278,12 +323,41 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
         resource.sign('doc', 'asg', [], signer_access_code: 'code')
       end.to raise_error(Assinafy::ValidationError)
     end
+
+    it 'rejects non-Hash items and blank access codes without making a request' do
+      resource = described_class.new(connection, 'acc')
+
+      expect { resource.sign('doc', 'asg', ['bad'], signer_access_code: 'code') }
+        .to raise_error(Assinafy::ValidationError, /Assignment item/)
+      expect do
+        resource.sign(
+          'doc', 'asg',
+          [{ item_id: 'item', field_id: 'field', page_id: 'page', value: 'Signed' }],
+          signer_access_code: ' '
+        )
+      end.to raise_error(Assinafy::ValidationError, /Signer access code/)
+      expect(a_request(:post, "#{base_url}/documents/doc/assignments/asg")).not_to have_been_made
+    end
+
+    it 'requires all documented item fields and safe String IDs before making a request' do
+      resource = described_class.new(connection, 'acc')
+
+      [{ item_id: 'item', field_id: 'field', page_id: 'page' },
+       { item_id: 'item', field_id: 'field', page_id: 'page', value: 123 },
+       { item_id: '../bad', field_id: 'field', page_id: 'page', value: 'Signed' }].each do |item|
+        expect { resource.sign('doc', 'asg', [item], signer_access_code: 'code') }
+          .to raise_error(Assinafy::ValidationError)
+      end
+      expect(a_request(:post, "#{base_url}/documents/doc/assignments/asg")).not_to have_been_made
+    end
   end
 
   describe '#decline' do
     it 'calls the documented reject endpoint' do
       stub_request(:put, "#{base_url}/documents/doc/assignments/asg/reject")
-        .with(query: hash_including('signer-access-code' => 'code'))
+        .with(query: hash_including('signer-access-code' => 'code')) do |request|
+          without_workspace_auth?(request)
+        end
         .to_return(api_envelope([]))
 
       resource = described_class.new(connection, 'acc')
@@ -293,6 +367,26 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
         a_request(:put, "#{base_url}/documents/doc/assignments/asg/reject")
           .with(query: hash_including('signer-access-code' => 'code'))
       ).to have_been_made
+    end
+
+    it 'rejects a nil access code without making a request' do
+      resource = described_class.new(connection, 'acc')
+
+      expect do
+        resource.decline('doc', 'asg', decline_reason: 'No', signer_access_code: nil)
+      end.to raise_error(Assinafy::ValidationError, /Signer access code/)
+      expect(a_request(:put, "#{base_url}/documents/doc/assignments/asg/reject")).not_to have_been_made
+    end
+
+    it 'rejects a non-String or blank decline reason before making a request' do
+      resource = described_class.new(connection, 'acc')
+
+      [nil, ' ', 123].each do |reason|
+        expect do
+          resource.decline('doc', 'asg', decline_reason: reason, signer_access_code: 'code')
+        end.to raise_error(Assinafy::ValidationError, /Decline reason/)
+      end
+      expect(a_request(:put, "#{base_url}/documents/doc/assignments/asg/reject")).not_to have_been_made
     end
   end
 end

@@ -123,6 +123,14 @@ RSpec.describe Assinafy::Resources::WebhookResource do
 
       expect(result).to eq([{ 'id' => 'document_ready', 'description' => 'Document is ready' }])
     end
+
+    it 'rejects a malformed successful response' do
+      stub_request(:get, "#{base_url}/webhooks/event-types")
+        .to_return(api_envelope({ 'id' => 'document_ready' }))
+
+      resource = described_class.new(connection)
+      expect { resource.list_event_types }.to raise_error(Assinafy::Error, /Array data payload/)
+    end
   end
 
   describe '#list_dispatches' do

@@ -10,3 +10,4 @@ coverage/
 pkg/
 vendor/bundle
 .bundle/
+.claude/settings.local.json

@@ -5,10 +5,14 @@ on:
     branches:
       - main
   pull_request:
+  schedule:
+    # Weekly upstream/dependency compatibility check. Avoid the top of the hour, when
+    # GitHub-hosted scheduled workflows are most likely to be delayed.
+    - cron: "23 7 * * 1"
 
 # Cancel superseded runs on the same ref to save CI minutes.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -51,6 +55,22 @@ jobs:
       - name: Run tests
         run: bundle exec rake spec
 
+      - name: Build, install, and require packaged gem
+        if: matrix.ruby == '4.0'
+        run: |
+          set -euo pipefail
+          gem_file="$RUNNER_TEMP/assinafy.gem"
+          gem_home="$RUNNER_TEMP/assinafy-gem-home"
+          gem build assinafy.gemspec --output "$gem_file"
+          gem install --local --ignore-dependencies "$gem_file" --install-dir "$gem_home" --no-document
+          dependency_gem_path="$(bundle exec ruby -e 'print Gem.path.join(":")')"
+          # shellcheck disable=SC2016
+          GEM_HOME="$gem_home" GEM_PATH="$gem_home:$dependency_gem_path" ruby -rassinafy -e '
+            loaded = $LOADED_FEATURES.find { |path| path.end_with?("/lib/assinafy.rb") }
+            gem_home = File.realpath(ENV.fetch("GEM_HOME"))
+            abort "packaged gem did not load" unless loaded && File.realpath(loaded).start_with?("#{gem_home}/")
+          '
+
   lint:
     name: RuboCop
     runs-on: ubuntu-latest
@@ -71,6 +91,26 @@ jobs:
       - name: Run RuboCop
         run: bundle exec rubocop --no-color
 
+  typecheck:
+    name: Steep
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: .ruby-version
+          bundler-cache: true
+
+      - name: Run Steep
+        run: bundle exec steep check
+
   audit:
     name: bundler-audit
     runs-on: ubuntu-latest
@@ -90,3 +130,23 @@ jobs:
 
       - name: Run bundler-audit
         run: bundle exec bundler-audit check --update
+
+  upstream-contract:
+    name: Upstream API contract
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: .ruby-version
+
+      - name: Validate upstream OpenAPI contract
+        run: ruby scripts/check_api_contract.rb

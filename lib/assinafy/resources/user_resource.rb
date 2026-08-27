@@ -93,15 +93,20 @@ module Assinafy
       #       'documents_uploaded' => 42,
       #       'documents_sent' => 37,
       #       'signature_requests' => 61,
-      #       'signature_requests_email' => 45,
-      #       'signature_requests_whatsapp' => 16,
-      #       'signature_requests_viewed' => 58,
+      #       'signature_requests_notification_email' => 55,
+      #       'signature_requests_notification_whatsapp' => 18,
+      #       'signature_requests_notification_bypass' => 3,
+      #       'signature_requests_verification_email' => 48,
+      #       'signature_requests_verification_whatsapp' => 6,
+      #       'signature_requests_verification_bypass' => 3,
+      #       'signature_requests_verification_digital_certificate' => 4,
+      #       'signature_requests_viewed' => 44,
       #       'signature_requests_completed' => 52,
-      #       'documents_certified' => 34
+      #       'documents_certified' => 30
       #     }
       #   ]
       def stats(granularity: nil, month: nil)
-        call('Failed to fetch user stats') do
+        call_array('Failed to fetch user stats') do
           http_get('users/self/stats', query_params(granularity: granularity, month: month))
         end
       end

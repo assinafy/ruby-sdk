@@ -230,7 +230,7 @@ RSpec.describe Assinafy::Client, type: :coverage_matrix do
   let(:non_endpoint_methods) do
     {
       'DocumentResource'       => %i[get fully_signed? signing_progress wait_until_ready],
-      'SignerResource'         => %i[find_by_email],
+      'SignerResource'         => %i[find_by_email validate_create!],
       'SignerDocumentResource' => %i[document],
       'AuthResource'           => %i[api_key],
       'WebhookResource'        => %i[update]

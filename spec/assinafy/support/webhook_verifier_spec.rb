@@ -43,6 +43,14 @@ RSpec.describe Assinafy::Support::WebhookVerifier do
     it 'trims whitespace from the provided signature' do
       expect(verifier.verify(payload, "  #{signature}  ")).to be true
     end
+
+    it 'snapshots the secret supplied at construction' do
+      mutable_secret = secret.dup
+      stable_verifier = described_class.new(mutable_secret)
+      mutable_secret.replace('changed')
+
+      expect(stable_verifier.verify(payload, signature)).to be true
+    end
   end
 
   describe '#extract_event' do

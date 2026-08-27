@@ -2,8 +2,16 @@
 
 RSpec.describe Assinafy::Resources::SignerResource do
   let(:base_url)   { 'https://api.assinafy.com.br/v1' }
-  let(:connection) { build_test_connection(base_url) }
-  let(:resource)   { described_class.new(connection, 'test-account') }
+  let(:connection) do
+    build_test_connection(base_url).tap do |configured_connection|
+      configured_connection.headers['Authorization'] = 'Bearer workspace-token'
+    end
+  end
+  let(:resource) { described_class.new(connection, 'test-account') }
+
+  def workspace_auth_absent?(request)
+    !request.headers.key?('X-Api-Key') && !request.headers.key?('Authorization')
+  end
 
   describe '#update' do
     it 'raises when signer ID is empty' do
@@ -91,6 +99,41 @@ RSpec.describe Assinafy::Resources::SignerResource do
     end
   end
 
+  describe '#validate_create!' do
+    it 'normalizes a valid create payload without sending a request' do
+      result = resource.validate_create!(
+        full_name: 'Example Signer', email: 'signer@example.test', phone: '+15555550100'
+      )
+
+      expect(result).to eq(
+        'full_name'             => 'Example Signer',
+        'email'                 => 'signer@example.test',
+        'whatsapp_phone_number' => '+15555550100'
+      )
+      expect(a_request(:any, /\A#{Regexp.escape(base_url)}/)).not_to have_been_made
+    end
+
+    it 'applies the same required-name validation as create' do
+      expect { resource.validate_create!(email: 'signer@example.test') }
+        .to raise_error(Assinafy::ValidationError, /full_name/)
+    end
+
+    it 'rejects non-String signer fields without sending a request' do
+      malformed = [
+        { full_name: false },
+        { full_name: 123 },
+        { full_name: 'Signer', email: false },
+        { full_name: 'Signer', email: 123 },
+        { full_name: 'Signer', phone: 123 }
+      ]
+
+      malformed.each do |payload|
+        expect { resource.validate_create!(payload) }.to raise_error(Assinafy::ValidationError)
+      end
+      expect(a_request(:any, /\A#{Regexp.escape(base_url)}/)).not_to have_been_made
+    end
+  end
+
   describe '#get' do
     it 'raises when signer ID is empty' do
       expect { resource.get('') }.to raise_error(Assinafy::ValidationError)
@@ -117,9 +160,20 @@ RSpec.describe Assinafy::Resources::SignerResource do
 
       expect(
         a_request(:get, "#{base_url}/signers/self")
-          .with(query: hash_including('signer-access-code' => 'code'))
+          .with(query: hash_including('signer-access-code' => 'code')) do |request|
+            workspace_auth_absent?(request)
+          end
       ).to have_been_made
       expect(result['id']).to eq('signer')
+    end
+
+    it 'rejects nil and blank signer access codes before sending a request' do
+      [nil, '  '].each do |code|
+        expect { resource.self_data(signer_access_code: code) }
+          .to raise_error(Assinafy::ValidationError, /Signer access code/)
+      end
+
+      expect(a_request(:get, "#{base_url}/signers/self")).not_to have_been_made
     end
   end
 
@@ -133,8 +187,19 @@ RSpec.describe Assinafy::Resources::SignerResource do
 
       expect(
         a_request(:put, "#{base_url}/signers/accept-terms")
-          .with(query: hash_including('signer-access-code' => 'code')) { |request| request.body.to_s.empty? }
+          .with(query: hash_including('signer-access-code' => 'code')) do |request|
+            request.body.to_s.empty? && workspace_auth_absent?(request)
+          end
       ).to have_been_made
+    end
+
+    it 'rejects nil and blank signer access codes before sending a request' do
+      [nil, '  '].each do |code|
+        expect { resource.accept_terms(signer_access_code: code) }
+          .to raise_error(Assinafy::ValidationError, /Signer access code/)
+      end
+
+      expect(a_request(:put, "#{base_url}/signers/accept-terms")).not_to have_been_made
     end
   end
 
@@ -149,8 +214,27 @@ RSpec.describe Assinafy::Resources::SignerResource do
       expect(
         a_request(:post, "#{base_url}/verify")
           .with(query: hash_including('signer-access-code' => 'code'),
-                body:  { 'verification-code' => '123456' })
+                body:  { 'verification-code' => '123456' }) { |request| workspace_auth_absent?(request) }
       ).to have_been_made
+    end
+
+    it 'rejects nil and blank signer access codes before sending a request' do
+      [nil, '  '].each do |code|
+        expect { resource.verify_email(verification_code: '123456', signer_access_code: code) }
+          .to raise_error(Assinafy::ValidationError, /Signer access code/)
+      end
+
+      expect(a_request(:post, "#{base_url}/verify")).not_to have_been_made
+    end
+
+    it 'rejects a missing, blank, or non-String verification code before sending a request' do
+      [nil, ' ', 123].each do |verification_code|
+        expect do
+          resource.verify_email(verification_code: verification_code, signer_access_code: 'code')
+        end.to raise_error(Assinafy::ValidationError, /Verification code/)
+      end
+
+      expect(a_request(:post, "#{base_url}/verify")).not_to have_been_made
     end
   end
 
@@ -167,8 +251,17 @@ RSpec.describe Assinafy::Resources::SignerResource do
           .with(
             query: hash_including('signer-access-code' => 'code'),
             body:  hash_including('has_accepted_terms' => true)
-          )
+          ) { |request| workspace_auth_absent?(request) }
       ).to have_been_made
+    end
+
+    it 'rejects nil and blank signer access codes before sending a request' do
+      [nil, '  '].each do |code|
+        expect { resource.confirm_data('doc', {}, signer_access_code: code) }
+          .to raise_error(Assinafy::ValidationError, /Signer access code/)
+      end
+
+      expect(a_request(:put, "#{base_url}/documents/doc/signers/confirm-data")).not_to have_been_made
     end
   end
 
@@ -186,7 +279,7 @@ RSpec.describe Assinafy::Resources::SignerResource do
             query:   hash_including('signer-access-code' => 'code', 'type' => 'signature'),
             body:    'rawbytes',
             headers: { 'Content-Type' => 'image/png' }
-          )
+          ) { |request| workspace_auth_absent?(request) }
       ).to have_been_made
       expect(result).to eq([])
     end
@@ -197,6 +290,35 @@ RSpec.describe Assinafy::Resources::SignerResource do
         .to_return(json_response({ 'status' => 200, 'message' => 'Signature saved' }))
 
       expect(resource.upload_signature('rawbytes', signer_access_code: 'code')).to be_nil
+    end
+
+    it 'rejects nil and blank signer access codes before sending a request' do
+      [nil, '  '].each do |code|
+        expect { resource.upload_signature('rawbytes', signer_access_code: code) }
+          .to raise_error(Assinafy::ValidationError, /Signer access code/)
+      end
+
+      expect(a_request(:post, "#{base_url}/signature")).not_to have_been_made
+    end
+
+    it 'rejects an empty or non-String signature body before sending a request' do
+      [nil, '', []].each do |content|
+        expect { resource.upload_signature(content, signer_access_code: 'code') }
+          .to raise_error(Assinafy::ValidationError, /Signature content/)
+      end
+
+      expect(a_request(:post, "#{base_url}/signature")).not_to have_been_made
+    end
+
+    it 'rejects unsupported content types and non-boolean reuse values before sending a request' do
+      expect do
+        resource.upload_signature('rawbytes', signer_access_code: 'code', content_type: 'image/jpeg')
+      end.to raise_error(Assinafy::ValidationError, %r{image/png})
+      expect do
+        resource.upload_signature('rawbytes', signer_access_code: 'code', reuse: 'true')
+      end.to raise_error(Assinafy::ValidationError, /reuse/)
+
+      expect(a_request(:post, "#{base_url}/signature")).not_to have_been_made
     end
   end
 
@@ -210,10 +332,21 @@ RSpec.describe Assinafy::Resources::SignerResource do
 
       expect(
         a_request(:get, "#{base_url}/signature/initial")
-          .with(query: hash_including('signer-access-code' => 'code'))
+          .with(query: hash_including('signer-access-code' => 'code')) do |request|
+            workspace_auth_absent?(request)
+          end
       ).to have_been_made
       expect(result).to eq('PNGBYTES')
       expect(result.encoding).to eq(Encoding::ASCII_8BIT)
+    end
+
+    it 'rejects nil and blank signer access codes before sending a request' do
+      [nil, '  '].each do |code|
+        expect { resource.download_signature(signer_access_code: code) }
+          .to raise_error(Assinafy::ValidationError, /Signer access code/)
+      end
+
+      expect(a_request(:get, %r{/signature/})).not_to have_been_made
     end
   end
 
@@ -261,6 +394,15 @@ RSpec.describe Assinafy::Resources::SignerResource do
         .to_return(api_envelope([]))
 
       expect(resource.find_by_email('nobody@example.com')).to be_nil
+    end
+
+    it 'propagates a list endpoint 404 instead of treating it as no match' do
+      stub_request(:get, "#{base_url}/accounts/test-account/signers")
+        .with(query: hash_including('search' => 'nobody@example.com'))
+        .to_return(json_response({ 'status' => 404, 'message' => 'Account not found' }, status: 404))
+
+      expect { resource.find_by_email('nobody@example.com') }
+        .to raise_error(Assinafy::ApiError) { |error| expect(error.status_code).to eq(404) }
     end
 
     it 'requests per-page 50 and returns the matching signer (case-insensitive)' do

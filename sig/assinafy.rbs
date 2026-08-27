@@ -1,0 +1,362 @@
+module Assinafy
+  VERSION: String
+  USER_AGENT: String
+
+  type api_object = Hash[String, untyped]
+  type params = Hash[String | Symbol, untyped]
+  type upload_source = String | Hash[Symbol, untyped]
+  type pagination_meta = {
+    current_page: Integer,
+    per_page: Integer,
+    total: Integer,
+    last_page: Integer
+  } | Hash[Symbol, Integer]
+  type list_result = {
+    data: Array[api_object],
+    ?meta: pagination_meta?
+  }
+  type signing_progress = {
+    signed: Integer,
+    total: Integer,
+    pending: Integer,
+    percentage: Float
+  }
+  type workflow_result = {
+    document: api_object,
+    assignment: api_object,
+    signer_ids: Array[String]
+  }
+
+  interface _Logger
+    def debug: (*untyped, **untyped) -> untyped
+    def info: (*untyped, **untyped) -> untyped
+    def warn: (*untyped, **untyped) -> untyped
+    def error: (*untyped, **untyped) -> untyped
+    def fatal: (*untyped, **untyped) -> untyped
+    def unknown: (*untyped, **untyped) -> untyped
+  end
+
+  class Error < StandardError
+    attr_reader context: Hash[Symbol | String, untyped]
+
+    def initialize: (?String? message, ?Hash[Symbol | String, untyped]? context) -> void
+  end
+
+  class ApiError < Error
+    attr_reader status_code: Integer
+    attr_reader response_data: untyped
+    attr_reader error_name: String?
+    attr_reader error_code: (Integer | String)?
+
+    def initialize: (String message, Integer status_code, ?untyped response_data) -> void
+    def self.from_response: (Integer status_code, untyped response_data) -> ApiError
+  end
+
+  class ValidationError < Error
+    attr_reader errors: Hash[Symbol | String, untyped]
+
+    def initialize: (?String message, ?Hash[Symbol | String, untyped]? errors) -> void
+  end
+
+  class NetworkError < Error
+  end
+
+  class NullLogger
+    include _Logger
+  end
+
+  class Configuration
+    DEFAULT_BASE_URL: String
+    DEFAULT_TIMEOUT: Integer
+
+    attr_accessor api_key: String?
+    attr_accessor token: String?
+    attr_accessor account_id: String?
+    attr_accessor base_url: String
+    attr_accessor webhook_secret: String?
+    attr_accessor timeout: Integer
+    attr_accessor logger: _Logger?
+
+    def initialize: (
+      ?api_key: String?,
+      ?token: String?,
+      ?account_id: String?,
+      ?base_url: String,
+      ?webhook_secret: String?,
+      ?timeout: Integer | String | nil,
+      ?logger: _Logger?
+    ) -> void
+
+    def self.from_hash: (params hash) -> Configuration
+    def auth_headers: () -> Hash[String, String]
+  end
+
+  module Utils
+    MAX_NORMALIZATION_DEPTH: Integer
+
+    def self.handle_assinafy_response: (untyped body) -> untyped
+    def self.clean_params: (params? hash) -> params
+    def self.query_params: (params? hash) -> Hash[String, untyped]
+    def self.body_params: (params? hash) -> Hash[String, untyped]
+  end
+
+  module Resources
+    class BaseResource
+      PATH_SEGMENT: Regexp
+      AUTH_HEADERS: Array[String]
+      PAGINATION_HEADERS: Hash[Symbol, String]
+
+      def initialize: (untyped connection, ?String? default_account_id, ?_Logger? logger) -> void
+    end
+
+    class AuthResource < BaseResource
+      def login: (email: String, password: String) -> api_object
+      def social_login: (provider: String, token: String, has_accepted_terms: bool) -> api_object
+      def link_social_login: (provider: String, token: String) -> nil
+      def create_api_key: (password: String) -> api_object
+      def get_api_key: () -> api_object?
+      def api_key: () -> api_object?
+      def delete_api_key: () -> nil
+      def change_password: (email: String, password: String, new_password: String) -> api_object
+      def request_password_reset: (email: String) -> api_object
+      def reset_password: (email: String, new_password: String, ?token: String?) -> api_object
+    end
+
+    class AccountResource < BaseResource
+      def list: () -> list_result
+      def create: (params payload) -> api_object
+      def get: (?String? account_id_override) -> api_object
+      def update: (params payload, ?String? account_id_override) -> api_object
+      def delete: (?force: bool, ?account_id_override: String?) -> nil
+      def theme: (?String? account_id_override) -> api_object
+      def stats: (?granularity: String?, ?month: String?, ?account_id_override: String?) -> Array[api_object]
+      def download_logo: (?String? account_id_override) -> String
+      def upload_logo: (upload_source source, ?String? account_id_override) -> api_object?
+      def delete_logo: (?String? account_id_override) -> nil
+    end
+
+    class UserResource < BaseResource
+      NOTIFICATION_PREFERENCE_CODES: Array[String]
+
+      def me: () -> api_object
+      def stats: (?granularity: String?, ?month: String?) -> Array[api_object]
+      def notification_preferences: () -> Hash[String, bool]
+      def update_notification_preferences: (Hash[String | Symbol, bool] preferences) -> Hash[String, bool]
+    end
+
+    class DocumentResource < BaseResource
+      MAX_UPLOAD_BYTES: Integer
+      READY_STATUSES: Array[String]
+      FAILED_STATUSES: Array[String]
+      ARTIFACT_TYPES: Array[String]
+
+      def upload: (upload_source source, ?params options) -> api_object
+      def list: (?params params, ?String? account_id_override) -> list_result
+      def search: (String query, ?params params, ?String? account_id_override) -> list_result
+      def statuses: () -> Array[api_object]
+      def details: (String document_id) -> api_object
+      def get: (String document_id) -> api_object
+      def rename: (String document_id, String name) -> api_object
+      def wait_until_ready: (
+        String document_id,
+        ?max_wait_seconds: Integer,
+        ?poll_interval_seconds: Integer
+      ) -> api_object
+      def download: (String document_id, ?String artifact_name) -> String
+      def thumbnail: (String document_id) -> String
+      def download_page: (String document_id, String page_id) -> String
+      def activities: (String document_id) -> Array[api_object]
+      def delete: (String document_id) -> nil
+      def create_from_template: (
+        String template_id,
+        Array[params] | params signers_or_payload,
+        ?params options,
+        ?String? account_id_override
+      ) -> api_object
+      def estimate_cost_from_template: (
+        String template_id,
+        Array[params] | params signers_or_payload,
+        ?String? account_id_override
+      ) -> api_object
+      def verify: (String hash) -> api_object
+      def public_info: (String document_id) -> api_object
+      def send_token: (
+        String document_id,
+        ?recipient: String?,
+        ?channel: String?,
+        ?email: String?
+      ) -> api_object?
+      def list_tags: (String document_id, ?String? account_id_override) -> Array[api_object]
+      def replace_tags: (String document_id, Array[String] tags, ?String? account_id_override) -> Array[api_object]
+      def append_tags: (String document_id, Array[String] tags, ?String? account_id_override) -> Array[api_object]
+      def detach_tag: (String document_id, String tag_id, ?String? account_id_override) -> api_object
+      def fully_signed?: (String document_id) -> bool
+      def signing_progress: (String document_id) -> signing_progress
+    end
+
+    class SignerResource < BaseResource
+      EMAIL_REGEX: Regexp
+      SIGNATURE_TYPES: Array[String]
+
+      def validate_create!: (params payload) -> Hash[String, untyped]
+      def create: (params payload, ?String? account_id_override) -> api_object
+      def get: (String signer_id, ?String? account_id_override) -> api_object
+      def list: (?params params, ?String? account_id_override) -> list_result
+      def update: (String signer_id, params payload, ?String? account_id_override) -> api_object
+      def delete: (String signer_id, ?String? account_id_override) -> nil
+      def find_by_email: (String email, ?String? account_id_override) -> api_object?
+      def self_data: (signer_access_code: String) -> api_object
+      def accept_terms: (signer_access_code: String) -> nil
+      def verify_email: (verification_code: String, signer_access_code: String) -> nil
+      def confirm_data: (String document_id, params payload, signer_access_code: String) -> api_object
+      def upload_signature: (
+        String content,
+        signer_access_code: String,
+        ?type: String,
+        ?content_type: String,
+        ?reuse: bool?
+      ) -> (nil | Array[untyped])
+      def download_signature: (signer_access_code: String, ?type: String) -> String
+    end
+
+    class SignerDocumentResource < BaseResource
+      def current: (String signer_id, signer_access_code: String) -> api_object
+      def document: (String signer_id, signer_access_code: String) -> api_object
+      def list: (String signer_id, ?params params, ?signer_access_code: String?) -> list_result
+      def search: (String signer_id, String query, ?params params, ?signer_access_code: String?) -> list_result
+      def sign_multiple: (Array[String] document_ids, signer_access_code: String) -> Array[api_object]
+      def decline_multiple: (
+        Array[String] document_ids,
+        decline_reason: String,
+        signer_access_code: String
+      ) -> Array[api_object]
+      def download: (
+        String signer_id,
+        String document_id,
+        ?String artifact_name,
+        ?signer_access_code: String?
+      ) -> String
+    end
+
+    class AssignmentResource < BaseResource
+      OPTIONAL_FIELDS: Array[Symbol]
+      METHODS: Array[String]
+      SIGN_ITEM_KEY_MAP: Hash[String, String]
+
+      def self.build_payload: (params payload, ?params options) -> Hash[String, untyped]
+      def list: (?params params, ?String? account_id_override) -> list_result
+      def create: (String document_id, params payload) -> api_object
+      def estimate_cost: (String document_id, params payload) -> api_object
+      def reset_expiration: (String document_id, String assignment_id, String? expires_at) -> api_object
+      def resend_notification: (String document_id, String assignment_id, String signer_id) -> api_object
+      def estimate_resend_cost: (String document_id, String assignment_id, String signer_id) -> api_object
+      def signer_document: (signer_access_code: String, ?has_accepted_terms: bool?) -> api_object
+      def sign: (String document_id, String assignment_id, Array[params] items, signer_access_code: String) -> api_object
+      def decline: (
+        String document_id,
+        String assignment_id,
+        decline_reason: String,
+        signer_access_code: String
+      ) -> Array[api_object]
+      def whatsapp_notifications: (String document_id, String assignment_id) -> Array[api_object]
+    end
+
+    class WebhookResource < BaseResource
+      def register: (params payload, ?String? account_id_override) -> api_object
+      def update: (params payload, ?String? account_id_override) -> api_object
+      def get: (?String? account_id_override) -> api_object?
+      def inactivate: (?String? account_id_override) -> api_object
+      def list_event_types: () -> Array[api_object]
+      def list_dispatches: (?params params, ?String? account_id_override) -> list_result
+      def retry_dispatch: (String dispatch_id, ?String? account_id_override) -> api_object
+    end
+
+    class TemplateResource < BaseResource
+      def list: (?params params, ?String? account_id_override) -> list_result
+      def get: (String template_id, ?String? account_id_override) -> api_object
+      def create: (upload_source source, ?params options, ?String? account_id_override) -> api_object
+      def update: (String template_id, params payload, ?String? account_id_override) -> api_object
+      def delete: (String template_id, ?String? account_id_override) -> nil
+      def download_page: (String template_id, String page_id, ?String? account_id_override) -> String
+    end
+
+    class FieldResource < BaseResource
+      def create: (params payload, ?String? account_id_override) -> api_object
+      def list: (?params params, ?String? account_id_override) -> list_result
+      def get: (String field_id, ?String? account_id_override) -> api_object
+      def update: (String field_id, params payload, ?String? account_id_override) -> api_object
+      def delete: (String field_id, ?String? account_id_override) -> nil
+      def validate: (
+        String field_id,
+        untyped value,
+        ?String? account_id_override,
+        ?signer_access_code: String?
+      ) -> api_object
+      def validate_multiple: (
+        Array[params] values,
+        ?String? account_id_override,
+        ?signer_access_code: String?
+      ) -> Array[api_object]
+      def types: () -> Array[api_object]
+    end
+
+    class TagResource < BaseResource
+      def list: (?params params, ?String? account_id_override) -> list_result
+      def create: (params payload, ?String? account_id_override) -> api_object
+      def update: (String tag_id, params payload, ?String? account_id_override) -> api_object
+      def delete: (String tag_id, ?String? account_id_override, ?force: bool) -> api_object
+    end
+  end
+
+  module Support
+    class WebhookVerifier
+      def initialize: (?String? webhook_secret) -> void
+      def verify: (String payload, String? signature) -> bool
+      def extract_event: (String payload) -> api_object?
+      def event_type: (api_object? event) -> String?
+      def event_payload: (api_object? event) -> api_object?
+      def event_object: (api_object? event) -> api_object
+      def event_subject: (api_object? event) -> api_object
+      def event_data: (api_object? event) -> api_object
+    end
+  end
+
+  class Client
+    attr_reader auth: Resources::AuthResource
+    attr_reader accounts: Resources::AccountResource
+    attr_reader users: Resources::UserResource
+    attr_reader documents: Resources::DocumentResource
+    attr_reader signers: Resources::SignerResource
+    attr_reader signer_documents: Resources::SignerDocumentResource
+    attr_reader assignments: Resources::AssignmentResource
+    attr_reader webhooks: Resources::WebhookResource
+    attr_reader templates: Resources::TemplateResource
+    attr_reader fields: Resources::FieldResource
+    attr_reader tags: Resources::TagResource
+    attr_reader webhook_verifier: Support::WebhookVerifier
+
+    def initialize: (
+      ?api_key: String?,
+      ?token: String?,
+      ?account_id: String?,
+      ?base_url: String,
+      ?webhook_secret: String?,
+      ?timeout: Integer | String | nil,
+      ?logger: _Logger?
+    ) -> void
+
+    def self.create: (String api_key, String account_id, **untyped options) -> Client
+    def self.from_config: (params config) -> Client
+    def self.from_hash: (params config) -> Client
+    def upload_and_request_signatures: (
+      source: upload_source,
+      signers: Array[params],
+      ?message: String?,
+      ?wait_for_ready: bool,
+      ?expires_at: String?,
+      ?copy_receivers: Array[String]?,
+      ?account_id: String?
+    ) -> workflow_result
+    def faraday_connection: () -> untyped
+  end
+end

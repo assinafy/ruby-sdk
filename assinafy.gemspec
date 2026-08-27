@@ -20,11 +20,12 @@ Gem::Specification.new do |spec|
   spec.metadata['source_code_uri']       = 'https://github.com/assinafy/ruby-sdk'
   spec.metadata['bug_tracker_uri']       = 'https://github.com/assinafy/ruby-sdk/issues'
   spec.metadata['changelog_uri']         = 'https://github.com/assinafy/ruby-sdk/blob/main/CHANGELOG.md'
-  spec.metadata['documentation_uri']     = 'https://api.assinafy.com.br/v1/docs'
+  spec.metadata['documentation_uri']     = 'https://github.com/assinafy/ruby-sdk/blob/main/docs/API_REFERENCE.md'
   spec.metadata['github_repo']           = 'ssh://github.com/assinafy/ruby-sdk'
   spec.metadata['rubygems_mfa_required'] = 'true'
 
-  spec.files         = Dir['lib/**/*.rb', 'CHANGELOG.md', 'LICENSE', 'README.md']
+  spec.files         = Dir['lib/**/*.rb', 'sig/**/*.rbs', 'CHANGELOG.md', 'LICENSE', 'README.md'] +
+                       ['docs/API_REFERENCE.md']
   spec.require_paths = ['lib']
 
   spec.add_dependency 'faraday', '>= 2.14.3', '< 3.0'
@@ -35,5 +36,6 @@ Gem::Specification.new do |spec|
   spec.add_development_dependency 'rspec', '~> 3.0'
   spec.add_development_dependency 'rubocop', '~> 1.86'
   spec.add_development_dependency 'rubocop-rspec', '~> 3.6'
+  spec.add_development_dependency 'steep', '~> 2.0'
   spec.add_development_dependency 'webmock', '~> 3.0'
 end

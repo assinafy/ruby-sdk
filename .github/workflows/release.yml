@@ -5,6 +5,10 @@ on:
     tags:
       - "v*.*.*"
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -42,6 +46,9 @@ jobs:
       - name: Run RuboCop
         run: bundle exec rubocop --no-color
 
+      - name: Run Steep
+        run: bundle exec steep check
+
       - name: Run bundler-audit
         run: bundle exec bundler-audit check --update
 
@@ -70,6 +77,22 @@ jobs:
       - name: Build gem
         run: gem build assinafy.gemspec
 
+      - name: Install and require packaged gem
+        run: |
+          set -euo pipefail
+          version="$(ruby -Ilib -rassinafy/version -e 'print Assinafy::VERSION')"
+          gem_file="assinafy-${version}.gem"
+          gem_home="$RUNNER_TEMP/assinafy-gem-home"
+          test -f "$gem_file"
+          gem install --local --ignore-dependencies "$gem_file" --install-dir "$gem_home" --no-document
+          dependency_gem_path="$(bundle exec ruby -e 'print Gem.path.join(":")')"
+          # shellcheck disable=SC2016
+          GEM_HOME="$gem_home" GEM_PATH="$gem_home:$dependency_gem_path" ruby -rassinafy -e '
+            loaded = $LOADED_FEATURES.find { |path| path.end_with?("/lib/assinafy.rb") }
+            gem_home = File.realpath(ENV.fetch("GEM_HOME"))
+            abort "packaged gem did not load" unless loaded && File.realpath(loaded).start_with?("#{gem_home}/")
+          '
+
       - name: Configure RubyGems.org trusted publishing
         uses: rubygems/configure-rubygems-credentials@dc5a8d8553e6ee01fc26761a49e99e733d17954a # v2.1.0
 
@@ -89,5 +112,28 @@ jobs:
       - name: Push to GitHub Packages
         env:
           GEM_HOST_API_KEY: "Bearer ${{ secrets.GITHUB_TOKEN }}"
+          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gem push --host "https://rubygems.pkg.github.com/assinafy" assinafy-*.gem
+          set -euo pipefail
+          version="$(ruby -Ilib -rassinafy/version -e 'print Assinafy::VERSION')"
+          response="$RUNNER_TEMP/github-package-versions.json"
+          status="$(curl --silent --show-error --location --output "$response" \
+            --write-out '%{http_code}' --retry 3 \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GITHUB_PACKAGES_TOKEN" \
+            --header "X-GitHub-Api-Version: 2026-03-10" \
+            "https://api.github.com/orgs/${GITHUB_REPOSITORY_OWNER}/packages/rubygems/assinafy/versions?per_page=100")"
+          case "$status" in
+            200)
+              if PACKAGE_VERSION="$version" ruby -rjson -e '
+                versions = JSON.parse(File.binread(ARGV.fetch(0)))
+                exit versions.any? { |item| item["name"] == ENV.fetch("PACKAGE_VERSION") } ? 0 : 1
+              ' "$response"; then
+                echo "assinafy $version is already on GitHub Packages; skipping"
+              else
+                gem push --host "https://rubygems.pkg.github.com/assinafy" "assinafy-${version}.gem"
+              fi
+              ;;
+            404) gem push --host "https://rubygems.pkg.github.com/assinafy" "assinafy-${version}.gem" ;;
+            *) echo "GitHub Packages version check returned HTTP $status" >&2; exit 1 ;;
+          esac

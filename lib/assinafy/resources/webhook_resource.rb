@@ -142,7 +142,7 @@ module Assinafy
       #   #   # ... (see docs for the full 18-event catalogue)
       #   # ]
       def list_event_types
-        call('Failed to list webhook event types') do
+        call_array('Failed to list webhook event types') do
           http_get('webhooks/event-types')
         end
       end

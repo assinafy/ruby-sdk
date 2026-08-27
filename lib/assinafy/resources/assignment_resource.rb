@@ -175,9 +175,10 @@ module Assinafy
       #   }
       def list(params = {}, account_id_override = nil)
         acc_id = account_id(account_id_override)
+        query  = require_payload(params, 'Assignment query parameters')
 
         call_list('Failed to list assignments') do
-          http_get('assignments', params.merge(accountId: acc_id))
+          http_get('assignments', query.merge(accountId: acc_id))
         end
       end
 
@@ -241,8 +242,10 @@ module Assinafy
       #   # Request body the SDK sends:
       #   # { "method" => "virtual", "signers" => [{ "verification_method" => "Whatsapp" }] }
       #   # => {
-      #   #   "documents" => 1, "credits" => 0, "needs_extra_document" => false,
-      #   #   "extra_document_cost" => 0, "total_credits" => 0, "breakdown" => [],
+      #   #   "documents" => 1, "credits" => 0.45, "needs_extra_document" => false,
+      #   #   "extra_document_cost" => 0, "total_credits" => 0.45,
+      #   #   "breakdown" => [{ "code" => "NotificationWhatsapp", "cost" => 0.45,
+      #   #                     "quantity" => 1, "unit_cost" => 0.45 }],
       #   #   "document_balance" => 62, "credit_balance" => 0,
       #   #   "has_sufficient_resources" => true, "blocking_reason" => nil, "message" => nil
       #   # }
@@ -367,9 +370,13 @@ module Assinafy
       #   #     "items" => [{ "id" => "assignment-item-id", "field" => { "type" => "virtual" }, ... }] }
       #   # } # ... (see docs for full shape)
       def signer_document(signer_access_code:, has_accepted_terms: nil)
+        access_code = require_signer_access_code(signer_access_code)
+        accepted = has_accepted_terms.nil? ? nil : require_boolean(has_accepted_terms, 'has_accepted_terms')
+
         call('Failed to fetch signer assignment document') do
-          http_get('sign', signer_access_code: signer_access_code,
-                           has_accepted_terms: has_accepted_terms)
+          http_get('sign',
+                   { signer_access_code: access_code, has_accepted_terms: accepted },
+                   workspace_auth: false)
         end
       end
 
@@ -400,10 +407,11 @@ module Assinafy
         doc_id = require_id(document_id, 'Document ID')
         asg_id = require_id(assignment_id, 'Assignment ID')
         body   = require_array(items, 'Assignment items').map { |item| normalise_sign_item(item) }
+        access_code = require_signer_access_code(signer_access_code)
 
         call('Failed to sign assignment') do
           http_post("documents/#{doc_id}/assignments/#{asg_id}", body,
-                    signer_access_code: signer_access_code)
+                    { signer_access_code: access_code }, workspace_auth: false)
         end
       end
 
@@ -424,12 +432,13 @@ module Assinafy
       def decline(document_id, assignment_id, decline_reason:, signer_access_code:)
         doc_id = require_id(document_id, 'Document ID')
         asg_id = require_id(assignment_id, 'Assignment ID')
-        reason = require_present(decline_reason, 'Decline reason')
+        reason = require_string(decline_reason, 'Decline reason')
+        access_code = require_signer_access_code(signer_access_code)
 
-        call('Failed to decline assignment') do
+        call_array('Failed to decline assignment') do
           http_put("documents/#{doc_id}/assignments/#{asg_id}/reject",
                    body_params(decline_reason: reason),
-                   signer_access_code: signer_access_code)
+                   { signer_access_code: access_code }, workspace_auth: false)
         end
       end
 
@@ -456,7 +465,7 @@ module Assinafy
         doc_id = require_id(document_id, 'Document ID')
         asg_id = require_id(assignment_id, 'Assignment ID')
 
-        call('Failed to list WhatsApp notifications') do
+        call_array('Failed to list WhatsApp notifications') do
           http_get("documents/#{doc_id}/assignments/#{asg_id}/whatsapp-notifications")
         end
       end
@@ -464,12 +473,18 @@ module Assinafy
       private
 
       def normalise_sign_item(item)
-        return item unless item.is_a?(Hash)
-
-        item.each_with_object({}) do |(key, value), result|
+        normalised = require_payload(item, 'Assignment item').each_with_object({}) do |(key, value), result|
           raw = key.to_s
           result[SIGN_ITEM_KEY_MAP.fetch(raw, raw)] = value
         end
+
+        %w[itemId fieldId pageId].each do |key|
+          require_id(normalised[key], "Assignment item #{key}")
+        end
+        value = require_present(normalised['value'], 'Assignment item value')
+        raise ValidationError.new('Assignment item value must be a String') unless value.is_a?(String)
+
+        normalised
       end
     end
   end

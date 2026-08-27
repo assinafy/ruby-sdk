@@ -41,7 +41,7 @@ module Assinafy
       #   # }
       def login(email:, password:)
         call('Failed to login') do
-          @connection.post('login', body_params(email: email, password: password))
+          http_post('login', body_params(email: email, password: password), workspace_auth: false)
         end
       end
 
@@ -72,13 +72,14 @@ module Assinafy
       #   # }
       def social_login(provider:, token:, has_accepted_terms:)
         call('Failed to login with social provider') do
-          @connection.post(
+          http_post(
             'authentication/social-login',
             body_params(
               provider:           provider,
               token:              token,
               has_accepted_terms: has_accepted_terms
-            )
+            ),
+            workspace_auth: false
           )
         end
       end
@@ -217,7 +218,7 @@ module Assinafy
       #   # { "email" => "user@example.com" }
       def request_password_reset(email:)
         call('Failed to request password reset') do
-          @connection.put('authentication/request-password-reset', body_params(email: email))
+          http_put('authentication/request-password-reset', body_params(email: email), workspace_auth: false)
         end
       end
 
@@ -240,9 +241,10 @@ module Assinafy
       #   # { "email" => "user@example.com" }
       def reset_password(email:, new_password:, token: nil)
         call('Failed to reset password') do
-          @connection.put(
+          http_put(
             'authentication/reset-password',
-            body_params(email: email, token: token, new_password: new_password)
+            body_params(email: email, token: token, new_password: new_password),
+            workspace_auth: false
           )
         end
       end

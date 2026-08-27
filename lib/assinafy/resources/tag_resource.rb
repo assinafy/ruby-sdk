@@ -25,7 +25,7 @@ module Assinafy
       #     data: [
       #       {
       #         'id' => '1031f6544019bafc410c6c5317f4',
-      #         'name' => 'audit-doc-tag',
+      #         'name' => 'customer-agreement',
       #         'color' => nil,
       #         'created_at' => '2026-06-05T16:33:35Z',
       #         'updated_at' => '2026-06-05T16:33:35Z'

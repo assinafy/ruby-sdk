@@ -6,6 +6,13 @@ RSpec.describe Assinafy::Resources::UserResource do
   let(:resource)   { described_class.new(connection) }
 
   describe '#me' do
+    it 'returns the direct AuthUser shape documented by OpenAPI' do
+      stub_request(:get, "#{base_url}/users/self")
+        .to_return(api_envelope({ 'id' => 'u1', 'email' => 'user@example.com' }))
+
+      expect(resource.me['id']).to eq('u1')
+    end
+
     it 'GETs /users/self and returns { user:, accounts: }' do
       stub_request(:get, "#{base_url}/users/self")
         .to_return(api_envelope({ 'user'     => { 'id' => 'u1', 'email' => 'user@example.com' },
@@ -24,6 +31,13 @@ RSpec.describe Assinafy::Resources::UserResource do
         .to_return(api_envelope([{ 'period' => '2026-06' }]))
 
       expect(resource.stats(granularity: 'monthly').first['period']).to eq('2026-06')
+    end
+
+    it 'rejects a malformed successful response' do
+      stub_request(:get, "#{base_url}/users/self/stats")
+        .to_return(api_envelope({ 'period' => '2026-06' }))
+
+      expect { resource.stats }.to raise_error(Assinafy::Error, /Array data payload/)
     end
   end
 

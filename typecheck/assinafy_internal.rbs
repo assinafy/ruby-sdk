@@ -1,0 +1,174 @@
+module Assinafy
+  class Configuration
+    private
+
+    def normalize_timeout: (Integer | String | nil value) -> Integer
+  end
+
+  module Utils
+    def self.normalize_keys: (
+      untyped hash,
+      Hash[String, String] key_map,
+      ?untyped seen,
+      ?Integer depth
+    ) -> Hash[String, untyped]
+    def self.normalize_value: (
+      untyped value,
+      Hash[String, String] key_map,
+      untyped seen,
+      Integer depth
+    ) -> untyped
+    def self.normalize_array: (
+      Array[untyped] array,
+      Hash[String, String] key_map,
+      untyped seen,
+      Integer depth
+    ) -> Array[untyped]
+    def self.normalize_key: (untyped key, Hash[String, String] key_map) -> String
+    def self.query_key_map: () -> Hash[String, String]
+    def self.body_key_map: () -> Hash[String, String]
+  end
+
+  module Resources
+    class BaseResource
+      @connection: Faraday::Connection
+      @default_account_id: String?
+      @logger: _Logger
+
+      def account_id: (?String? explicit) -> String
+      def require_present: (untyped value, String name) -> untyped
+      def require_id: (untyped value, String name) -> String
+      def require_string: (untyped value, String name) -> String
+      def require_boolean: (untyped value, String name) -> bool
+      def require_payload: (untyped payload, ?String name) -> params
+      def require_array: [T] (untyped value, String name) -> Array[T]
+      def require_signer_access_code: (untyped value) -> String
+      def query_params: (params? params) -> Hash[String, untyped]
+      def body_params: (params? params) -> Hash[String, untyped]
+      def read_source: (upload_source source, ?max_bytes: Integer?) -> [String, String]
+      def file_part: (String buffer, String file_name, ?String? content_type) -> Faraday::FilePart
+      def validate_pdf_source!: (String buffer, String file_name, ?max_bytes: Integer?) -> void
+      def mime_type_for: (String file_name) -> String
+      def http_get: (String path, ?params params, ?workspace_auth: bool) -> Faraday::Response
+      def http_post: (String path, ?untyped body, ?params params, ?workspace_auth: bool) -> Faraday::Response
+      def http_put: (String path, ?untyped body, ?params params, ?workspace_auth: bool) -> Faraday::Response
+      def http_patch: (String path, ?untyped body, ?params params, ?workspace_auth: bool) -> Faraday::Response
+      def http_delete: (
+        String path,
+        ?params params,
+        ?body: untyped,
+        ?workspace_auth: bool
+      ) -> Faraday::Response
+      def prepare_request: (Faraday::Request request, params params, workspace_auth: bool) -> void
+      def call: (String label) { () -> Faraday::Response } -> untyped
+      def call_optional: (String label) { () -> Faraday::Response } -> untyped
+      def call_void: (String label) { () -> Faraday::Response } -> nil
+      def call_binary: (String label) { () -> Faraday::Response } -> String
+      def call_array: (String label) { () -> Faraday::Response } -> Array[api_object]
+      def call_list: (String label) { () -> Faraday::Response } -> list_result
+
+      private
+
+      def read_file: (untyped path, Integer? max_bytes) -> String
+      def request: (String label) { () -> Faraday::Response } -> Faraday::Response
+      def check_status!: (Faraday::Response response, String label) -> void
+      def extract_list_data: (untyped body, String label, Faraday::Response response) -> Array[api_object]
+      def validate_upload_source!: (untyped buffer, untyped file_name) -> void
+      def textual_content_type?: (String content_type) -> bool
+      def unexpected_response: (
+        String label,
+        String expected,
+        Faraday::Response response,
+        untyped body
+      ) -> Error
+      def parse_pagination_meta: (Faraday::Headers? headers) -> pagination_meta?
+      def to_int: (untyped value) -> Integer?
+    end
+
+    class DocumentResource
+      private
+
+      def uploaded_document_id: (untyped document) -> String
+      def raise_processing_error!: (String document_id, api_object document, String status) -> bot
+      def template_body: (
+        Array[params] | params signers_or_payload,
+        ?params options
+      ) -> Hash[String, untyped]
+      def tag_names: (untyped tags, ?allow_empty: bool) -> Array[String]
+      def artifact_type: (untyped artifact_name) -> String
+    end
+
+    class SignerResource
+      private
+
+      def assert_email!: (untyped email) -> void
+      def signer_payload: (
+        params payload,
+        require_full_name: bool,
+        ?include_government_id: bool
+      ) -> Hash[String, untyped]
+      def signer_full_name: (Hash[String, untyped] payload, bool required) -> String?
+      def signer_phone: (Hash[String, untyped] payload) -> String?
+      def signer_government_id: (
+        Hash[String, untyped] payload,
+        bool include_government_id
+      ) -> String?
+      def signature_type: (untyped type) -> String
+    end
+
+    class SignerDocumentResource
+      private
+
+      def signer_query: (params params, String? explicit_code) -> [params, String?]
+    end
+
+    class AssignmentResource
+      def self.validate_method!: (
+        String method,
+        Array[untyped] signers,
+        untyped entries,
+        params payload
+      ) -> void
+      def self.extract_signer_refs: (params payload) -> Array[untyped]
+      def self.normalise_signer_ref: (untyped ref, params options) -> Hash[Symbol, untyped]
+      def self.string_signer_ref: (String ref) -> Hash[Symbol, String]
+      def self.hash_signer_ref: (params ref, params options) -> Hash[Symbol, untyped]
+
+      private
+
+      def normalise_sign_item: (untyped item) -> Hash[String, untyped]
+    end
+
+    class FieldResource
+      private
+
+      def field_value_payload: (untyped item) -> Hash[String, untyped]
+    end
+
+    class TagResource
+      private
+
+      def tag_payload: (params payload, require_name: bool) -> Hash[String, untyped]
+      def validate_tag_name!: (Hash[String, untyped] body, require_name: bool) -> void
+      def explicit_nil_color?: (params payload) -> bool
+    end
+  end
+
+  module Support
+    class WebhookVerifier
+      @webhook_secret: String?
+    end
+  end
+
+  class Client
+    @connection: Faraday::Connection
+    @logger: _Logger
+
+    private
+
+    def build_connection: (Configuration config) -> Faraday::Connection
+    def validate_signature_workflow!: (Array[params] signers, bool wait_for_ready) -> void
+    def signer_id!: (untyped response) -> String
+    def created_resource_id!: (untyped response, String resource_name) -> String
+  end
+end

@@ -18,6 +18,7 @@ RSpec.describe Assinafy::Resources::AuthResource do
   describe '#login' do
     it 'posts credentials to /login' do
       stub_request(:post, "#{base_url}/login")
+        .with { |request| !request.headers.key?('X-Api-Key') && !request.headers.key?('Authorization') }
         .to_return(api_envelope({ 'access_token' => 'token' }))
 
       result = resource.login(email: 'user@example.com', password: 'secret')
@@ -33,6 +34,7 @@ RSpec.describe Assinafy::Resources::AuthResource do
   describe '#social_login' do
     it 'posts the provider payload to /authentication/social-login' do
       stub_request(:post, "#{base_url}/authentication/social-login")
+        .with { |request| !request.headers.key?('X-Api-Key') && !request.headers.key?('Authorization') }
         .to_return(api_envelope({ 'access_token' => 'token' }))
 
       result = resource.social_login(provider: 'google', token: 'oauth-token', has_accepted_terms: true)
@@ -99,6 +101,7 @@ RSpec.describe Assinafy::Resources::AuthResource do
   describe '#reset_password' do
     it 'puts the token in the body when provided' do
       stub_request(:put, "#{base_url}/authentication/reset-password")
+        .with { |request| !request.headers.key?('X-Api-Key') && !request.headers.key?('Authorization') }
         .to_return(api_envelope({ 'email' => 'user@example.com' }))
 
       resource.reset_password(email: 'user@example.com', new_password: 'new', token: 'tok')
@@ -111,6 +114,7 @@ RSpec.describe Assinafy::Resources::AuthResource do
 
     it 'omits the token from the body when nil' do
       stub_request(:put, "#{base_url}/authentication/reset-password")
+        .with { |request| !request.headers.key?('X-Api-Key') && !request.headers.key?('Authorization') }
         .to_return(api_envelope({ 'email' => 'user@example.com' }))
 
       resource.reset_password(email: 'user@example.com', new_password: 'new')
@@ -125,6 +129,7 @@ RSpec.describe Assinafy::Resources::AuthResource do
   describe '#request_password_reset' do
     it 'puts to the password reset request endpoint' do
       stub_request(:put, "#{base_url}/authentication/request-password-reset")
+        .with { |request| !request.headers.key?('X-Api-Key') && !request.headers.key?('Authorization') }
         .to_return(api_envelope({ 'email' => 'user@example.com' }))
 
       resource.request_password_reset(email: 'user@example.com')

@@ -1,7 +1,7 @@
 version: 2
 updates:
   # Keep runtime/dev gems patched — catches security advisories (e.g. the
-  # faraday/json CVEs) automatically instead of on the next manual audit.
+  # faraday/json CVEs) automatically instead of waiting for manual review.
   - package-ecosystem: bundler
     directory: "/"
     schedule:

@@ -119,10 +119,12 @@ module Assinafy
         end
       end
 
-      # Delete an account. Pass `force: true` to delete an account that still
-      # owns documents.
+      # Delete an account. Deletion is blocked while documents are pending.
+      # For an active paid subscription, pass `force: true` to cancel the
+      # subscription as part of deletion.
       #
-      # @param force [Boolean] force deletion (default false)
+      # @param force [Boolean] cancel an active paid subscription and continue
+      #   deletion (default false); it does not bypass pending-document checks
       # @param account_id_override [String, nil]
       # @return [nil] the API returns `data: []`; the SDK normalizes this to `nil`
       # @see DELETE /accounts/{account_id}
@@ -184,17 +186,22 @@ module Assinafy
       #       'documents_uploaded' => 42,
       #       'documents_sent' => 37,
       #       'signature_requests' => 61,
-      #       'signature_requests_email' => 45,
-      #       'signature_requests_whatsapp' => 16,
-      #       'signature_requests_viewed' => 58,
+      #       'signature_requests_notification_email' => 55,
+      #       'signature_requests_notification_whatsapp' => 18,
+      #       'signature_requests_notification_bypass' => 3,
+      #       'signature_requests_verification_email' => 48,
+      #       'signature_requests_verification_whatsapp' => 6,
+      #       'signature_requests_verification_bypass' => 3,
+      #       'signature_requests_verification_digital_certificate' => 4,
+      #       'signature_requests_viewed' => 44,
       #       'signature_requests_completed' => 52,
-      #       'documents_certified' => 34
+      #       'documents_certified' => 30
       #     }
       #   ]
       def stats(granularity: nil, month: nil, account_id_override: nil)
         acc_id = account_id(account_id_override)
 
-        call('Failed to fetch account stats') do
+        call_array('Failed to fetch account stats') do
           http_get("accounts/#{acc_id}/stats", query_params(granularity: granularity, month: month))
         end
       end

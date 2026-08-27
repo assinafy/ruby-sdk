@@ -18,15 +18,15 @@ module Assinafy
       # @return [Hash] the created field definition (envelope `data` unwrapped)
       # @see POST /accounts/{accountId}/fields
       # @example Create a text field
-      #   field = client.fields.create(type: 'text', name: 'audit-field-1780694479')
+      #   field = client.fields.create(type: 'text', name: 'customer-reference')
       #
       #   # Request body the SDK sends:
-      #   #   { "type": "text", "name": "audit-field-1780694479" }
+      #   #   { "type": "text", "name": "customer-reference" }
       #
       #   # => {
       #   #   "resource"       => "field_definition",
       #   #   "id"             => "1032009e858cc1f859ccf3a61229",
-      #   #   "name"           => "audit-field-1780694479",
+      #   #   "name"           => "customer-reference",
       #   #   "type"           => "text",
       #   #   "regex"          => nil,
       #   #   "is_pre_defined" => false,
@@ -95,7 +95,7 @@ module Assinafy
       #   # => {
       #   #   "resource"       => "field_definition",
       #   #   "id"             => "1032009e858cc1f859ccf3a61229",
-      #   #   "name"           => "audit-field-1780694479",
+      #   #   "name"           => "customer-reference",
       #   #   "type"           => "text",
       #   #   "regex"          => nil,
       #   #   "is_pre_defined" => false,
@@ -178,8 +178,9 @@ module Assinafy
 
       # Validate a single value against a field definition.
       #
-      # Either workspace Authorization or signer-access-code authentication
-      # works; pass `signer_access_code:` for the latter.
+      # The OpenAPI declares workspace Authorization. The deployed API also
+      # accepts signer-access-code authentication; pass `signer_access_code:`
+      # to use that compatibility path without sending workspace credentials.
       #
       # @param field_id             [String]
       # @param value                [Object]
@@ -199,16 +200,22 @@ module Assinafy
       #   client.fields.validate('field-id', 'Some text', signer_access_code: 'signer-access-code')
       #   # => { "type" => "text", "success" => true, "error_message" => "" }
       def validate(field_id, value, account_id_override = nil, signer_access_code: nil)
-        acc_id = account_id(account_id_override)
-        fid    = require_id(field_id, 'Field ID')
+        acc_id      = account_id(account_id_override)
+        fid         = require_id(field_id, 'Field ID')
+        raise ValidationError.new('Field value is required') if value.nil?
+
+        access_code = signer_access_code.nil? ? nil : require_signer_access_code(signer_access_code)
 
         call('Failed to validate field value') do
           http_post("accounts/#{acc_id}/fields/#{fid}/validate", body_params(value: value),
-                    signer_access_code: signer_access_code)
+                    { signer_access_code: access_code }, workspace_auth: access_code.nil?)
         end
       end
 
       # Validate many `{ field_id:, value: }` pairs in a single call.
+      #
+      # As with {#validate}, signer-access-code support is a deployed-API
+      # compatibility extension beyond the current OpenAPI security declaration.
       #
       # @param values               [Array<Hash>]
       # @param account_id_override  [String, nil]
@@ -234,13 +241,14 @@ module Assinafy
       #   #     "success" => true, "error_message" => "" }
       #   # ]
       def validate_multiple(values, account_id_override = nil, signer_access_code: nil)
-        acc_id = account_id(account_id_override)
-        list   = require_array(values, 'Field values')
+        acc_id      = account_id(account_id_override)
+        list        = require_array(values, 'Field values')
+        access_code = signer_access_code.nil? ? nil : require_signer_access_code(signer_access_code)
 
-        call('Failed to validate field values') do
+        call_array('Failed to validate field values') do
           http_post("accounts/#{acc_id}/fields/validate-multiple",
-                    list.map { |item| item.is_a?(Hash) ? body_params(item) : item },
-                    signer_access_code: signer_access_code)
+                    list.map { |item| field_value_payload(item) },
+                    { signer_access_code: access_code }, workspace_auth: access_code.nil?)
         end
       end
 
@@ -265,9 +273,24 @@ module Assinafy
       #   #   { "type" => "date",        "name" => "Data" }
       #   # ]
       def types
-        call('Failed to list field types') do
+        call_array('Failed to list field types') do
           http_get('field-types')
         end
+      end
+
+      private
+
+      def field_value_payload(item)
+        payload = require_payload(item, 'Field value')
+        field_id = payload.key?(:field_id) ? payload[:field_id] : payload['field_id']
+        value_key = payload.key?(:value) ? :value : 'value'
+
+        require_id(field_id, 'Field ID')
+        unless payload.key?(value_key) && !payload[value_key].nil?
+          raise ValidationError.new('Field value is required')
+        end
+
+        body_params(payload)
       end
     end
   end

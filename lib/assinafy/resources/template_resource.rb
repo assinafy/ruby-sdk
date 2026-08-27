@@ -116,8 +116,11 @@ module Assinafy
       #   # }
       def create(source, options = {}, account_id_override = nil)
         acc_id            = account_id(account_id_override)
+        options           = require_payload(options, 'Template options')
         buffer, file_name = read_source(source)
+        validate_pdf_source!(buffer, file_name)
 
+        # @type var payload: Hash[String | Symbol, untyped]
         payload = { file: file_part(buffer, file_name) }
         options.each { |key, value| payload[key.to_s] = value unless value.nil? }
 

@@ -16,7 +16,11 @@ require 'uri'
 #
 # They create and clean up real resources, and (for the assignment flow) send
 # real signature-request emails to ASSINAFY_TEST_EMAIL / ASSINAFY_TEST_EMAIL2.
-RSpec.describe 'Assinafy live sandbox', :live do # rubocop:disable RSpec/DescribeClass
+RSpec.describe 'Assinafy live sandbox', :live, order: :defined do # rubocop:disable RSpec/DescribeClass
+  before do |example|
+    sleep 5 if example.metadata[:live]
+  end
+
   def build_client
     base_url = sandbox_base_url!
     required_env('ASSINAFY_TEST_EMAIL')
@@ -63,12 +67,20 @@ RSpec.describe 'Assinafy live sandbox', :live do # rubocop:disable RSpec/Describ
   end
 
   def delete_template_when_ready(client, template_id)
+    retry_conflict { client.templates.delete(template_id) }
+  end
+
+  def delete_document_when_ready(client, document_id)
+    retry_conflict { client.documents.delete(document_id) }
+  end
+
+  def retry_conflict
     clock = Process::CLOCK_MONOTONIC
     deadline = Process.clock_gettime(clock) + 30
 
     while Process.clock_gettime(clock) < deadline
       begin
-        return client.templates.delete(template_id)
+        return yield
       rescue Assinafy::ApiError => e
         remaining = deadline - Process.clock_gettime(clock)
         raise unless e.status_code == 409 && remaining.positive?
@@ -77,7 +89,7 @@ RSpec.describe 'Assinafy live sandbox', :live do # rubocop:disable RSpec/Describ
       end
     end
 
-    raise Assinafy::ValidationError.new('Timeout waiting to delete template')
+    raise Assinafy::Error.new('Timeout waiting for resource deletion')
   end
 
   def wait_for_template_ready(client, template_id)
@@ -128,6 +140,11 @@ RSpec.describe 'Assinafy live sandbox', :live do # rubocop:disable RSpec/Describ
     return [existing['id'], false] if existing
 
     [client.signers.create(full_name: full_name, email: email)['id'], true]
+  end
+
+  def unique_test_email(email)
+    local, domain = email.split('@', 2)
+    "#{local}+sdk-live-#{rand(1_000_000)}@#{domain}"
   end
 
   let(:client)          { build_client }
@@ -223,6 +240,8 @@ RSpec.describe 'Assinafy live sandbox', :live do # rubocop:disable RSpec/Describ
         id, signers: [{ id: s1 }, { id: s2 }], message: 'SDK live integration - please ignore'
       )
       aid = assignment['id']
+      activities = client.documents.activities(id)
+      upload_activity = activities.find { |activity| activity['event'] == 'document_uploaded' }
 
       aggregate_failures do
         expect(ready['status']).to eq('metadata_ready').or eq('pending_signature')
@@ -234,7 +253,8 @@ RSpec.describe 'Assinafy live sandbox', :live do # rubocop:disable RSpec/Describ
         expect(client.documents.details(id)['id']).to eq(id)
         expect(search_results.map { |result| result['id'] }).to include(id)
         expect(client.documents.public_info(id)['id']).to eq(id)
-        expect(client.documents.activities(id)).to be_an(Array)
+        expect(activities).to be_an(Array)
+        expect(upload_activity.dig('origin', 'user-agent')).to eq("Assinafy-Ruby-SDK/v#{Assinafy::VERSION}")
         expect(client.documents.thumbnail(id).bytesize).to be > 0
         expect(client.documents.download_page(id, page_id).bytesize).to be > 0
         expect(client.documents.download(id, 'original').byteslice(0, 4)).to eq('%PDF')
@@ -242,13 +262,49 @@ RSpec.describe 'Assinafy live sandbox', :live do # rubocop:disable RSpec/Describ
         expect(client.assignments.list[:data].map { |a| a['id'] }).to include(aid)
         expect(client.assignments.whatsapp_notifications(id, aid)).to be_an(Array)
         expect(client.assignments.reset_expiration(id, aid, nil)['id']).to eq(aid)
-        expect(client.assignments.estimate_resend_cost(id, aid, s1)).to include('has_sufficient_credits')
+        resend_estimate = client.assignments.estimate_resend_cost(id, aid, s1)
+        expect(resend_estimate).to include('breakdown' => an_instance_of(Array), 'total' => a_kind_of(Numeric))
         expect(client.assignments.resend_notification(id, aid, s1)).to include('is_sent' => true)
+        sent_token = client.documents.send_token(id, recipient: primary_email, channel: 'email')
+        expect(sent_token).to include('channel' => 'email')
+        expect(sent_token.dig('document', 'id')).to eq(id)
+        expect(client.signer_documents.list(s1)[:data]).to be_an(Array)
+        expect(client.signer_documents.search(s1, upload_name)[:data]).to be_an(Array)
+        expect(client.signer_documents.download(s1, id, 'original').byteslice(0, 4)).to eq('%PDF')
       end
     ensure
       cleanup_resources(
-        ['document', -> { client.documents.delete(id) if id }],
+        ['document', -> { delete_document_when_ready(client, id) if id }],
         *created_signer_ids.map { |signer_id| ['signer', -> { client.signers.delete(signer_id) }] }
+      )
+    end
+  end
+
+  it 'runs the high-level upload and signature-request workflow' do
+    result = nil
+    recovery = {}
+    workflow_email = unique_test_email(primary_email)
+
+    begin
+      result = client.upload_and_request_signatures(
+        source:  { buffer: sample_pdf('High-level workflow'), file_name: "sdk-flow-#{rand(9999)}.pdf" },
+        signers: [{ full_name: 'SDK Workflow Signer', email: workflow_email }],
+        message: 'SDK live integration - please ignore'
+      )
+      aggregate_failures do
+        expect(result.dig(:document, 'id')).to be_a(String)
+        expect(result.dig(:assignment, 'id')).to be_a(String)
+        expect(result[:signer_ids]).to contain_exactly(a_kind_of(String))
+      end
+    rescue Assinafy::Error => e
+      recovery = e.context
+      raise
+    ensure
+      document = result&.dig(:document) || recovery[:document]
+      signer_ids = result&.fetch(:signer_ids) || recovery.fetch(:signer_ids, [])
+      cleanup_resources(
+        ['document', -> { delete_document_when_ready(client, document['id']) if document&.[]('id') }],
+        *signer_ids.map { |signer_id| ['signer', -> { client.signers.delete(signer_id) }] }
       )
     end
   end
@@ -305,13 +361,14 @@ RSpec.describe 'Assinafy live sandbox', :live do # rubocop:disable RSpec/Describ
       aggregate_failures do
         expect(client.tags.list[:data]).to be_an(Array)
         expect(client.tags.update(tag_id, name: "#{tag['name']}-renamed")['name']).to end_with('-renamed')
-        expect(client.documents.append_tags(doc_id, ["#{tag['name']}-renamed"])).to be_an(Array)
+        expect(client.documents.append_tags(doc_id, [tag_id])).to be_an(Array)
+        expect(client.documents.replace_tags(doc_id, [tag_id])).to be_an(Array)
         expect(client.documents.list_tags(doc_id)).to be_an(Array)
         expect(client.documents.detach_tag(doc_id, tag_id)).to include('detached' => true)
       end
     ensure
       cleanup_resources(
-        ['document', -> { client.documents.delete(doc_id) if doc_id }],
+        ['document', -> { delete_document_when_ready(client, doc_id) if doc_id }],
         ['tag', -> { client.tags.delete(tag_id) if tag_id }]
       )
     end
@@ -343,6 +400,8 @@ RSpec.describe 'Assinafy live sandbox', :live do # rubocop:disable RSpec/Describ
 
   it 'creates, reads and lists a template via multipart upload' do
     id = nil
+    document_id = nil
+    created_signer_id = nil
 
     begin
       source = { buffer: sample_pdf('Template'), file_name: "sdk-live-#{rand(9999)}.pdf" }
@@ -351,6 +410,14 @@ RSpec.describe 'Assinafy live sandbox', :live do # rubocop:disable RSpec/Describ
       details = wait_for_template_ready(client, id)
       renamed = client.templates.update(id, name: "sdk-live-template-#{rand(9999)}")
       page_id = details.fetch('pages').first.fetch('id')
+      signer_id, signer_created = find_or_create_signer(client, 'SDK Template Signer', primary_email)
+      created_signer_id = signer_id if signer_created
+      role_id = details.fetch('roles').first.fetch('id')
+      role_signer = { role_id: role_id, id: signer_id }
+      estimate = client.documents.estimate_cost_from_template(id, [{ role_id: role_id }])
+      created_document = client.documents.create_from_template(id, [role_signer])
+      document_id = created_document['id']
+      client.documents.wait_until_ready(document_id, max_wait_seconds: 60)
 
       aggregate_failures do
         expect(template['resource']).to eq('template')
@@ -359,9 +426,15 @@ RSpec.describe 'Assinafy live sandbox', :live do # rubocop:disable RSpec/Describ
         expect(renamed['id']).to eq(id)
         expect(client.templates.list(per_page: 5)[:data]).to be_an(Array)
         expect(client.templates.download_page(id, page_id).bytesize).to be > 0
+        expect(estimate).to include('has_sufficient_resources')
+        expect(created_document['id']).to be_a(String)
       end
     ensure
-      cleanup_resources(['template', -> { delete_template_when_ready(client, id) if id }])
+      cleanup_resources(
+        ['template document', -> { delete_document_when_ready(client, document_id) if document_id }],
+        ['template', -> { delete_template_when_ready(client, id) if id }],
+        ['signer', -> { client.signers.delete(created_signer_id) if created_signer_id }]
+      )
     end
   end
 

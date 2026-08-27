@@ -48,10 +48,11 @@ module Assinafy
       #   #   # ... (see docs for full shape)
       #   # }
       def current(signer_id, signer_access_code:)
-        sid = require_id(signer_id, 'Signer ID')
+        sid         = require_id(signer_id, 'Signer ID')
+        access_code = require_signer_access_code(signer_access_code)
 
         call('Failed to fetch signer document') do
-          http_get("signers/#{sid}/document", signer_access_code: signer_access_code)
+          http_get("signers/#{sid}/document", { signer_access_code: access_code }, workspace_auth: false)
         end
       end
 
@@ -91,10 +92,12 @@ module Assinafy
       #   #   meta: { current_page: 1, per_page: 15, total: 1, last_page: 1 }
       #   # }
       def list(signer_id, params = {}, signer_access_code: nil)
-        sid = require_id(signer_id, 'Signer ID')
+        sid                = require_id(signer_id, 'Signer ID')
+        query, access_code = signer_query(params, signer_access_code)
 
         call_list('Failed to list signer documents') do
-          http_get("signers/#{sid}/documents", params.merge(signer_access_code: signer_access_code))
+          http_get("signers/#{sid}/documents", query.merge(signer_access_code: access_code),
+                   workspace_auth: access_code.nil?)
         end
       end
 
@@ -124,11 +127,13 @@ module Assinafy
       #   #   meta: nil
       #   # }
       def search(signer_id, query, params = {}, signer_access_code: nil)
-        sid = require_id(signer_id, 'Signer ID')
+        sid                  = require_id(signer_id, 'Signer ID')
+        filters, access_code = signer_query(params, signer_access_code)
 
         call_list('Failed to search signer documents') do
           http_get("signers/#{sid}/documents/search",
-                   params.merge(search: query, signer_access_code: signer_access_code))
+                   filters.merge(search: query, signer_access_code: access_code),
+                   workspace_auth: access_code.nil?)
         end
       end
 
@@ -149,12 +154,13 @@ module Assinafy
       #
       #   # => []
       def sign_multiple(document_ids, signer_access_code:)
-        ids = require_array(document_ids, 'Document IDs')
+        ids         = require_array(document_ids, 'Document IDs').map { |id| require_id(id, 'Document ID') }
+        access_code = require_signer_access_code(signer_access_code)
 
-        call('Failed to sign documents') do
+        call_array('Failed to sign documents') do
           http_put('signers/documents/sign-multiple',
                    body_params(document_ids: ids),
-                   signer_access_code: signer_access_code)
+                   { signer_access_code: access_code }, workspace_auth: false)
         end
       end
 
@@ -175,13 +181,14 @@ module Assinafy
       #
       #   # => []
       def decline_multiple(document_ids, decline_reason:, signer_access_code:)
-        ids    = require_array(document_ids, 'Document IDs')
-        reason = require_present(decline_reason, 'Decline reason')
+        ids         = require_array(document_ids, 'Document IDs').map { |id| require_id(id, 'Document ID') }
+        reason      = require_string(decline_reason, 'Decline reason')
+        access_code = require_signer_access_code(signer_access_code)
 
-        call('Failed to decline documents') do
+        call_array('Failed to decline documents') do
           http_put('signers/documents/decline-multiple',
                    body_params(document_ids: ids, decline_reason: reason),
-                   signer_access_code: signer_access_code)
+                   { signer_access_code: access_code }, workspace_auth: false)
         end
       end
 
@@ -195,7 +202,8 @@ module Assinafy
       # @param document_id        [String]
       # @param artifact_name      [String] `original`, `certificated`, `certificate-page`, `pades`, or
       #   `bundle`
-      # @param signer_access_code [String, nil] optional
+      # @param signer_access_code [String, nil] retained for call compatibility;
+      #   validated when present but never transmitted by this public endpoint
       # @return [String] binary file body (ASCII-8BIT), e.g. the raw PDF bytes
       # @see GET /signers/{signer_id}/documents/{document_id}/download/{artifact_name}
       # @example Download the original PDF and write it to disk (no access code needed)
@@ -212,10 +220,25 @@ module Assinafy
           raise ValidationError.new('Invalid artifact type', { artifact_name: artifact_name })
         end
 
+        require_signer_access_code(signer_access_code) unless signer_access_code.nil?
+
         call_binary('Failed to download signer document') do
-          http_get("signers/#{sid}/documents/#{did}/download/#{art}",
-                   signer_access_code: signer_access_code)
+          http_get("signers/#{sid}/documents/#{did}/download/#{art}", {}, workspace_auth: false)
         end
+      end
+
+      private
+
+      def signer_query(params, explicit_code)
+        query = require_payload(params, 'Signer document query parameters').dup
+        embedded_codes = [
+          query.delete(:signer_access_code),
+          query.delete('signer_access_code'),
+          query.delete('signer-access-code')
+        ].compact
+        raw_code = explicit_code.nil? ? embedded_codes.first : explicit_code
+
+        [query, raw_code.nil? ? nil : require_signer_access_code(raw_code)]
       end
     end
   end

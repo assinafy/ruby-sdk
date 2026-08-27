@@ -53,6 +53,23 @@ RSpec.describe Assinafy::Resources::TemplateResource do
     it 'raises when the source is not a file' do
       expect { resource.create(name: 'Template') }.to raise_error(Assinafy::ValidationError)
     end
+
+    it 'rejects a renamed non-PDF before requesting' do
+      expect do
+        resource.create(buffer: 'plain text', file_name: 'contract.pdf')
+      end.to raise_error(Assinafy::ValidationError, /content is not a PDF/)
+      expect(a_request(:post, %r{/templates})).not_to have_been_made
+    end
+
+    it 'rejects non-String buffers and invalid options before requesting' do
+      expect do
+        resource.create(buffer: 123, file_name: 'contract.pdf')
+      end.to raise_error(Assinafy::ValidationError, /String/)
+      expect do
+        resource.create({ buffer: '%PDF-1.4', file_name: 'contract.pdf' }, [])
+      end.to raise_error(Assinafy::ValidationError, /Hash/)
+      expect(a_request(:post, %r{/templates})).not_to have_been_made
+    end
   end
 
   describe '#update' do

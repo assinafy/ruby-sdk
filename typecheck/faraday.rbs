@@ -1,0 +1,60 @@
+module Faraday
+  class Headers < Hash[String, String]
+  end
+
+  class Request
+    attr_reader params: Hash[String | Symbol, untyped]
+    attr_reader headers: Headers
+    attr_accessor body: untyped
+  end
+
+  class Response
+    attr_reader status: Integer
+    attr_reader headers: Headers
+    attr_reader body: untyped
+  end
+
+  class RequestOptions
+    attr_accessor timeout: Numeric
+    attr_accessor open_timeout: Numeric
+  end
+
+  class Connection
+    attr_reader headers: Headers
+    attr_reader options: RequestOptions
+
+    def request: (Symbol kind, *untyped, **untyped) -> untyped
+    def response: (Symbol kind, *untyped, **untyped) -> untyped
+    def adapter: (untyped adapter) -> untyped
+
+    def get: (String path, ?untyped params) -> Response
+           | (String path) { (Request request) -> void } -> Response
+    def post: (String path, ?untyped body) -> Response
+            | (String path) { (Request request) -> void } -> Response
+    def put: (String path, ?untyped body) -> Response
+           | (String path) { (Request request) -> void } -> Response
+    def patch: (String path, ?untyped body) -> Response
+             | (String path) { (Request request) -> void } -> Response
+    def delete: (String path, ?untyped body) -> Response
+              | (String path) { (Request request) -> void } -> Response
+  end
+
+  class Error < StandardError
+  end
+
+  class ConnectionFailed < Error
+  end
+
+  class TimeoutError < Error
+  end
+
+  class SSLError < Error
+  end
+
+  class FilePart
+    def initialize: (untyped io, String content_type, String file_name) -> void
+  end
+
+  def self.new: (*untyped, **untyped) { (Connection builder) -> void } -> Connection
+  def self.default_adapter: () -> untyped
+end

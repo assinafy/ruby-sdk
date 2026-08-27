@@ -2,6 +2,35 @@
 
 All notable changes to the `assinafy` Ruby gem are documented here.
 
+## 1.5.1
+
+### Added
+
+- A complete document workflow in the README and an API reference covering all 89 published
+  operations, five supported template operations, request bodies, success responses, errors,
+  and all 39 published schemas.
+- A weekly upstream contract check and packaged-gem installation smoke test.
+- Published RBS signatures and Steep verification in CI and release checks.
+
+### Fixed
+
+- Every client and resource request now sends the exact versioned
+  `Assinafy-Ruby-SDK/v1.5.1` User-Agent.
+- Public and signer-authenticated operations no longer inherit workspace credentials.
+- Collection and binary operations now reject malformed successful responses instead of
+  silently returning misleading values.
+- Document and template uploads validate safe filenames, non-empty PDF content, and document
+  upload IDs before later writes.
+- The high-level upload/signature workflow validates every signer before uploading and retains
+  created resource IDs in error context for explicit cleanup.
+- Request validation now rejects malformed signer fields, assignment items, tag IDs, field
+  values, and signer-document identifiers before network calls.
+
+### Changed
+
+- Development and release verification use Ruby 4.0.6 while CI retains Ruby 3.2 compatibility
+  and tests Ruby 3.3, 3.4, 4.0, and head.
+
 ## 1.5.0
 
 ### Added
@@ -53,9 +82,8 @@ All notable changes to the `assinafy` Ruby gem are documented here.
 
 ## 1.4.0
 
-This release is the result of a full audit of the SDK against the live Assinafy
-v1 API (verified end-to-end against the sandbox) and the published documentation
-at <https://api.assinafy.com.br/v1/docs>.
+This release aligned the SDK with the live Assinafy v1 API and the published
+documentation at <https://api.assinafy.com.br/v1/docs>.
 
 ### Added
 
@@ -92,7 +120,7 @@ at <https://api.assinafy.com.br/v1/docs>.
 ### Changed
 
 - **Minimum Ruby is now 3.2** (3.0 and 3.1 are end-of-life). CI tests 3.2, 3.3, 3.4,
-  4.0, and head. `.ruby-version` is committed (3.4.8) and drives the lint/audit/release jobs.
+  4.0, and head. `.ruby-version` is committed (3.4.8) and drives the lint, security, and release jobs.
 - `SignerDocumentResource#list` accepts an optional `signer_access_code:` (the endpoint
   also supports workspace `X-Api-Key` auth); the class auth documentation was corrected.
 - CI gained a `concurrency` group to cancel superseded runs.

@@ -8,6 +8,7 @@ module Assinafy
     # wraps Faraday and Assinafy errors into the SDK's own error hierarchy.
     class BaseResource
       PATH_SEGMENT = /\A[A-Za-z0-9._~-]+\z/
+      AUTH_HEADERS = %w[X-Api-Key Authorization].freeze
       PAGINATION_HEADERS = {
         current_page: 'x-pagination-current-page',
         per_page:     'x-pagination-per-page',
@@ -19,8 +20,9 @@ module Assinafy
       # @param default_account_id [String, nil] used by `account_id` when no override is passed
       # @param logger             [Logger, nil]
       def initialize(connection, default_account_id = nil, logger = nil)
-        @connection         = connection
-        @default_account_id = default_account_id
+        @connection = connection
+        @connection.headers['User-Agent'] = USER_AGENT
+        @default_account_id = default_account_id.is_a?(String) ? default_account_id.dup.freeze : default_account_id
         @logger             = logger || NullLogger.new
       end
 
@@ -39,12 +41,18 @@ module Assinafy
       end
 
       def require_id(value, name)
-        id = require_present(value, name)
-        raise ValidationError.new("#{name} must be a String") unless id.is_a?(String)
+        id = require_string(value, name)
 
         return id if PATH_SEGMENT.match?(id) && id != '.' && id != '..'
 
         raise ValidationError.new("#{name} contains invalid characters")
+      end
+
+      def require_string(value, name)
+        string = require_present(value, name)
+        return string if string.is_a?(String)
+
+        raise ValidationError.new("#{name} must be a String")
       end
 
       def require_boolean(value, name)
@@ -65,6 +73,10 @@ module Assinafy
         raise ValidationError.new("#{name} must be a non-empty Array")
       end
 
+      def require_signer_access_code(value)
+        require_string(value, 'Signer access code')
+      end
+
       def query_params(params)
         Utils.query_params(params)
       end
@@ -83,22 +95,26 @@ module Assinafy
       # @return [Array(String, String)] `[buffer, file_name]`
       # @raise [ValidationError] on an unusable source
       def read_source(source, max_bytes: nil)
-        case source
-        when String
-          [read_file(source, max_bytes), File.basename(source)]
-        when Hash
-          if source[:buffer]
-            raise ValidationError.new('file_name is required when uploading a buffer') unless source[:file_name]
+        buffer, file_name =
+          case source
+          when String
+            [read_file(source, max_bytes), File.basename(source)]
+          when Hash
+            if source.key?(:buffer)
+              raise ValidationError.new('file_name is required when uploading a buffer') unless source[:file_name]
 
-            [source[:buffer], source[:file_name]]
-          elsif source[:file_path]
-            [read_file(source[:file_path], max_bytes), source[:file_name] || File.basename(source[:file_path])]
+              [source[:buffer], source[:file_name]]
+            elsif source[:file_path]
+              [read_file(source[:file_path], max_bytes), source[:file_name] || File.basename(source[:file_path])]
+            else
+              raise ValidationError.new('Invalid upload source: provide :file_path or :buffer')
+            end
           else
-            raise ValidationError.new('Invalid upload source: provide :file_path or :buffer')
+            raise ValidationError.new('Invalid upload source: provide a path String or a Hash with :file_path/:buffer')
           end
-        else
-          raise ValidationError.new('Invalid upload source: provide a path String or a Hash with :file_path/:buffer')
-        end
+
+        validate_upload_source!(buffer, file_name)
+        [buffer, file_name]
       rescue SystemCallError, ArgumentError, TypeError => e
         raise ValidationError.new("Unable to read upload source: #{e.message}", { cause: e.class.name })
       end
@@ -119,6 +135,23 @@ module Assinafy
         Faraday::FilePart.new(StringIO.new(buffer), content_type || mime_type_for(file_name), file_name)
       end
 
+      def validate_pdf_source!(buffer, file_name, max_bytes: nil)
+        unless file_name.downcase.end_with?('.pdf')
+          raise ValidationError.new('Only PDF files are supported', { file_name: file_name })
+        end
+
+        if max_bytes && buffer.bytesize > max_bytes
+          raise ValidationError.new(
+            'File size exceeds maximum allowed (25MB)',
+            { file_size: buffer.bytesize, max_size: max_bytes }
+          )
+        end
+
+        return if buffer.byteslice(0, 1024).to_s.include?('%PDF-')
+
+        raise ValidationError.new('File content is not a PDF', { file_name: file_name })
+      end
+
       def mime_type_for(file_name)
         case File.extname(file_name.to_s).downcase
         when '.pdf'         then 'application/pdf'
@@ -131,36 +164,43 @@ module Assinafy
         end
       end
 
-      def http_get(path, params = {})
-        @connection.get(path, query_params(params))
+      def http_get(path, params = {}, workspace_auth: true)
+        @connection.get(path) do |request|
+          prepare_request(request, params, workspace_auth: workspace_auth)
+        end
       end
 
-      def http_post(path, body = nil, params = {})
+      def http_post(path, body = nil, params = {}, workspace_auth: true)
         @connection.post(path) do |request|
-          request.params.update(query_params(params))
+          prepare_request(request, params, workspace_auth: workspace_auth)
           request.body = body unless body.nil?
         end
       end
 
-      def http_put(path, body = nil, params = {})
+      def http_put(path, body = nil, params = {}, workspace_auth: true)
         @connection.put(path) do |request|
-          request.params.update(query_params(params))
+          prepare_request(request, params, workspace_auth: workspace_auth)
           request.body = body unless body.nil?
         end
       end
 
-      def http_patch(path, body = nil, params = {})
+      def http_patch(path, body = nil, params = {}, workspace_auth: true)
         @connection.patch(path) do |request|
-          request.params.update(query_params(params))
+          prepare_request(request, params, workspace_auth: workspace_auth)
           request.body = body unless body.nil?
         end
       end
 
-      def http_delete(path, params = {}, body: nil)
+      def http_delete(path, params = {}, body: nil, workspace_auth: true)
         @connection.delete(path) do |request|
-          request.params.update(query_params(params))
+          prepare_request(request, params, workspace_auth: workspace_auth)
           request.body = body unless body.nil?
         end
+      end
+
+      def prepare_request(request, params, workspace_auth:)
+        request.params.update(query_params(params))
+        AUTH_HEADERS.each { |header| request.headers.delete(header) } unless workspace_auth
       end
 
       def call(label)
@@ -181,18 +221,31 @@ module Assinafy
       end
 
       def call_binary(label)
-        body = request(label) { yield }.body
+        response = request(label) { yield }
+        body = response.body
         body = Utils.handle_assinafy_response(body) if body.is_a?(Hash)
-        return ''.b if body.nil?
-        return body.b if body.is_a?(String)
+        content_type = response.headers&.[]('content-type').to_s.downcase
 
-        raise Assinafy::Error.new("#{label}: expected a binary response", { body_class: body.class.name })
+        if body.is_a?(String) && !body.empty? && !textual_content_type?(content_type)
+          return body.b
+        end
+
+        raise unexpected_response(label, 'a non-empty binary body', response, body)
+      end
+
+      def call_array(label)
+        response = request(label) { yield }
+        body = Utils.handle_assinafy_response(response.body)
+        return body if body.is_a?(Array)
+
+        raise unexpected_response(label, 'an Array data payload', response, body)
       end
 
       def call_list(label)
         response = request(label) { yield }
         body     = Utils.handle_assinafy_response(response.body)
-        result   = { data: extract_list_data(body) }
+        # @type var result: Assinafy::list_result
+        result   = { data: extract_list_data(body, label, response) }
         meta     = parse_pagination_meta(response.headers)
         result[:meta] = meta if meta
         result
@@ -201,6 +254,7 @@ module Assinafy
       private
 
       def request(label)
+        @connection.headers['User-Agent'] = USER_AGENT
         response = yield
         check_status!(response, label)
         response
@@ -220,12 +274,40 @@ module Assinafy
         raise ApiError.from_response(response.status, response.body)
       end
 
-      def extract_list_data(body)
-        case body
-        when Array then body
-        when Hash  then body['data'] || []
-        else            []
+      def extract_list_data(body, label, response)
+        data = body.is_a?(Hash) && body.key?('data') ? body['data'] : body
+        return data if data.is_a?(Array)
+
+        raise unexpected_response(label, 'an Array list payload', response, data)
+      end
+
+      def validate_upload_source!(buffer, file_name)
+        raise ValidationError.new('File buffer must be a String') unless buffer.is_a?(String)
+        raise ValidationError.new('File buffer is empty') if buffer.empty?
+
+        unless file_name.is_a?(String) && !file_name.strip.empty?
+          raise ValidationError.new('File name must be a non-empty String')
         end
+
+        return unless file_name.match?(%r{[\x00-\x1f\x7f\\/]})
+
+        raise ValidationError.new('File name contains invalid characters', { file_name: file_name })
+      end
+
+      def textual_content_type?(content_type)
+        content_type.start_with?('text/') || content_type.match?(%r{\Aapplication/(?:[^;]+\+)?json\b})
+      end
+
+      def unexpected_response(label, expected, response, body)
+        Assinafy::Error.new(
+          "#{label}: expected #{expected}",
+          {
+            status_code:  response.status,
+            content_type: response.headers&.[]('content-type'),
+            body_class:   body.class.name,
+            body_bytes:   body.is_a?(String) ? body.bytesize : nil
+          }
+        )
       end
 
       def parse_pagination_meta(headers)

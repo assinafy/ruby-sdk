@@ -102,6 +102,13 @@ RSpec.describe Assinafy::Resources::AccountResource do
       result = resource.stats(granularity: 'monthly', month: '2026-06')
       expect(result.first['period']).to eq('2026-06')
     end
+
+    it 'rejects a malformed successful response' do
+      stub_request(:get, "#{base_url}/accounts/acc/stats")
+        .to_return(api_envelope({ 'period' => '2026-06' }))
+
+      expect { resource.stats }.to raise_error(Assinafy::Error, /Array data payload/)
+    end
   end
 
   describe '#download_logo' do

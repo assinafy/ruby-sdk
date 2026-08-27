@@ -26,8 +26,8 @@ module Assinafy
       # @see POST /accounts/{account_id}/documents
       # @example Upload a PDF from disk
       #   # Request: POST /accounts/{account_id}/documents (multipart/form-data)
-      #   # Body: file=<binary application/pdf>, name="assinafy_audit_test.pdf"
-      #   client.documents.upload('/tmp/contract.pdf', name: 'assinafy_audit_test.pdf')
+      #   # Body: file=<binary application/pdf>, name="customer_agreement.pdf"
+      #   client.documents.upload('/tmp/contract.pdf', name: 'customer_agreement.pdf')
       #
       #   # Response (unwrapped data payload):
       #   {
@@ -35,7 +35,7 @@ module Assinafy
       #     'id' => '1032009d72b364f377ff270405cc',
       #     'account_id' => 'account-id',
       #     'template_id' => nil,
-      #     'name' => 'assinafy_audit_test.pdf',
+      #     'name' => 'customer_agreement.pdf',
       #     'status' => 'uploaded',
       #     'artifacts' => {
       #       'original' => 'https://sandbox.assinafy.com.br/v1/documents/<id>/download/original'
@@ -54,8 +54,9 @@ module Assinafy
       # @note The SDK enforces the `.pdf` extension and 25 MB limit; the API
       #   performs authoritative PDF-structure validation.
       def upload(source, options = {})
+        options = require_payload(options, 'Upload options')
         buffer, file_name = read_source(source, max_bytes: MAX_UPLOAD_BYTES)
-        validate_upload!(buffer, file_name)
+        validate_pdf_source!(buffer, file_name, max_bytes: MAX_UPLOAD_BYTES)
 
         acc_id = account_id(options[:account_id])
 
@@ -68,11 +69,9 @@ module Assinafy
           http_post("accounts/#{acc_id}/documents", payload)
         end
 
-        unless document.is_a?(Hash) && document['id']
-          raise ValidationError.new('Upload succeeded but no document ID was returned')
-        end
+        document_id = uploaded_document_id(document)
 
-        @logger.info("Document uploaded: #{document['id']}")
+        @logger.info("Document uploaded: #{document_id}")
         document
       end
 
@@ -94,7 +93,7 @@ module Assinafy
       #         'id' => '1031ff847e1aecdcf848f579cc77',
       #         'account_id' => 'account-id',
       #         'template_id' => nil,
-      #         'name' => 'audit.pdf',
+      #         'name' => 'customer_agreement.pdf',
       #         'status' => 'metadata_ready',
       #         'artifacts' => {
       #           'original' => 'https://sandbox.assinafy.com.br/v1/documents/1031ff84.../download/original',
@@ -159,9 +158,10 @@ module Assinafy
       #   }
       def search(query, params = {}, account_id_override = nil)
         acc_id = account_id(account_id_override)
+        filters = require_payload(params, 'Document search parameters')
 
         call_list('Failed to search documents') do
-          http_get("accounts/#{acc_id}/documents/search", params.merge(search: query))
+          http_get("accounts/#{acc_id}/documents/search", filters.merge(search: query))
         end
       end
 
@@ -188,7 +188,7 @@ module Assinafy
       #     { 'code' => 'failed', 'deletable' => true }
       #   ]
       def statuses
-        call('Failed to list document statuses') do
+        call_array('Failed to list document statuses') do
           http_get('documents/statuses')
         end
       end
@@ -208,7 +208,7 @@ module Assinafy
       #     'id' => '1032009d72b364f377ff270405cc',
       #     'account_id' => 'account-id',
       #     'template_id' => nil,
-      #     'name' => 'assinafy_audit_test.pdf',
+      #     'name' => 'customer_agreement.pdf',
       #     'status' => 'metadata_ready',
       #     'artifacts' => {
       #       'original' => 'https://sandbox.assinafy.com.br/v1/documents/1032009d.../download/original',
@@ -279,7 +279,7 @@ module Assinafy
       # @param max_wait_seconds      [Integer] total deadline (default: 30)
       # @param poll_interval_seconds [Integer] (default: 2)
       # @return [Hash] the document once it is ready
-      # @raise [Assinafy::ValidationError] on timeout or terminal failed status
+      # @raise [Assinafy::Error] on timeout or terminal failed status
       # @example Block until a freshly uploaded document is processed
       #   # Polls GET /documents/{document_id} every 2s until status is ready.
       #   client.documents.wait_until_ready('1032009d72b364f377ff270405cc', max_wait_seconds: 30)
@@ -301,22 +301,22 @@ module Assinafy
         clock    = Process::CLOCK_MONOTONIC
         deadline = Process.clock_gettime(clock) + max_wait_seconds
         attempts = 0
+        # @type var last_document: Assinafy::api_object?
+        last_document = nil
 
         @logger.info("Waiting for document to be ready: #{doc_id}")
 
         while Process.clock_gettime(clock) < deadline
           attempts += 1
           begin
-            doc    = details(doc_id)
+            doc = last_document = details(doc_id)
             status = doc['status'] || 'unknown'
 
             @logger.debug("Document status check #{attempts}: #{status}")
 
             return doc if READY_STATUSES.include?(status)
 
-            if FAILED_STATUSES.include?(status)
-              raise ValidationError.new("Document processing failed with status: #{status}")
-            end
+            raise_processing_error!(doc_id, doc, status) if FAILED_STATUSES.include?(status)
           rescue NetworkError => e
             @logger.warn("Error checking document status: #{e.message}")
           end
@@ -327,9 +327,9 @@ module Assinafy
           sleep([poll_interval_seconds, remaining].min)
         end
 
-        raise ValidationError.new(
+        raise Assinafy::Error.new(
           'Timeout waiting for document to be ready',
-          { document_id: doc_id, attempts: attempts }
+          { document_id: doc_id, attempts: attempts, document: last_document }
         )
       end
 
@@ -433,11 +433,9 @@ module Assinafy
       def activities(document_id)
         doc_id = require_id(document_id, 'Document ID')
 
-        result = call('Failed to fetch document activities') do
+        call_array('Failed to fetch document activities') do
           http_get("documents/#{doc_id}/activities")
         end
-
-        result || []
       end
 
       # Permanently delete a document. Only allowed for "deletable" statuses.
@@ -590,7 +588,7 @@ module Assinafy
         h = require_id(hash, 'Signature hash')
 
         call('Failed to verify document') do
-          http_get("documents/#{h}/verify")
+          http_get("documents/#{h}/verify", {}, workspace_auth: false)
         end
       end
 
@@ -617,7 +615,7 @@ module Assinafy
         doc_id = require_id(document_id, 'Document ID')
 
         call('Failed to fetch public document info') do
-          http_get("public/documents/#{doc_id}")
+          http_get("public/documents/#{doc_id}", {}, workspace_auth: false)
         end
       end
 
@@ -678,7 +676,7 @@ module Assinafy
         end
 
         call('Failed to send signer token') do
-          http_put("public/documents/#{doc_id}/send-token", payload && body_params(payload))
+          http_put("public/documents/#{doc_id}/send-token", payload && body_params(payload), workspace_auth: false)
         end
       end
 
@@ -696,7 +694,7 @@ module Assinafy
       #   [
       #     {
       #       'id' => '1032009e69e366ca5adc879ef26c',
-      #       'name' => 'audit-e2e-renamed',
+      #       'name' => 'customer-agreement',
       #       'color' => 'ff8800',
       #       'created_at' => '2026-06-05T21:21:19Z',
       #       'updated_at' => '2026-06-05T21:21:19Z'
@@ -706,7 +704,7 @@ module Assinafy
         acc_id = account_id(account_id_override)
         doc_id = require_id(document_id, 'Document ID')
 
-        call('Failed to list document tags') do
+        call_array('Failed to list document tags') do
           http_get("accounts/#{acc_id}/documents/#{doc_id}/tags")
         end
       end
@@ -739,7 +737,7 @@ module Assinafy
         acc_id = account_id(account_id_override)
         doc_id = require_id(document_id, 'Document ID')
 
-        call('Failed to replace document tags') do
+        call_array('Failed to replace document tags') do
           http_put("accounts/#{acc_id}/documents/#{doc_id}/tags",
                    body_params(tags: tag_names(tags, allow_empty: true)))
         end
@@ -761,7 +759,7 @@ module Assinafy
       #   [
       #     {
       #       'id' => '1032009e69e366ca5adc879ef26c',
-      #       'name' => 'audit-e2e-renamed',
+      #       'name' => 'customer-agreement',
       #       'color' => 'ff8800',
       #       'created_at' => '2026-06-05T21:21:19Z',
       #       'updated_at' => '2026-06-05T21:21:19Z'
@@ -771,7 +769,7 @@ module Assinafy
         acc_id = account_id(account_id_override)
         doc_id = require_id(document_id, 'Document ID')
 
-        call('Failed to append document tags') do
+        call_array('Failed to append document tags') do
           http_post("accounts/#{acc_id}/documents/#{doc_id}/tags",
                     body_params(tags: tag_names(tags)))
         end
@@ -851,21 +849,21 @@ module Assinafy
 
       private
 
-      def validate_upload!(buffer, file_name)
-        if buffer.nil? || buffer.bytesize == 0
-          raise ValidationError.new('File buffer is empty', { file_name: file_name })
-        end
+      def uploaded_document_id(document)
+        id = document['id'] if document.is_a?(Hash)
+        require_id(id, 'Uploaded document ID')
+      rescue ValidationError
+        raise Assinafy::Error.new(
+          'Upload succeeded but no usable document ID was returned',
+          { document: document }
+        )
+      end
 
-        unless file_name.to_s.downcase.end_with?('.pdf')
-          raise ValidationError.new('Only PDF files are supported', { file_name: file_name })
-        end
-
-        if buffer.bytesize > MAX_UPLOAD_BYTES
-          raise ValidationError.new(
-            'File size exceeds maximum allowed (25MB)',
-            { file_size: buffer.bytesize, max_size: MAX_UPLOAD_BYTES }
-          )
-        end
+      def raise_processing_error!(document_id, document, status)
+        raise Assinafy::Error.new(
+          "Document processing failed with status: #{status}",
+          { document_id: document_id, document: document }
+        )
       end
 
       def template_body(signers_or_payload, options = {})
@@ -878,6 +876,10 @@ module Assinafy
 
         unless body[:signers] || body['signers']
           raise ValidationError.new('signers are required')
+        end
+
+        require_array(body[:signers] || body['signers'], 'Signers').each do |signer|
+          require_payload(signer, 'Signer')
         end
 
         body_params(body)
@@ -893,9 +895,9 @@ module Assinafy
         end
 
         tags.each do |tag|
-          next unless tag.to_s.strip.empty?
+          raise ValidationError.new('Tags must contain only Strings') unless tag.is_a?(String)
 
-          raise ValidationError.new('Tag names cannot be empty')
+          require_present(tag, 'Tag name')
         end
 
         tags

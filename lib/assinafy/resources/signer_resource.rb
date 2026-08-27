@@ -13,6 +13,26 @@ module Assinafy
       EMAIL_REGEX     = /\A[^\s@]+@[^\s@]+\.[^\s@]+\z/
       SIGNATURE_TYPES = %w[signature initial].freeze
 
+      # Validate and normalize a payload accepted by {#create} without sending
+      # a request. Useful for preflighting multi-step workflows before they
+      # create any remote resources.
+      #
+      # @param payload [Hash]
+      # @option payload [String] :full_name             required
+      # @option payload [String] :email                 optional, validated when present
+      # @option payload [String] :whatsapp_phone_number optional
+      # @option payload [String] :phone                 alias for :whatsapp_phone_number
+      # @return [Hash] normalized request body
+      # @raise [ValidationError] when the payload is malformed
+      # @example Preflight a signer without making an API request
+      #   body = client.signers.validate_create!(
+      #     full_name: 'Example Signer', email: 'signer@example.test'
+      #   )
+      #   # => { "full_name" => "Example Signer", "email" => "signer@example.test" }
+      def validate_create!(payload)
+        signer_payload(payload, require_full_name: true)
+      end
+
       # Create a signer in the workspace.
       #
       # @param payload [Hash]
@@ -41,7 +61,7 @@ module Assinafy
       #   #   "has_accepted_terms"    => false
       #   # }
       def create(payload, account_id_override = nil)
-        body   = signer_payload(payload, require_full_name: true)
+        body   = validate_create!(payload)
         acc_id = account_id(account_id_override)
 
         @logger.info('Creating signer')
@@ -169,7 +189,7 @@ module Assinafy
       # parameter, then do a case-insensitive client-side match. Walks every
       # result page (using a fixed page size; the API clamps `per-page` to its
       # own maximum) until a match is found or the pages are exhausted. Returns
-      # `nil` when no match is found (including on 404).
+      # `nil` when no returned signer matches. API errors still propagate.
       #
       # @param email               [String]
       # @param account_id_override [String, nil]
@@ -187,7 +207,7 @@ module Assinafy
       #   #   "has_accepted_terms"    => false
       #   # }
       #   #
-      #   # => nil # when no signer matches (including on a 404)
+      #   # => nil # when no returned signer matches
       def find_by_email(email, account_id_override = nil)
         assert_email!(email.to_s)
         target = email.to_s.downcase
@@ -203,11 +223,6 @@ module Assinafy
 
           page += 1
         end
-
-        nil
-      rescue ApiError => e
-        raise unless e.status_code == 404
-
         nil
       end
 
@@ -231,8 +246,10 @@ module Assinafy
       #   #   "is_signature_reusable" => false  # self-only field
       #   # }
       def self_data(signer_access_code:)
+        code = require_signer_access_code(signer_access_code)
+
         call('Failed to fetch signer self') do
-          http_get('signers/self', signer_access_code: signer_access_code)
+          http_get('signers/self', { signer_access_code: code }, workspace_auth: false)
         end
       end
 
@@ -254,8 +271,10 @@ module Assinafy
       #   # Response: { "status": 200, "message": "Terms accepted" }
       #   # => nil
       def accept_terms(signer_access_code:)
+        code = require_signer_access_code(signer_access_code)
+
         call('Failed to accept signer terms') do
-          http_put('signers/accept-terms', nil, signer_access_code: signer_access_code)
+          http_put('signers/accept-terms', nil, { signer_access_code: code }, workspace_auth: false)
         end
       end
 
@@ -277,11 +296,15 @@ module Assinafy
       #   # Response: { "status": 200, "message": "Code verified successfully" }
       #   # => nil
       def verify_email(verification_code:, signer_access_code:)
+        verification = require_string(verification_code, 'Verification code')
+        code         = require_signer_access_code(signer_access_code)
+
         call('Failed to verify signer email') do
           http_post(
             'verify',
-            body_params(verification_code: verification_code),
-            signer_access_code: signer_access_code
+            body_params(verification_code: verification),
+            { signer_access_code: code },
+            workspace_auth: false
           )
         end
       end
@@ -313,10 +336,11 @@ module Assinafy
       def confirm_data(document_id, payload, signer_access_code:)
         doc_id = require_id(document_id, 'Document ID')
         body   = body_params(require_payload(payload))
+        code   = require_signer_access_code(signer_access_code)
 
         call('Failed to confirm signer data') do
           http_put("documents/#{doc_id}/signers/confirm-data", body,
-                   signer_access_code: signer_access_code)
+                   { signer_access_code: code }, workspace_auth: false)
         end
       end
 
@@ -325,7 +349,7 @@ module Assinafy
       # @param content            [String] raw image bytes
       # @param signer_access_code [String]
       # @param type               [String] `signature` or `initial`
-      # @param content_type       [String] e.g. `image/png`
+      # @param content_type       [String] must be `image/png`
       # @param reuse              [Boolean, nil] when true, marks the signature as
       #   reusable for future documents (documented `reuse` query flag)
       # @return [nil, Array] `nil` for the OpenAPI's no-data envelope; some deployed
@@ -346,12 +370,24 @@ module Assinafy
       #   # => nil # documented no-data envelope
       #   # => []  # when a deployed API version returns data: []
       def upload_signature(content, signer_access_code:, type: 'signature', content_type: 'image/png', reuse: nil)
+        unless content.is_a?(String) && !content.empty?
+          raise ValidationError.new('Signature content must be a non-empty String')
+        end
+
+        unless content_type == 'image/png'
+          raise ValidationError.new('Signature content type must be image/png')
+        end
+
+        require_boolean(reuse, 'reuse') unless reuse.nil?
         sig_type = signature_type(type)
+        code     = require_signer_access_code(signer_access_code)
 
         call('Failed to upload signer signature') do
           @connection.post('signature') do |request|
-            request.params.update(
-              query_params(signer_access_code: signer_access_code, type: sig_type, reuse: reuse)
+            prepare_request(
+              request,
+              { signer_access_code: code, type: sig_type, reuse: reuse },
+              workspace_auth: false
             )
             request.headers['Content-Type'] = content_type
             request.body = content
@@ -376,16 +412,17 @@ module Assinafy
       #   File.binwrite('signature.png', png)
       def download_signature(signer_access_code:, type: 'signature')
         sig_type = signature_type(type)
+        code     = require_signer_access_code(signer_access_code)
 
         call_binary('Failed to download signer signature') do
-          http_get("signature/#{sig_type}", signer_access_code: signer_access_code)
+          http_get("signature/#{sig_type}", { signer_access_code: code }, workspace_auth: false)
         end
       end
 
       private
 
       def assert_email!(email)
-        unless email && EMAIL_REGEX.match?(email)
+        unless email.is_a?(String) && EMAIL_REGEX.match?(email)
           raise ValidationError.new('Invalid email address', { email: email })
         end
       end
@@ -394,21 +431,43 @@ module Assinafy
         raw = require_payload(payload, 'Signer payload')
         p   = raw.transform_keys(&:to_s)
 
-        full_name = p['full_name'] || p['name']
-        raise ValidationError.new('full_name is required') if require_full_name && full_name.to_s.strip.empty?
+        full_name = signer_full_name(p, require_full_name)
 
         email = p['email']
-        assert_email!(email) if email && !email.to_s.empty?
+        assert_email!(email) unless email.nil?
+
+        phone = signer_phone(p)
 
         body = body_params(
           full_name:             full_name,
           email:                 email,
-          whatsapp_phone_number: p['whatsapp_phone_number'] || p['phone']
+          whatsapp_phone_number: phone
         )
-        if include_government_id && !p['government_id'].nil?
-          body['government_id'] = p['government_id']
-        end
+        government_id = signer_government_id(p, include_government_id)
+        body['government_id'] = government_id unless government_id.nil?
         body
+      end
+
+      def signer_full_name(payload, required)
+        full_name = payload['full_name'].nil? ? payload['name'] : payload['full_name']
+        return full_name if !required && full_name.nil?
+        return full_name if full_name.is_a?(String) && !full_name.strip.empty?
+
+        raise ValidationError.new('full_name must be a non-empty String')
+      end
+
+      def signer_phone(payload)
+        phone = payload['whatsapp_phone_number'].nil? ? payload['phone'] : payload['whatsapp_phone_number']
+        return phone if phone.nil? || phone.is_a?(String)
+
+        raise ValidationError.new('whatsapp_phone_number must be a String')
+      end
+
+      def signer_government_id(payload, include_government_id)
+        government_id = payload['government_id'] if include_government_id
+        return government_id if government_id.nil? || government_id.is_a?(String)
+
+        raise ValidationError.new('government_id must be a String')
       end
 
       def signature_type(type)

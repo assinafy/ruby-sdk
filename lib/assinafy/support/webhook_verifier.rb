@@ -31,7 +31,7 @@ module Assinafy
       # @param webhook_secret [String, nil] shared secret. When nil/empty,
       #   {#verify} always returns false (safe-by-default).
       def initialize(webhook_secret = nil)
-        @webhook_secret = webhook_secret
+        @webhook_secret = webhook_secret.is_a?(String) ? webhook_secret.dup.freeze : webhook_secret
       end
 
       # Constant-time compare the provided signature to the expected
@@ -41,11 +41,12 @@ module Assinafy
       # @param signature [String]  hex-encoded signature header value
       # @return [Boolean]
       def verify(payload, signature)
-        return false unless @webhook_secret && !@webhook_secret.empty?
+        secret = @webhook_secret
+        return false unless secret && !secret.empty?
         return false unless signature && !signature.to_s.strip.empty?
 
         body     = payload.is_a?(String) ? payload : payload.to_s
-        expected = OpenSSL::HMAC.hexdigest('SHA256', @webhook_secret, body)
+        expected = OpenSSL::HMAC.hexdigest('SHA256', secret, body)
         provided = signature.to_s.strip
 
         OpenSSL.fixed_length_secure_compare(expected, provided)

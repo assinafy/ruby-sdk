@@ -5,11 +5,12 @@
 
 Ruby SDK for the [Assinafy API v1](https://api.assinafy.com.br/v1/docs).
 
-The SDK includes a public wrapper for every operation in the current Assinafy v1 [OpenAPI specification](https://api.assinafy.com.br/v1/docs/openapi.json), plus sandbox-live template routes that are not yet listed there. The checked-in [`spec/api_coverage_spec.rb`](spec/api_coverage_spec.rb) verifies that its static route-to-method inventory is unique and points to public SDK methods.
+The SDK exposes every Assinafy API v1 operation and the complete supported template lifecycle. The checked-in [`spec/api_coverage_spec.rb`](spec/api_coverage_spec.rb) validates that each route maps uniquely to a public SDK method.
 
 - **Source:** <https://github.com/assinafy/ruby-sdk>
 - **Issues:** <https://github.com/assinafy/ruby-sdk/issues>
 - **API docs:** <https://api.assinafy.com.br/v1/docs>
+- **Ruby SDK API reference:** [`docs/API_REFERENCE.md`](docs/API_REFERENCE.md)
 
 ## Requirements
 
@@ -81,9 +82,11 @@ client = Assinafy::Client.new(
 
 - `api_key:` sends `X-Api-Key` (preferred).
 - `token:` sends `Authorization: Bearer ...` (legacy session token).
+- Configure exactly one credential. If both are supplied, the SDK sends only `X-Api-Key`.
 - A client can also be created with no credentials for authentication and public/signer endpoints.
 - Account-scoped methods document a per-call account override for multi-workspace tenants.
 - Provide a `Logger`-compatible `logger:` to observe upload/assignment/webhook lifecycle messages.
+- Requests send `User-Agent: Assinafy-Ruby-SDK/v1.5.1`; the suffix always follows `Assinafy::VERSION`.
 
 `Client.from_config(hash)` accepts string- or symbol-keyed hashes (e.g. parsed YAML).
 
@@ -145,9 +148,12 @@ client.users.notification_preferences                 # returns all nine owner-e
 client.users.update_notification_preferences(SignerDeclined: false) # partial request; returns all nine
 ```
 
-Both stats methods return rows with `period`, `documents_uploaded`, `documents_sent`,
-`signature_requests`, `signature_requests_email`, `signature_requests_whatsapp`,
-`signature_requests_viewed`, `signature_requests_completed`, and `documents_certified`.
+Both stats methods return rows with `period`, `documents_uploaded`, `documents_sent`, `signature_requests`,
+`signature_requests_notification_email`, `signature_requests_notification_whatsapp`,
+`signature_requests_notification_bypass`, `signature_requests_verification_email`,
+`signature_requests_verification_whatsapp`, `signature_requests_verification_bypass`,
+`signature_requests_verification_digital_certificate`, `signature_requests_viewed`,
+`signature_requests_completed`, and `documents_certified`.
 
 ### Documents
 
@@ -174,7 +180,7 @@ client.documents.send_token('document-id', email: 'alice@example.com') # current
 client.documents.list_tags('document-id')
 client.documents.replace_tags('document-id', ['tag-id-1', 'tag-id-2'])
 client.documents.append_tags('document-id', ['tag-id-3'])
-# The current sandbox also accepts existing tag names in these arrays.
+# The deployed sandbox also accepts existing tag names in these arrays.
 client.documents.detach_tag('document-id', 'tag-id')
 
 # Template-driven creation
@@ -204,7 +210,7 @@ client.signers.list(search: 'alice', per_page: 50)  # returns { data:, meta: }
 client.signers.update('signer-id', full_name: 'Alice S.', government_id: '00000000000')
 client.signers.delete('signer-id')
 
-# Convenience: case-insensitive lookup with built-in 404 handling
+# Convenience: case-insensitive lookup; nil means a successful search found no match
 client.signers.find_by_email('alice@example.com')
 ```
 
@@ -381,8 +387,205 @@ rescue Assinafy::ApiError => e
 end
 ```
 
-Resource YARD documentation includes request/response examples and calls out known differences
-between the current OpenAPI document and the deployed sandbox.
+The [SDK API reference](docs/API_REFERENCE.md) maps every API operation to its Ruby method and documents exact
+authentication, parameters, request bodies, success responses, and every published schema property.
+
+## Complete document workflow
+
+Every call below returns the SDK value after response-envelope handling. Use the
+[API operation table](docs/API_REFERENCE.md#api-operations) for each method's exact HTTP authentication,
+parameters, request body, and success wire response. Named response objects link to the complete
+[schema catalog](docs/API_REFERENCE.md#schema-catalog).
+
+### 1. Configure a workspace client
+
+```ruby
+client = Assinafy::Client.new(
+  api_key:    ENV.fetch('ASSINAFY_API_KEY'),
+  account_id: ENV.fetch('ASSINAFY_ACCOUNT_ID'),
+  base_url:   ENV.fetch('ASSINAFY_BASE_URL', 'https://api.assinafy.com.br/v1')
+)
+```
+
+Use one authentication credential per client. Account-scoped methods use the configured account unless an
+explicit `account_id_override` is supplied.
+
+### 2. Upload a document or select a template
+
+```ruby
+document = client.documents.upload(
+  { file_path: './contract.pdf' },
+  name: 'Customer agreement'
+)
+# => Document
+
+template = client.templates.get('template-id')
+# => Template
+```
+
+For in-memory data, pass `{ buffer: pdf_bytes, file_name: 'contract.pdf' }`. Upload requests are multipart;
+template-based document creation is shown after the signer is available.
+
+### 3. Wait for document processing
+
+```ruby
+document = client.documents.wait_until_ready(
+  document.fetch('id'),
+  max_wait_seconds: 60,
+  poll_interval_seconds: 2
+)
+# => Document with a ready status and populated pages
+```
+
+The helper raises `Assinafy::ValidationError` for invalid interval values and `Assinafy::Error` for a failed
+terminal document status or timeout.
+
+### 4. Create or reuse a signer
+
+```ruby
+signer = client.signers.find_by_email('signer@example.com') ||
+         client.signers.create(full_name: 'Example Signer', email: 'signer@example.com')
+# => Signer
+```
+
+### 5. Estimate and request signatures
+
+```ruby
+signer_request = {
+  id:                   signer.fetch('id'),
+  verification_method:  'Email',
+  notification_methods: ['Email'],
+  step:                 1
+}
+
+cost = client.assignments.estimate_cost(
+  document.fetch('id'),
+  signers: [signer_request]
+)
+# => CostEstimate
+
+assignment = client.assignments.create(
+  document.fetch('id'),
+  method:     'virtual',
+  signers:    [signer_request],
+  message:    'Please review and sign.',
+  expires_at: '2026-12-31T23:59:00Z'
+)
+# => Assignment, including signing_urls
+```
+
+The template alternative binds a signer to a template role and creates the document and assignment together:
+
+```ruby
+role_signer = {
+  role_id:              template.fetch('roles').first.fetch('id'),
+  id:                   signer.fetch('id'),
+  verification_method:  'Email',
+  notification_methods: ['Email']
+}
+
+template_cost = client.documents.estimate_cost_from_template(template.fetch('id'), [role_signer])
+# => CostEstimate
+
+template_document = client.documents.create_from_template(
+  template.fetch('id'),
+  [role_signer],
+  name: 'Customer agreement', message: 'Please review and sign.'
+)
+# => Document with an embedded Assignment
+```
+
+### 6. Complete the signer flow
+
+Signer-facing calls use the one-time access code delivered by Assinafy. They do not use the workspace API key.
+
+```ruby
+signing = Assinafy::Client.new(base_url: ENV.fetch('ASSINAFY_BASE_URL'))
+access_code = ENV.fetch('ASSINAFY_SIGNER_ACCESS_CODE')
+verification_code = ENV.fetch('ASSINAFY_VERIFICATION_CODE')
+
+signer_data = signing.signers.self_data(signer_access_code: access_code)
+signing.signers.accept_terms(signer_access_code: access_code) unless signer_data['has_accepted_terms']
+signing.signers.verify_email(
+  verification_code: verification_code,
+  signer_access_code: access_code
+)
+
+signing_document = signing.assignments.signer_document(signer_access_code: access_code)
+signing.signer_documents.sign_multiple(
+  [signing_document.fetch('id')],
+  signer_access_code: access_code
+)
+```
+
+The virtual assignment created above uses `sign_multiple`. For a collect assignment, submit each positioned
+item through `assignments.sign`:
+
+```ruby
+collect_items = signing_document.fetch('assignment').fetch('items').map do |item|
+  {
+    item_id:  item.fetch('id'),
+    field_id: item.dig('field', 'id'),
+    page_id:  item.dig('page', 'id'),
+    value:    'Accepted'
+  }
+end
+
+signing.assignments.sign(
+  signing_document.fetch('id'),
+  signing_document.dig('assignment', 'id'),
+  collect_items,
+  signer_access_code: access_code
+)
+```
+
+The SDK maps the documented snake_case item keys to the API's camelCase request keys.
+
+`DigitalCertificate` may be supplied as an assignment verification method. Provider documentation refers to
+`/signers/certificate/start` and `/signers/certificate/complete`, but their authentication and request/response
+schemas are not published in the API v1 machine contract, so the SDK does not expose those completion calls.
+Contact Assinafy before enabling a digital-certificate signing flow in production.
+
+### 7. Inspect, tag, download, and verify
+
+```ruby
+document_id = document.fetch('id')
+
+activities = client.documents.activities(document_id)       # => Array<DocumentActivity>
+tags = client.documents.append_tags(document_id, ['tag-id']) # => Array<Tag>
+client.documents.replace_tags(document_id, tags.map { |tag| tag.fetch('id') })
+
+original_pdf = client.documents.download(document_id, 'original')
+signed_pdf = client.documents.download(document_id, 'pades')
+certificate_pdf = client.documents.download(document_id, 'certificated')
+
+verification = client.documents.verify('signature-hash-from-assinafy')
+# => DocumentVerification; inspect verification['is_valid']
+```
+
+`verify` returns Assinafy's verification result. It does not independently validate the PDF signature or its
+certificate chain; see [Authentication and safety](docs/API_REFERENCE.md#authentication-and-safety).
+
+### 8. Handle errors and clean up
+
+```ruby
+begin
+  client.documents.details(document_id)
+rescue Assinafy::ValidationError => e
+  warn e.errors.inspect
+rescue Assinafy::ApiError => e
+  warn "Assinafy returned #{e.status_code}: #{e.message}"
+rescue Assinafy::NetworkError => e
+  warn "Network failure: #{e.message}"
+end
+
+client.documents.delete(document_id)
+client.signers.delete(signer.fetch('id'))
+client.templates.delete(template.fetch('id')) if template
+```
+
+Delete resources only after downstream work is complete. Some resources can return `409` while processing or
+while still referenced; retry only after resolving the reported state.
 
 ## Pagination
 
@@ -431,16 +634,26 @@ All inherit a `#context` Hash with debugging metadata.
 ## Tests
 
 ```bash
-bundle exec rake spec               # 200+ RSpec examples, including a coverage matrix
+bundle exec rake spec               # 300+ RSpec examples, including a coverage matrix
 bundle exec rubocop                 # Linting
+bundle exec steep check             # Static type checking against the published RBS
 bundle exec bundler-audit check     # Dependency CVEs
+ruby scripts/check_api_contract.rb --file path/to/openapi.json # validate a local contract document
 ```
 
-The coverage spec checks the committed route-to-method matrix for duplicate operations or wrappers, missing public methods, aliases that drift, and unmapped resource methods. It does not download or compare the [OpenAPI document](https://api.assinafy.com.br/v1/docs/openapi.json) during the test run; update the matrix deliberately when the remote contract changes.
+The coverage spec validates the committed route-to-method inventory, public wrappers, aliases, and resource mappings without network access.
+
+Ordinary pull-request CI remains network-independent. A weekly scheduled job runs
+`scripts/check_api_contract.rb` against the upstream document. When Assinafy publishes a new contract, update
+the SDK implementation, tests, API reference, and expected fixture together.
 
 ### Live integration tests
 
-The suite in [`spec/integration/`](spec/integration/live_sandbox_spec.rb) exercises representative workflows across every resource against the real sandbox. It is not an exhaustive operation-by-operation contract check: OTP- or feature-gated routes may be skipped, and sandbox rollout can lag the current OpenAPI document. The suite is excluded from the default run and only executes when `ASSINAFY_LIVE=1` is set with credentials:
+The suite in [`spec/integration/`](spec/integration/live_sandbox_spec.rb) exercises safe sandbox workflows across
+every workspace resource. Signer-code, OTP, password, social-login, API-key mutation, signature upload, and
+irreversible sign/decline calls are wire-contract tested in the default suite but are not live-automated without
+their one-time credentials or explicit state changes. The live suite is excluded from the default run and only
+executes when `ASSINAFY_LIVE=1` is set with credentials:
 
 ```bash
 ASSINAFY_LIVE=1 \
@@ -453,6 +666,10 @@ bundle exec rspec spec/integration
 ```
 
 > These tests create and clean up real resources and, for the assignment flow, send real signature-request emails to the addresses in `ASSINAFY_TEST_EMAIL` / `ASSINAFY_TEST_EMAIL2`.
+
+GitHub Actions provides the manual **Live Sandbox** workflow. Select a protected environment containing
+`ASSINAFY_API_KEY`, `ASSINAFY_ACCOUNT_ID`, `ASSINAFY_TEST_EMAIL`, and `ASSINAFY_TEST_EMAIL2`; environment
+branch/tag rules and approvals are applied before GitHub exposes those secrets to the job.
 
 ## Contributing
 

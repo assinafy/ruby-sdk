@@ -146,6 +146,8 @@ module Assinafy
     #   assignment, and `signer_ids` lists the IDs of the signers created during the workflow.
     # @note This helper is not transactional. If a later API call fails, an uploaded
     #   document or newly created signer may remain and should be cleaned up by the caller.
+    #   After an upload succeeds, SDK errors include the latest `document` and the
+    #   successfully created `signer_ids` in {Error#context} for recovery.
     #
     # @example Upload a PDF and request a virtual signature from one signer
     #   result = client.upload_and_request_signatures(
@@ -189,29 +191,34 @@ module Assinafy
     def upload_and_request_signatures(source:, signers:, message: nil,
                                       wait_for_ready: true, expires_at: nil,
                                       copy_receivers: nil, account_id: nil)
-      unless signers.is_a?(Array) && !signers.empty? && signers.all?(Hash)
-        raise ValidationError.new('Signers must be a non-empty Array of Hashes')
-      end
+      validate_signature_workflow!(signers, wait_for_ready)
 
       @logger.info("Starting upload and signature workflow for #{signers.length} signer(s)")
 
       upload_opts = account_id.nil? ? {} : { account_id: account_id }
       document = @documents.upload(source, upload_opts)
-      document = @documents.wait_until_ready(document['id']) if wait_for_ready
+      signer_ids = []
 
-      signer_ids = signers.map do |signer|
-        created = @signers.create(signer, account_id)
-        created['id'] || raise(ApiError.new('Signer created but the API returned no ID', 502, created))
+      begin
+        document = @documents.wait_until_ready(document['id']) if wait_for_ready
+        signers.each do |signer|
+          signer_ids << signer_id!(@signers.create(signer, account_id))
+        end
+
+        assignment_payload = { method: 'virtual', signers: signer_ids,
+                               message: message, expires_at: expires_at,
+                               copy_receivers: copy_receivers }
+        assignment = @assignments.create(document['id'], assignment_payload)
+        created_resource_id!(assignment, 'Assignment')
+
+        @logger.info("Upload and signature workflow completed for document #{document['id']}")
+
+        { document: document, assignment: assignment, signer_ids: signer_ids }
+      rescue Error => e
+        e.context[:document] ||= document
+        e.context[:signer_ids] = signer_ids.dup
+        raise
       end
-
-      assignment_payload = { method: 'virtual', signers: signer_ids,
-                             message: message, expires_at: expires_at,
-                             copy_receivers: copy_receivers }
-      assignment = @assignments.create(document['id'], assignment_payload)
-
-      @logger.info("Upload and signature workflow completed for document #{document['id']}")
-
-      { document: document, assignment: assignment, signer_ids: signer_ids }
     end
 
     # Expose the underlying Faraday connection (for advanced use cases,
@@ -237,9 +244,34 @@ module Assinafy
         f.options.open_timeout = config.timeout
         f.headers.merge!(config.auth_headers)
         f.headers['Accept']       = 'application/json'
-        f.headers['User-Agent']   = "assinafy-ruby-sdk/#{VERSION}"
+        f.headers['User-Agent']   = USER_AGENT
         f.adapter Faraday.default_adapter
       end
+    end
+
+    def validate_signature_workflow!(signers, wait_for_ready)
+      unless signers.is_a?(Array) && !signers.empty? && signers.all?(Hash)
+        raise ValidationError.new('Signers must be a non-empty Array of Hashes')
+      end
+      unless [true, false].include?(wait_for_ready)
+        raise ValidationError.new('wait_for_ready must be true or false')
+      end
+
+      signers.each { |signer| @signers.validate_create!(signer) }
+    end
+
+    def signer_id!(response)
+      created_resource_id!(response, 'Signer')
+    end
+
+    def created_resource_id!(response, resource_name)
+      id = response['id'] if response.is_a?(Hash)
+      return id if id.is_a?(String) && Resources::BaseResource::PATH_SEGMENT.match?(id) && !%w[. ..].include?(id)
+
+      raise Error.new(
+        "#{resource_name} created but the API returned no usable ID",
+        { response_data: response }
+      )
     end
   end
 end
