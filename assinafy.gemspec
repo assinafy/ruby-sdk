@@ -24,7 +24,7 @@ Gem::Specification.new do |spec|
   spec.metadata['github_repo']           = 'ssh://github.com/assinafy/ruby-sdk'
   spec.metadata['rubygems_mfa_required'] = 'true'
 
-  spec.files         = Dir['lib/**/*.rb', 'sig/**/*.rbs', 'CHANGELOG.md', 'LICENSE', 'README.md'] +
+  spec.files         = Dir['lib/**/*.rb', 'sig/**/*.rbs', 'CHANGELOG.md', 'LICENSE', 'README.md', 'README.en.md'] +
                        ['docs/API_REFERENCE.md']
   spec.require_paths = ['lib']
 
