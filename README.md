@@ -639,7 +639,6 @@ All inherit a `#context` Hash with debugging metadata.
 ```bash
 bundle exec rake spec               # 300+ RSpec examples, including a coverage matrix
 bundle exec rubocop                 # Linting
-bundle exec steep check             # Static type checking against the published RBS
 bundle exec bundler-audit check     # Dependency CVEs
 ruby scripts/check_api_contract.rb --file path/to/openapi.json # validate a local contract document
 ```

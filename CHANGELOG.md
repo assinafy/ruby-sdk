@@ -2,6 +2,19 @@
 
 All notable changes to the `assinafy` Ruby gem are documented here.
 
+## Unreleased
+
+### Removed
+
+- **Steep type checking.** `steep` is no longer a development dependency, so the CI and release
+  workflows that ran `bundle exec steep check` would fail on any machine that installs from the
+  current gemspec. Those steps, the `Steepfile`, and the `typecheck/` stubs that existed only to
+  satisfy the checker are removed.
+
+  `sig/assinafy.rbs` is unchanged and still ships in the gemspec's file list: consumers keep the
+  published RBS signatures. The tradeoff is that those signatures are no longer verified against
+  the implementation on every build, so they can drift.
+
 ## 1.5.2
 
 ### Fixed

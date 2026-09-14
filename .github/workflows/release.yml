@@ -46,9 +46,6 @@ jobs:
       - name: Run RuboCop
         run: bundle exec rubocop --no-color
 
-      - name: Run Steep
-        run: bundle exec steep check
-
       - name: Run bundler-audit
         run: bundle exec bundler-audit check --update
 
