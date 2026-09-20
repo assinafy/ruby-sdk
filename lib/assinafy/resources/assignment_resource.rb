@@ -11,6 +11,29 @@ module Assinafy
     class AssignmentResource < BaseResource
       OPTIONAL_FIELDS   = %i[message expires_at copy_receivers].freeze
       METHODS           = %w[virtual collect].freeze
+
+      # How a signer's identity is verified before they may sign, set per signer
+      # on the assignment. Omit to default to `Email`.
+      #
+      # - `Email` — one-time code sent to the signer's email. Free.
+      # - `Whatsapp` — one-time code over WhatsApp. The verification itself is
+      #   not billed, but it requires the WhatsApp notification channel, so the
+      #   signer costs 0.45 credits (paid subscriptions only).
+      # - `DigitalCertificate` — the signer signs with their own ICP-Brasil
+      #   certificate (A1 or A3), producing a qualified PAdES signature.
+      #   Requires the Digital Certificate feature, a CPF or CNPJ in the
+      #   signer's `government_id`, and that the signer is alone in its signing
+      #   step. Charged 2 credits per signer. A CPF requires that person's
+      #   certificate (an e-CPF, or an e-CNPJ naming them as legal
+      #   representative); a CNPJ requires an e-CNPJ for that company, from any
+      #   of its representatives.
+      VERIFICATION_METHODS = %w[Email Whatsapp DigitalCertificate].freeze
+
+      # Channels used to notify a signer of the request. Any combination;
+      # WhatsApp incurs an additional cost and is available only on paid
+      # subscriptions. Omit to default to `["Email"]`.
+      NOTIFICATION_METHODS = %w[Email Whatsapp].freeze
+
       SIGN_ITEM_KEY_MAP = {
         'item_id'  => 'itemId',
         'field_id' => 'fieldId',
@@ -26,8 +49,8 @@ module Assinafy
         # - `signers: [{ id:, verification_method:, notification_methods:, step: }]`
         # - Legacy `signer_ids:`/`signerIds:` arrays of IDs
         #
-        # @note The OpenAPI marks top-level `signers` as required, but the sandbox
-        #   accepts `collect` payloads that reference signer IDs only in positioned
+        # @note The OpenAPI marks top-level `signers` as required, but the deployed
+        #   API accepts `collect` payloads that reference signer IDs only in positioned
         #   fields. This builder preserves that live-compatible form.
         # @param payload [Hash]
         # @param options [Hash]
@@ -154,15 +177,47 @@ module Assinafy
           id = r[:id] || r[:signer_id]
 
           normalised = {}
-          normalised[:id]                   = id                        if id
-          normalised[:verification_method]  = r[:verification_method]   if r[:verification_method]
-          normalised[:notification_methods] = r[:notification_methods]  if r[:notification_methods]
-          normalised[:step]                 = r[:step]                  unless r[:step].nil?
+          normalised[:id]                   = id                                  if id
+          normalised[:verification_method]  = verification_method!(r)             if r[:verification_method]
+          normalised[:notification_methods] = notification_methods!(r)            if r[:notification_methods]
+          normalised[:step]                 = signer_step!(r[:step])              unless r[:step].nil?
 
           return normalised if id.is_a?(String) && !id.empty?
           return normalised.tap { |h| h.delete(:id) } if options[:allow_signers_without_id]
 
           raise ValidationError.new('Invalid signer reference', { ref: ref })
+        end
+
+        # The API's enums are closed and it reports an unknown value as a 422
+        # only after the request has been sent — and after any signers created
+        # for it already exist. Checking locally keeps the failure cheap and
+        # names the accepted values.
+        def verification_method!(ref)
+          value = ref[:verification_method]
+          return value if VERIFICATION_METHODS.include?(value)
+
+          raise ValidationError.new(
+            "verification_method must be one of: #{VERIFICATION_METHODS.join(', ')}",
+            { verification_method: value }
+          )
+        end
+
+        def notification_methods!(ref)
+          value = ref[:notification_methods]
+          if value.is_a?(Array) && !value.empty? && value.all? { |m| NOTIFICATION_METHODS.include?(m) }
+            return value
+          end
+
+          raise ValidationError.new(
+            "notification_methods must be a non-empty Array of: #{NOTIFICATION_METHODS.join(', ')}",
+            { notification_methods: value }
+          )
+        end
+
+        def signer_step!(step)
+          return step if step.is_a?(Integer) && step > 0
+
+          raise ValidationError.new('step must be a positive Integer', { step: step })
         end
       end
 
@@ -206,7 +261,7 @@ module Assinafy
       end
 
       # Create an assignment for a document. See {.build_payload} for the
-      # accepted shapes, including the sandbox-compatible `collect` form without
+      # accepted shapes, including the live-compatible `collect` form without
       # a top-level `signers` array.
       #
       # @param document_id [String]

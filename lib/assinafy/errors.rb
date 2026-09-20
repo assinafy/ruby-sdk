@@ -65,6 +65,62 @@ module Assinafy
     end
   end
 
+  # Raised when an OAuth endpoint (`/oauth/token`, `/oauth/revoke`) reports a
+  # failure. Those endpoints answer with the flat RFC 6749 §5.2 error object
+  # rather than this API's `{status, data, message}` envelope, so the OAuth
+  # error code and its description are exposed as first-class readers instead
+  # of being flattened into a message.
+  #
+  # @example Distinguish an expired code from a bad client
+  #   begin
+  #     client.oauth.exchange_code(
+  #       code: params[:code], client_id: id, code_verifier: verifier,
+  #       redirect_uri: callback
+  #     )
+  #   rescue Assinafy::OAuthError => e
+  #     e.status_code       # => 400
+  #     e.error             # => "invalid_grant"
+  #     e.error_description # => "The authorization code is invalid or has expired."
+  #     e.message           # => "invalid_grant: The authorization code is invalid or has expired."
+  #   end
+  class OAuthError < ApiError
+    # @return [String, nil] the RFC 6749 error code, e.g. `"invalid_grant"`,
+    #   `"invalid_client"`, `"unsupported_grant_type"`, `"invalid_target"`
+    attr_reader :error
+    # @return [String, nil] the server's human-readable explanation
+    attr_reader :error_description
+
+    def initialize(message, status_code, response_data = nil)
+      super
+      return unless response_data.is_a?(Hash)
+
+      @error             = response_data['error']
+      @error_description = response_data['error_description']
+    end
+
+    # Build an {OAuthError} from an HTTP status and response body.
+    #
+    # The OAuth token and revoke endpoints answer with a flat
+    # `{error, error_description}`; `/oauth/userinfo` answers with this API's
+    # ordinary error envelope. Both shapes land here, so the message is read
+    # from whichever is present.
+    #
+    # @param status_code   [Integer]
+    # @param response_data [Hash, Object]
+    # @return [OAuthError]
+    def self.from_response(status_code, response_data)
+      data = response_data.is_a?(Hash) ? response_data : {}
+      message =
+        if data['error'].is_a?(String)
+          [data['error'], data['error_description']].reject { |part| part.to_s.empty? }.join(': ')
+        else
+          data['message'] || data['name'] || 'OAuth request failed'
+        end
+
+      new(message.to_s, status_code, response_data)
+    end
+  end
+
   # Raised before a network request is made when the caller's input is
   # invalid (missing IDs, wrong shape, etc.).
   class ValidationError < Error

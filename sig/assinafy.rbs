@@ -58,6 +58,14 @@ module Assinafy
     def initialize: (?String message, ?Hash[Symbol | String, untyped]? errors) -> void
   end
 
+  class OAuthError < ApiError
+    attr_reader error: String?
+    attr_reader error_description: String?
+
+    def initialize: (String message, Integer status_code, ?untyped response_data) -> void
+    def self.from_response: (Integer status_code, untyped response_data) -> OAuthError
+  end
+
   class NetworkError < Error
   end
 
@@ -101,6 +109,34 @@ module Assinafy
     def self.body_params: (params? hash) -> Hash[String, untyped]
   end
 
+  module OAuth
+    AUTHORIZATION_SERVER: String
+    AUTHORIZATION_SERVER_METADATA_URL: String
+    AUTHORIZATION_ENDPOINT: String
+    CODE_CHALLENGE_METHOD: String
+    SCOPES: Array[String]
+    MIN_CODE_VERIFIER_LENGTH: Integer
+    MAX_CODE_VERIFIER_LENGTH: Integer
+    CODE_VERIFIER_PATTERN: Regexp
+
+    def self.generate_code_verifier: (?Integer length) -> String
+    def self.code_challenge: (String code_verifier) -> String
+    def self.generate_state: () -> String
+    def self.normalize_scope: (Array[String] | String | nil scope) -> String?
+    def self.validate_code_verifier!: (String code_verifier) -> String
+    def self.authorization_url: (
+      client_id: String,
+      redirect_uri: String,
+      ?code_verifier: String?,
+      ?code_challenge: String?,
+      ?scope: Array[String] | String | nil,
+      ?state: String?,
+      ?resource: String?,
+      ?authorization_endpoint: String,
+      **untyped extra_params
+    ) -> String
+  end
+
   module Resources
     class BaseResource
       PATH_SEGMENT: Regexp
@@ -121,6 +157,37 @@ module Assinafy
       def change_password: (email: String, password: String, new_password: String) -> api_object
       def request_password_reset: (email: String) -> api_object
       def reset_password: (email: String, new_password: String, ?token: String?) -> api_object
+    end
+
+    class OAuthResource < BaseResource
+      GRANT_TYPES: Array[String]
+      TOKEN_TYPE_HINTS: Array[String]
+      PROTECTED_RESOURCE_METADATA_PATH: String
+
+      def exchange_code: (
+        code: String,
+        client_id: String,
+        code_verifier: String,
+        ?redirect_uri: String?,
+        ?client_secret: String?,
+        ?resource: String?
+      ) -> api_object
+      def refresh: (
+        refresh_token: String,
+        client_id: String,
+        ?client_secret: String?,
+        ?resource: String?
+      ) -> api_object
+      def token: (grant_type: String, client_id: String, **untyped params) -> api_object
+      def revoke: (
+        token: String,
+        client_id: String,
+        ?token_type_hint: String?,
+        ?client_secret: String?
+      ) -> nil
+      def userinfo: () -> api_object
+      def protected_resource_metadata: () -> api_object
+      def authorization_server_metadata: (?String url) -> api_object
     end
 
     class AccountResource < BaseResource
@@ -242,6 +309,8 @@ module Assinafy
     class AssignmentResource < BaseResource
       OPTIONAL_FIELDS: Array[Symbol]
       METHODS: Array[String]
+      VERIFICATION_METHODS: Array[String]
+      NOTIFICATION_METHODS: Array[String]
       SIGN_ITEM_KEY_MAP: Hash[String, String]
 
       def self.build_payload: (params payload, ?params options) -> Hash[String, untyped]
@@ -324,6 +393,7 @@ module Assinafy
 
   class Client
     attr_reader auth: Resources::AuthResource
+    attr_reader oauth: Resources::OAuthResource
     attr_reader accounts: Resources::AccountResource
     attr_reader users: Resources::UserResource
     attr_reader documents: Resources::DocumentResource

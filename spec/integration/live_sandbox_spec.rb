@@ -467,4 +467,56 @@ RSpec.describe 'Assinafy live sandbox', :live, order: :defined do # rubocop:disa
       expect(client.documents.verify('INVALIDHASHEXAMPLE')).to include('is_valid' => false)
     end
   end
+
+  # The OAuth routes need no credentials — they identify the client through
+  # `client_id` in the body — so these exercise the real contract without an
+  # OAuth client registration. What they prove is that the SDK reads the flat,
+  # un-enveloped bodies correctly and strips workspace credentials.
+  it 'discovers the OAuth protected-resource and authorization-server metadata' do
+    resource_metadata = client.oauth.protected_resource_metadata
+    authorization_server = resource_metadata.fetch('authorization_servers').first
+    server_metadata = client.oauth.authorization_server_metadata(
+      "#{authorization_server}/.well-known/oauth-authorization-server"
+    )
+
+    aggregate_failures do
+      expect(resource_metadata['resource']).to be_a(String)
+      expect(resource_metadata['scopes_supported']).to include('documents:read', 'documents:write')
+      expect(server_metadata['issuer']).to eq(authorization_server)
+      expect(server_metadata['authorization_endpoint']).to be_a(String)
+      expect(server_metadata['grant_types_supported'])
+        .to match_array(Assinafy::Resources::OAuthResource::GRANT_TYPES)
+      # PKCE S256 is mandatory; `plain` must never appear.
+      expect(server_metadata['code_challenge_methods_supported'])
+        .to eq([Assinafy::OAuth::CODE_CHALLENGE_METHOD])
+    end
+  end
+
+  it 'reports an unknown OAuth client as invalid_client without leaking whether it exists' do
+    verifier = Assinafy::OAuth.generate_code_verifier
+
+    error = nil
+    begin
+      client.oauth.exchange_code(
+        code:          'sdk-live-test-not-a-real-code',
+        client_id:     'sdk-live-test-unregistered-client',
+        code_verifier: verifier,
+        redirect_uri:  'https://example.com/oauth/callback'
+      )
+    rescue Assinafy::OAuthError => e
+      error = e
+    end
+
+    aggregate_failures do
+      expect(error).to be_a(Assinafy::ApiError)
+      expect(error.status_code).to be_between(400, 401)
+      expect(error.error).to be_a(String)
+      expect(error.message).to include(error.error)
+    end
+  end
+
+  it 'rejects an unsupported grant type at the token endpoint' do
+    expect { client.oauth.token(grant_type: 'client_credentials', client_id: 'sdk-live-test') }
+      .to raise_error(Assinafy::ValidationError, /authorization_code, refresh_token/)
+  end
 end

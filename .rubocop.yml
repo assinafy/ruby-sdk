@@ -121,6 +121,11 @@ RSpec/AnyInstance:
   Enabled: false
 
 # api_coverage_spec.rb covers the whole API surface, not a single class.
+# RuboCop also underscores `OAuth` into `o_auth`; the spec files are named
+# after their lib counterparts (`oauth.rb`, `oauth_resource.rb`) instead.
 RSpec/SpecFilePathFormat:
   Exclude:
     - 'spec/api_coverage_spec.rb'
+  CustomTransform:
+    OAuth: oauth
+    OAuthResource: oauth_resource

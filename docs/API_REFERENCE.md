@@ -12,8 +12,17 @@ Required parameters and object properties are marked with `*`.
 
 ## Authentication and safety
 
-- `X-Api-Key` is the recommended server-side credential. Bearer tokens are legacy session credentials. If both
-  are configured, the current SDK sends only `X-Api-Key`; prefer configuring exactly one credential.
+- `X-Api-Key` is the recommended server-side credential. A bearer token is either a login session token or an
+  OAuth 2.1 access token. If both an API key and a token are configured, the current SDK sends only `X-Api-Key`;
+  prefer configuring exactly one credential.
+- OAuth 2.1 authenticates an application acting *in a user's workspace with that user's permission*, as opposed
+  to `X-Api-Key`/bearer, which authenticate the workspace or user directly. The flow is authorization-code with
+  mandatory PKCE `S256`; `Assinafy::OAuth` builds the verifier, challenge, `state`, and authorization URL, and
+  `client.oauth` covers the token lifecycle. A token is scoped to one workspace and carries only the scopes the
+  user approved, and it never reaches billing, account lifecycle, credential management, or admin surfaces
+  regardless of scope. A missing scope answers `403` with a `WWW-Authenticate` challenge naming it, which the
+  SDK exposes as `OAuthError#context[:www_authenticate]`. Store the `code_verifier` and `state` per user session,
+  compare `state` on the callback before exchanging the code, and keep refresh tokens out of logs.
 - Signer-facing operations use the one-time `signer-access-code` query parameter where shown. Never log, commit,
   or place API keys, bearer tokens, signer codes, or real recipient addresses in examples or fixtures.
 - HTTP connections use Ruby/Faraday TLS verification and the host system trust store; the SDK does not pin the
@@ -26,6 +35,7 @@ Required parameters and object properties are marked with `*`.
 
 | Method | Path | Ruby SDK method | Authentication | Parameters | Request body | Success wire response |
 | --- | --- | --- | --- | --- | --- | --- |
+| GET | `/.well-known/oauth-protected-resource` | `OAuthResource#protected_resource_metadata` | Public | None | None | `200` `application/json` **bare** RFC 9728 metadata object { `resource`: string; `authorization_servers`: Array<string>; `scopes_supported`: Array<string>; `bearer_methods_supported`: Array<string> } — not enveloped |
 | GET | `/v1/accounts` | `AccountResource#list` | Bearer token or `X-Api-Key` | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`Account`](#account)> } |
 | POST | `/v1/accounts` | `AccountResource#create` | Bearer token or `X-Api-Key` | None | required; `application/json` object { `name*`: string; `notification_sender_type`: string } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Account`](#account) } |
 | GET | `/v1/accounts/{accountId}` | `AccountResource#get` | Bearer token or `X-Api-Key` | path `accountId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Account`](#account) } |
@@ -93,6 +103,9 @@ Required parameters and object properties are marked with `*`.
 | GET | `/v1/documents/{documentSignatureHash}/verify` | `DocumentResource#verify` | Public | path `documentSignatureHash*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`DocumentVerification`](#documentverification) } |
 | GET | `/v1/field-types` | `FieldResource#types` | Bearer token or `X-Api-Key` | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`FieldType`](#fieldtype)> } |
 | POST | `/v1/login` | `AuthResource#login` | Public | None | required; `application/json` object { `email*`: string (email); `password*`: string (password) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`AuthSession`](#authsession) } |
+| POST | `/v1/oauth/token` | `OAuthResource#token`, `#exchange_code`, `#refresh` | Public (client authenticates with `client_id` in the body) | None | required; `application/json` object { `grant_type*`: string enum `authorization_code`, `refresh_token`; `client_id*`: string; `code`: string; `redirect_uri`: string (uri); `code_verifier`: string; `refresh_token`: string; `client_secret`: string; `resource`: string (uri) } | `200` `application/json` **flat** object { `access_token`: string; `token_type`: string; `expires_in`: integer; `refresh_token`: string (nullable); `scope`: string; `id_token`: string (nullable) } — not enveloped |
+| POST | `/v1/oauth/revoke` | `OAuthResource#revoke` | Public (client authenticates with `client_id` in the body) | None | required; `application/json` object { `token*`: string; `client_id*`: string; `token_type_hint`: string enum `access_token`, `refresh_token`; `client_secret`: string } | `200` empty body — every token outcome reports success |
+| GET | `/v1/oauth/userinfo` | `OAuthResource#userinfo` | Bearer token or `X-Api-Key`; requires the `openid` scope | None | None | `200` `application/json` **flat** object { `sub`: string; `name`: string (nullable); `email`: string (email, nullable); `email_verified`: boolean (nullable) } — not enveloped |
 | GET | `/v1/public/documents/{documentId}` | `DocumentResource#public_info` | Public | path `documentId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Document`](#document) } |
 | PUT | `/v1/public/documents/{documentId}/send-token` | `DocumentResource#send_token` | Public | path `documentId*`: string | optional; `application/json` object { `email`: string (email) } | `200` `application/json` [`Envelope`](#envelope) |
 | GET | `/v1/sign` | `AssignmentResource#signer_document` | `signer-access-code` query parameter | query `has_accepted_terms`: boolean | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Document`](#document) } |
@@ -117,6 +130,13 @@ Required parameters and object properties are marked with `*`.
 | GET | `/v1/webhooks/event-types` | `WebhookResource#list_event_types` | Bearer token or `X-Api-Key` | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`WebhookEventType`](#webhookeventtype)> } |
 
 ## Error responses
+
+OAuth endpoints are the exception to everything in this section: `/v1/oauth/token` and
+`/v1/oauth/revoke` report failures as the flat RFC 6749 §5.2 object `{error, error_description}`,
+and `/v1/oauth/userinfo` uses the ordinary envelope. Both raise `Assinafy::OAuthError`, a subclass
+of `Assinafy::ApiError` that exposes `#error` and `#error_description` separately rather than
+flattening them into one message.
+
 
 Assinafy can return errors as an application envelope:
 
@@ -190,12 +210,45 @@ paths raise `Assinafy::ValidationError` at construction rather than sending cred
 `DocumentResource#replace_tags` and `#append_tags` accept arrays of tag IDs. The deployed sandbox also accepts
 existing tag names; IDs are the portable form. Use a tag ID with `DocumentResource#detach_tag`.
 
+### OAuth response shapes
+
+`/v1/oauth/token`, `/v1/oauth/revoke`, and `/v1/oauth/userinfo` deliberately do not use the
+`{status, data, message}` envelope: no standard OAuth or OIDC client would look for `access_token`
+or `error` inside a `data` key. `/.well-known/oauth-protected-resource` returns bare RFC 8615
+metadata for the same reason. `OAuthResource` returns all four bodies unchanged.
+
+`/v1/oauth/token` and `/v1/oauth/revoke` are unauthenticated routes that identify the client
+through `client_id` in the body, so the SDK strips `X-Api-Key`/`Authorization` from them.
+`OAuthResource#authorization_server_metadata` reaches a different host
+(`auth.assinafy.com.br`) and is stripped for the same reason.
+
+`/.well-known/oauth-protected-resource` is served from the host root, outside the `/v1` prefix
+that `base_url` carries.
+
+
+### Token refresh
+
+The SDK does not refresh access tokens automatically. Persist `expires_in` alongside the token,
+call `OAuthResource#refresh` before expiry, and treat `invalid_grant` as a signal to restart the
+authorization flow. A refresh token is issued only when `offline_access` was both requested and
+consented.
+
 ### Digital-certificate signing
 
-`DigitalCertificate` is available as an assignment verification-method value. Provider documentation refers to
-`/signers/certificate/start` and `/signers/certificate/complete`, but the API v1 machine contract does not publish
-their authentication, request, or response schemas. The SDK therefore does not expose certificate-completion
-methods. Contact Assinafy for the supported provider contract before enabling this flow in production.
+`DigitalCertificate` is one of the three assignment verification methods published in
+`AssignmentResource::VERIFICATION_METHODS`, alongside `Email` and `Whatsapp` one-time codes. It has the signer
+sign with their own ICP-Brasil certificate (A1 or A3) through the Web PKI browser extension, producing a
+qualified PAdES signature. It requires the Digital Certificate account feature, a CPF or CNPJ in the signer's
+`government_id`, and that the signer is alone in its signing step; it is charged 2 credits per signer. A CPF
+requires that person's certificate (an e-CPF, or an e-CNPJ naming them as legal representative); a CNPJ requires
+an e-CNPJ for that company, from any of its representatives.
+
+Requesting the method is fully supported. **Completing** the signature is not: the two-step handshake
+(`/signers/certificate/start`, `/signers/certificate/complete`) is absent from the API v1 machine contract, which
+publishes none of its authentication, request, or response schemas. Wrapping it would mean guessing the payload,
+so the SDK deliberately does not expose certificate-completion methods. Contact Assinafy for the supported
+provider contract before enabling this flow. Once the flow completes, the `pades` artifact returns the qualified
+signature.
 
 ## SDK-only helpers and aliases
 
@@ -209,7 +262,7 @@ return-value, and usage details.
 | `Assinafy::Client.from_config`, `.from_hash` | Construct a client from string- or symbol-keyed configuration. | [`client.rb`](../lib/assinafy/client.rb) |
 | `Client#faraday_connection` | Return the configured Faraday connection for advanced integration. | [`client.rb`](../lib/assinafy/client.rb) |
 | `Client#upload_and_request_signatures` | Upload, optionally wait, create signers, and create a virtual assignment. | [`client.rb`](../lib/assinafy/client.rb) |
-| `Client#auth`, `#accounts`, `#users`, `#documents`, `#signers`, `#signer_documents`, `#assignments`, `#webhooks`, `#templates`, `#fields`, `#tags`, `#webhook_verifier` | Return the client's resource and helper instances. | [`client.rb`](../lib/assinafy/client.rb) |
+| `Client#auth`, `#oauth`, `#accounts`, `#users`, `#documents`, `#signers`, `#signer_documents`, `#assignments`, `#webhooks`, `#templates`, `#fields`, `#tags`, `#webhook_verifier` | Return the client's resource and helper instances. | [`client.rb`](../lib/assinafy/client.rb) |
 | `Assinafy::Configuration.new`, `.from_hash` | Build configuration directly or from string/symbol keys. | [`configuration.rb`](../lib/assinafy/configuration.rb) |
 | `Configuration#auth_headers` | Return the selected API-key, bearer, or empty authentication header set. | [`configuration.rb`](../lib/assinafy/configuration.rb) |
 | Configuration readers/writers: `api_key`, `token`, `account_id`, `base_url`, `webhook_secret`, `timeout`, `logger` | Read or update configuration values; construct a new client to apply changes. | [`configuration.rb`](../lib/assinafy/configuration.rb) |
@@ -227,6 +280,10 @@ return-value, and usage details.
 | `Assinafy::Error.new`, `#context` | Construct/read the SDK base error and its structured context. | [`errors.rb`](../lib/assinafy/errors.rb) |
 | `Assinafy::ApiError.new`, `.from_response`, `#status_code`, `#response_data`, `#error_name`, `#error_code` | Construct/read an API response error. | [`errors.rb`](../lib/assinafy/errors.rb) |
 | `Assinafy::ValidationError.new`, `#errors`; `Assinafy::NetworkError` | Represent caller-side validation and transport failures. | [`errors.rb`](../lib/assinafy/errors.rb) |
+| `Assinafy::OAuthError.new`, `.from_response`, `#error`, `#error_description` | Represent an OAuth endpoint failure; subclasses `ApiError`, so existing rescue clauses keep working. | [`errors.rb`](../lib/assinafy/errors.rb) |
+| `Assinafy::OAuth.generate_code_verifier`, `.code_challenge`, `.generate_state`, `.normalize_scope`, `.validate_code_verifier!`, `.authorization_url` | Build the PKCE pair, CSRF state, and authorization URL for the browser half of the OAuth flow. No network request. | [`oauth.rb`](../lib/assinafy/oauth.rb) |
+| `Assinafy::OAuth::AUTHORIZATION_SERVER`, `::AUTHORIZATION_SERVER_METADATA_URL`, `::AUTHORIZATION_ENDPOINT`, `::CODE_CHALLENGE_METHOD`, `::SCOPES` | Published authorization-server endpoints and scopes. | [`oauth.rb`](../lib/assinafy/oauth.rb) |
+| `AssignmentResource::VERIFICATION_METHODS`, `::NOTIFICATION_METHODS` | The signer verification (`Email`, `Whatsapp`, `DigitalCertificate`) and notification (`Email`, `Whatsapp`) enums, validated locally by `build_payload`. | [`assignment_resource.rb`](../lib/assinafy/resources/assignment_resource.rb) |
 | `Assinafy::Utils.handle_assinafy_response`, `.clean_params`, `.query_params`, `.body_params` | Internal public helpers used by resources for envelope and parameter normalization; applications should prefer resource methods. | [`utils.rb`](../lib/assinafy/utils.rb) |
 | `Assinafy::NullLogger#debug`, `#info`, `#warn`, `#error`, `#fatal`, `#unknown` | Internal no-op logger methods used when no logger is configured. | [`null_logger.rb`](../lib/assinafy/null_logger.rb) |
 | `Assinafy::VERSION` | Published SDK version constant. | [`version.rb`](../lib/assinafy/version.rb) |

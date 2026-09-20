@@ -2,7 +2,45 @@
 
 All notable changes to the `assinafy` Ruby gem are documented here.
 
-## Unreleased
+## 1.6.0
+
+### Added
+
+- **OAuth 2.1 support.** An application can now act in a user's workspace with that user's
+  permission, instead of authenticating as the workspace with an API key.
+
+  `Assinafy::OAuth` covers the browser half of the authorization-code flow:
+  `generate_code_verifier`, `code_challenge` (PKCE S256, matching the RFC 7636 Appendix B test
+  vector), `generate_state`, and `authorization_url`. The authorization server accepts only
+  `S256`, so the challenge is always derived for you.
+
+  `client.oauth` covers the server half: `exchange_code`, `refresh`, `token`, `revoke`,
+  `userinfo`, `protected_resource_metadata`, and `authorization_server_metadata`. These routes
+  answer with flat RFC 6749 / OIDC objects rather than this API's `{status, data, message}`
+  envelope, and the SDK returns them unchanged. `/oauth/token` and `/oauth/revoke` identify the
+  client through `client_id` in the body, so the SDK strips `X-Api-Key`/`Authorization` from
+  them — including on `authorization_server_metadata`, which reaches a different host.
+
+  Pass the issued access token as `Assinafy::Client.new(token: ...)`.
+
+- `Assinafy::OAuthError` (a subclass of `Assinafy::ApiError`, so existing `rescue` clauses keep
+  working) exposes `error` and `error_description` separately, instead of flattening
+  `invalid_grant` and its explanation into one message. On a `403` it carries the
+  `WWW-Authenticate` challenge — which names the missing scope — in `context[:www_authenticate]`.
+
+- `AssignmentResource::VERIFICATION_METHODS` and `NOTIFICATION_METHODS` publish the signer
+  verification and notification enums: `Email` and `Whatsapp` one-time codes, and
+  `DigitalCertificate` signing with the signer's own ICP-Brasil A1/A3 certificate.
+
+### Changed
+
+- `AssignmentResource.build_payload` validates a signer's `verification_method`,
+  `notification_methods`, and `step` locally. The API's enums are closed and it reports an unknown
+  value as a `422` only after the request has been sent — and after any signers created for that
+  assignment already exist.
+
+- `spec/fixtures/api_contract.json` tracks the current upstream contract (93 operations, 39
+  schemas), including the four OAuth operations.
 
 ### Removed
 
@@ -12,8 +50,9 @@ All notable changes to the `assinafy` Ruby gem are documented here.
   satisfy the checker are removed.
 
   `sig/assinafy.rbs` is unchanged and still ships in the gemspec's file list: consumers keep the
-  published RBS signatures. The tradeoff is that those signatures are no longer verified against
-  the implementation on every build, so they can drift.
+  published RBS signatures. In place of Steep, `spec/rbs_signature_spec.rb` asserts that every
+  public resource, `Client`, and `Assinafy::OAuth` method has a declared signature, so a new
+  method can no longer ship without one.
 
 ## 1.5.2
 

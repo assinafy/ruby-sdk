@@ -7,7 +7,7 @@
 
 Ruby SDK for the [Assinafy API v1](https://api.assinafy.com.br/v1/docs).
 
-The SDK exposes every Assinafy API v1 operation and the complete supported template lifecycle. The checked-in [`spec/api_coverage_spec.rb`](spec/api_coverage_spec.rb) validates that each route maps uniquely to a public SDK method.
+The SDK exposes every Assinafy API v1 operation — including the OAuth 2.1 flow — and the complete supported template lifecycle. The checked-in [`spec/api_coverage_spec.rb`](spec/api_coverage_spec.rb) validates that each route maps uniquely to a public SDK method.
 
 - **Source:** <https://github.com/assinafy/ruby-sdk>
 - **Issues:** <https://github.com/assinafy/ruby-sdk/issues>
@@ -83,9 +83,10 @@ client = Assinafy::Client.new(
 ```
 
 - `api_key:` sends `X-Api-Key` (preferred).
-- `token:` sends `Authorization: Bearer ...` (legacy session token).
+- `token:` sends `Authorization: Bearer ...`. Pass either a login session token or an OAuth 2.1 access token
+  (see [OAuth 2.1](#oauth-21)).
 - Configure exactly one credential. If both are supplied, the SDK sends only `X-Api-Key`.
-- A client can also be created with no credentials for authentication and public/signer endpoints.
+- A client can also be created with no credentials for authentication, OAuth, and public/signer endpoints.
 - `base_url:` must be an absolute `http`/`https` URL. Anything else — a scheme-less host, a relative path, or
   another scheme — raises `Assinafy::ValidationError` instead of attaching your credentials to it. A trailing
   slash is stripped.
@@ -97,12 +98,13 @@ client = Assinafy::Client.new(
 
 ## Resources
 
-`Assinafy::Client` exposes twelve accessors — eleven API resources for the current
+`Assinafy::Client` exposes thirteen accessors — twelve API resources for the current
 OpenAPI operations and sandbox-live template routes, plus the local `webhook_verifier` helper:
 
 | Accessor                    | What it covers                                                 |
 | --------------------------- | -------------------------------------------------------------- |
 | `client.auth`               | Login, social login, password reset, API keys                  |
+| `client.oauth`              | OAuth 2.1 token exchange, refresh, revocation, userinfo, discovery |
 | `client.accounts`           | Account CRUD, theme, KPI stats, brand logo                     |
 | `client.users`              | User profile, notification preferences, cross-account KPIs     |
 | `client.documents`          | Upload, list, search, rename, download, delete, verify, tags   |
@@ -127,6 +129,114 @@ client.auth.delete_api_key
 client.auth.change_password(email: 'user@example.com', password: 'old', new_password: 'new')
 client.auth.request_password_reset(email: 'user@example.com')
 client.auth.reset_password(email: 'user@example.com', new_password: 'new', token: 'reset-token')
+```
+
+### OAuth 2.1
+
+Use OAuth when an application acts **on behalf of a user**, with that user's permission — marketplace apps,
+third-party integrations, AI assistants. Unlike an API key, the token is scoped to one workspace and carries only
+the scopes the user approved. It never reaches billing, account lifecycle, credential management, or admin
+surfaces, whatever scopes it holds.
+
+The flow is authorization-code with **mandatory PKCE**; the authorization server accepts `S256` only.
+
+| Scope | Grants |
+| --- | --- |
+| `documents:read` | Read documents, pages, tags, signers, assignments, activity |
+| `documents:write` | Create, update, delete documents and manage their signers and assignments |
+| `templates:read` | Read templates, pages, roles, fields, tags |
+| `templates:write` | Create, update, delete templates |
+| `account:read` | Read the workspace profile, theme, logo |
+| `openid` | Identify the user (`sub` claim) and enable `/oauth/userinfo` |
+| `profile` | Include the user's name in the claims |
+| `email` | Include the user's email and verification status in the claims |
+| `offline_access` | Be issued a refresh token |
+
+**1. Redirect the user.** Store the verifier and state in the session first.
+
+```ruby
+verifier = Assinafy::OAuth.generate_code_verifier
+state    = Assinafy::OAuth.generate_state
+
+session[:assinafy_code_verifier] = verifier
+session[:assinafy_state]         = state
+
+redirect_to Assinafy::OAuth.authorization_url(
+  client_id:     ENV.fetch('ASSINAFY_CLIENT_ID'),
+  redirect_uri:  'https://app.example.com/oauth/callback',
+  code_verifier: verifier,
+  scope:         %w[documents:read documents:write offline_access],
+  state:         state
+)
+```
+
+The `code_challenge` is derived from the verifier; the verifier itself never appears in the URL.
+
+**2. Exchange the code.** Compare `state` before exchanging — that is the CSRF check.
+
+```ruby
+raise 'state mismatch' unless params[:state] == session.delete(:assinafy_state)
+
+tokens = Assinafy::Client.new.oauth.exchange_code(
+  code:          params.fetch(:code),
+  client_id:     ENV.fetch('ASSINAFY_CLIENT_ID'),
+  code_verifier: session.delete(:assinafy_code_verifier),
+  redirect_uri:  'https://app.example.com/oauth/callback'
+)
+# => { 'access_token' => ..., 'token_type' => 'Bearer', 'expires_in' => 3600,
+#      'refresh_token' => ..., 'scope' => 'documents:read documents:write' }
+```
+
+**3. Act as the user.**
+
+```ruby
+user_client = Assinafy::Client.new(
+  token:      tokens.fetch('access_token'),
+  account_id: ENV.fetch('ASSINAFY_ACCOUNT_ID')
+)
+
+user_client.documents.list
+user_client.oauth.userinfo  # => { 'sub' => ..., 'name' => ..., 'email' => ... }
+```
+
+**Refresh and revoke.**
+
+```ruby
+client.oauth.refresh(refresh_token: stored_refresh_token, client_id: client_id)
+
+client.oauth.revoke(
+  token: stored_refresh_token, client_id: client_id, token_type_hint: 'refresh_token'
+)
+```
+
+A refresh token exists only when `offline_access` was requested *and* consented. Revoking a refresh token also
+invalidates the access tokens issued from it. Every revoke outcome returns `200` — including an unknown or
+already-revoked token — so the endpoint cannot be used to probe whether a token exists.
+
+> The SDK does **not** refresh automatically. Persist `expires_in`, refresh before expiry, and treat
+> `invalid_grant` as a signal to restart the authorization flow.
+
+**Discovery**, instead of hardcoding endpoints:
+
+```ruby
+client.oauth.protected_resource_metadata['authorization_servers']
+# => ["https://auth.assinafy.com.br"]
+
+client.oauth.authorization_server_metadata['code_challenge_methods_supported']
+# => ["S256"]
+```
+
+`authorization_server_metadata` reaches a different host, so — like `/oauth/token` and `/oauth/revoke` — the SDK
+sends it with no workspace credentials attached.
+
+**Errors.** OAuth routes answer with the flat RFC 6749 object rather than this API's envelope, so the SDK raises
+`Assinafy::OAuthError` (a subclass of `Assinafy::ApiError`):
+
+```ruby
+rescue Assinafy::OAuthError => e
+  e.error             # => "invalid_grant"
+  e.error_description # => "The authorization code is invalid or has expired."
+  e.context[:www_authenticate] # on a 403, names the missing scope
 ```
 
 ### Accounts
@@ -232,6 +342,12 @@ client.signers.download_signature(signer_access_code: 'code', type: 'signature')
 ```
 
 ### Assignments
+
+Per-signer verification and notification values are published as
+`AssignmentResource::VERIFICATION_METHODS` (`Email`, `Whatsapp`, `DigitalCertificate`) and
+`::NOTIFICATION_METHODS` (`Email`, `Whatsapp`). `build_payload` validates both — and `step` — locally, because
+the API's enums are closed and it reports an unknown value as a `422` only after the request has been sent, and
+after any signers created for that assignment already exist.
 
 ```ruby
 # Virtual (no positioned fields)
@@ -377,6 +493,10 @@ documented no-data envelopes containing only `status`/`message`, it returns `nil
 versions that add `data` are passed through. Binary endpoints (`download`, `thumbnail`,
 `download_page`, `download_signature`) return raw bytes as an ASCII-8BIT `String`, and
 delete-style endpoints return `nil`.
+
+OAuth endpoints are the exception: `/oauth/token`, `/oauth/revoke`, `/oauth/userinfo`, and the `.well-known`
+metadata documents answer with flat RFC 6749 / OIDC / RFC 8615 objects rather than the envelope, and the SDK
+returns those bodies unchanged.
 
 Errors surface the envelope/framework error body through `Assinafy::ApiError`:
 
@@ -546,10 +666,18 @@ signing.assignments.sign(
 
 The SDK maps the documented snake_case item keys to the API's camelCase request keys.
 
-`DigitalCertificate` may be supplied as an assignment verification method. Provider documentation refers to
-`/signers/certificate/start` and `/signers/certificate/complete`, but their authentication and request/response
-schemas are not published in the API v1 machine contract, so the SDK does not expose those completion calls.
-Contact Assinafy before enabling a digital-certificate signing flow in production.
+`DigitalCertificate` is one of the three verification methods in `AssignmentResource::VERIFICATION_METHODS`,
+alongside the `Email` and `Whatsapp` one-time codes. It has the signer sign with their own ICP-Brasil certificate
+(A1 or A3) via the Web PKI browser extension, producing a qualified PAdES signature. It needs the Digital
+Certificate account feature, a CPF or CNPJ in the signer's `government_id`, and the signer alone in its signing
+step; it costs 2 credits per signer. `build_payload` validates the enum locally, so a typo fails before any
+signer is created.
+
+Requesting the method is fully supported. Completing the signature is not: the two-step handshake
+(`/signers/certificate/start`, `/signers/certificate/complete`) is absent from the API v1 machine contract — its
+authentication and request/response schemas are not published — so the SDK does not expose those completion
+calls rather than guess at their payloads. Contact Assinafy before enabling a digital-certificate signing flow.
+Once it completes, the `pades` artifact returns the qualified signature.
 
 ### 7. Inspect, tag, download, and verify
 
@@ -631,6 +759,9 @@ The SDK raises one of:
 
 - `Assinafy::ValidationError` — caller-side input invalid (missing IDs, bad email, etc.).
 - `Assinafy::ApiError` — the API returned a non-2xx status. Includes `status_code` and `response_data`.
+- `Assinafy::OAuthError` — an OAuth endpoint failed. Subclasses `ApiError`, and adds `error` and
+  `error_description` from the flat RFC 6749 body; on a `403`, `context[:www_authenticate]` names the missing
+  scope.
 - `Assinafy::NetworkError` — Faraday connection error or timeout.
 - `Assinafy::Error` — base class; other unexpected errors get wrapped here with the operation label.
 
@@ -639,7 +770,7 @@ All inherit a `#context` Hash with debugging metadata.
 ## Tests
 
 ```bash
-bundle exec rake spec               # 300+ RSpec examples, including a coverage matrix
+bundle exec rake spec               # 400+ RSpec examples, including a coverage matrix
 bundle exec rubocop                 # Linting
 bundle exec bundler-audit check     # Dependency CVEs
 ruby scripts/check_api_contract.rb --file path/to/openapi.json # validate a local contract document

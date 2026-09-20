@@ -593,11 +593,11 @@ module Assinafy
       end
 
       # Fetch the unauthenticated, public-facing metadata of a document. The
-      # OpenAPI declares the full Document schema, while the current sandbox
+      # OpenAPI declares the full Document schema, while the deployed API
       # returns the smaller payload shown below; the SDK passes either through.
       #
       # @param document_id [String]
-      # @return [Hash] a Document Hash, or the current sandbox's minimal metadata Hash
+      # @return [Hash] a Document Hash, or the deployed API's minimal metadata Hash
       # @see GET /public/documents/{document_id}
       # @example Fetch public-facing document info (no auth required)
       #   # Request: GET /public/documents/{document_id}
@@ -621,14 +621,14 @@ module Assinafy
 
       # Send a 6-digit access token for the document to a signer (public endpoint).
       # The current OpenAPI permits no body or an `{ email: }` body, while the
-      # deployed sandbox requires `{ recipient:, channel: }` when a recipient is supplied.
+      # deployed API requires `{ recipient:, channel: }` when a recipient is supplied.
       #
       # @param document_id [String]
       # @param recipient   [String, nil] deployed-API email address or WhatsApp phone number
       # @param channel     [String, nil] deployed-API `email` or `whatsapp` channel
       # @param email       [String, nil] email address for the current OpenAPI request shape
-      # @return [nil, Hash] `nil` for the OpenAPI's no-data envelope; the current
-      #   sandbox returns `{ 'document' => {..}, 'channel' => String, 'recipient' => String }`
+      # @return [nil, Hash] `nil` for the OpenAPI's no-data envelope; the deployed
+      #   API returns `{ 'document' => {..}, 'channel' => String, 'recipient' => String }`
       # @see PUT /public/documents/{document_id}/send-token
       # @example Ask the API to use the document's signer contact (no auth required)
       #   client.documents.send_token('document-id')
@@ -638,11 +638,11 @@ module Assinafy
       #   # Body: { "email": "signer@example.com" }
       #   client.documents.send_token('document-id', email: 'signer@example.com')
       #
-      # @example Use the current sandbox request shape
+      # @example Use the deployed-API request shape
       #   # Body: { "recipient": "signer@example.com", "channel": "email" }
       #   client.documents.send_token('document-id', recipient: 'signer@example.com', channel: 'email')
       #
-      #   # Current sandbox response (unwrapped data payload):
+      #   # Deployed-API response (unwrapped data payload):
       #   {
       #     'document' => {
       #       'resource' => 'document',
@@ -713,7 +713,7 @@ module Assinafy
       # all tags from the document.
       #
       # @param document_id [String]
-      # @param tags [Array<String>] tag IDs per OpenAPI; the deployed sandbox also accepts existing names
+      # @param tags [Array<String>] tag IDs per OpenAPI; the deployed API also accepts existing names
       # @param account_id_override [String, nil]
       # @return [Array<Hash>] the document's full tag set after replacement (empty Array when detaching all)
       # @see PUT /accounts/{account_id}/documents/{document_id}/tags
@@ -746,7 +746,7 @@ module Assinafy
       # Attach additional tags to a document without removing existing tags.
       #
       # @param document_id [String]
-      # @param tags [Array<String>] tag IDs per OpenAPI; the deployed sandbox also accepts existing names
+      # @param tags [Array<String>] tag IDs per OpenAPI; the deployed API also accepts existing names
       # @param account_id_override [String, nil]
       # @return [Array<Hash>] the document's full tag set after the append
       # @see POST /accounts/{account_id}/documents/{document_id}/tags

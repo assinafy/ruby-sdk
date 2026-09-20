@@ -168,8 +168,8 @@ module Assinafy
 
       # Fetch per-account document KPIs.
       #
-      # @note Documented in the API reference but not enabled on every
-      #   environment — the sandbox currently returns 404 for this route.
+      # @note Documented in the API reference, but gated on the account's plan:
+      #   this route answers 404 where the KPI feature is not enabled.
       # @param granularity [String, nil] `"monthly"` or `"daily"`
       # @param month       [String, nil] e.g. `"2026-06"`
       # @param account_id_override [String, nil]
@@ -229,15 +229,15 @@ module Assinafy
       # @param source [String, Hash] a path to an image, or a Hash with
       #   `:file_path` (path) **or** `:buffer` + `:file_name` (raw bytes).
       # @param account_id_override [String, nil]
-      # @return [nil, Hash] `nil` for the OpenAPI's no-data envelope; the current
-      #   sandbox returns `{ 'mime_type' =>, 'version' =>, 'updated_at' => }`
+      # @return [nil, Hash] `nil` for the OpenAPI's no-data envelope; the deployed
+      #   API returns `{ 'mime_type' =>, 'version' =>, 'updated_at' => }`
       # @see POST /accounts/{account_id}/logo
       # @example Upload a PNG logo
       #   # Request: POST /accounts/{account_id}/logo (multipart/form-data)
       #   # Body: file=<binary image/png>
       #   client.accounts.upload_logo('/path/to/logo.png')
       #
-      #   # Current sandbox response (unwrapped data payload):
+      #   # Deployed-API response (unwrapped data payload):
       #   {
       #     'mime_type' => 'image/png',
       #     'version' => 1784562814,

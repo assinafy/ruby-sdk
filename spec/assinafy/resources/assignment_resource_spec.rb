@@ -100,6 +100,69 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
       expect(body['signers']).to eq([{ 'id' => 'a', 'step' => 1 }])
     end
 
+    # Every verification method Assinafy supports, per the API enum:
+    # Email and WhatsApp OTP, plus ICP-Brasil A1/A3 certificate signing.
+    described_class::VERIFICATION_METHODS.each do |method|
+      it "passes the #{method} verification method through" do
+        body = described_class.build_payload(signers: [{ id: 'a', verification_method: method }])
+
+        expect(body['signers']).to eq([{ 'id' => 'a', 'verification_method' => method }])
+      end
+    end
+
+    it 'carries both notification channels' do
+      body = described_class.build_payload(
+        signers: [{ id: 'a', notification_methods: %w[Email Whatsapp] }]
+      )
+
+      expect(body['signers'])
+        .to eq([{ 'id' => 'a', 'notification_methods' => %w[Email Whatsapp] }])
+    end
+
+    it 'pairs certificate signing with a WhatsApp notification' do
+      body = described_class.build_payload(
+        signers: [{ id: 'a', verification_method: 'DigitalCertificate',
+                    notification_methods: ['Whatsapp'], step: 1 }]
+      )
+
+      expect(body['signers']).to eq(
+        [{ 'id' => 'a', 'verification_method' => 'DigitalCertificate',
+           'notification_methods' => ['Whatsapp'], 'step' => 1 }]
+      )
+    end
+
+    # The API's enums are closed; catching a typo locally avoids a 422 that
+    # arrives only after signers have already been created for the assignment.
+    it 'rejects an unknown verification method' do
+      expect { described_class.build_payload(signers: [{ id: 'a', verification_method: 'email' }]) }
+        .to raise_error(Assinafy::ValidationError, /Email, Whatsapp, DigitalCertificate/)
+    end
+
+    it 'rejects an unknown notification channel' do
+      expect { described_class.build_payload(signers: [{ id: 'a', notification_methods: ['SMS'] }]) }
+        .to raise_error(Assinafy::ValidationError, /Email, Whatsapp/)
+    end
+
+    it 'rejects notification methods that are not an Array' do
+      expect { described_class.build_payload(signers: [{ id: 'a', notification_methods: 'Email' }]) }
+        .to raise_error(Assinafy::ValidationError, /non-empty Array/)
+    end
+
+    it 'rejects an empty notification methods Array' do
+      expect { described_class.build_payload(signers: [{ id: 'a', notification_methods: [] }]) }
+        .to raise_error(Assinafy::ValidationError, /non-empty Array/)
+    end
+
+    it 'rejects a non-positive signing step' do
+      expect { described_class.build_payload(signers: [{ id: 'a', step: 0 }]) }
+        .to raise_error(Assinafy::ValidationError, /positive Integer/)
+    end
+
+    it 'rejects a non-Integer signing step' do
+      expect { described_class.build_payload(signers: [{ id: 'a', step: '1' }]) }
+        .to raise_error(Assinafy::ValidationError, /positive Integer/)
+    end
+
     it 'allows estimation payloads without signer ids when methods are supplied' do
       body = described_class.build_payload(
         { signers: [{ verification_method: 'Whatsapp' }, {}] },

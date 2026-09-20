@@ -3,9 +3,12 @@
 require_relative '../scripts/check_api_contract'
 
 RSpec.describe AssinafyApiContract do
+  # The coverage matrix stores paths relative to the `/v1` base URL, while the
+  # upstream contract spells them in full. `/.well-known/*` is the exception:
+  # RFC 8615 puts it at the host root, outside the version prefix.
   let(:normalize_operation) do
     lambda do |method, path|
-      versioned_path = path.start_with?('/v1/') ? path : "/v1#{path}"
+      versioned_path = path.start_with?('/v1/', '/.well-known/') ? path : "/v1#{path}"
       "#{method} #{versioned_path.gsub(/\{[^}]+\}/, '{}')}"
     end
   end

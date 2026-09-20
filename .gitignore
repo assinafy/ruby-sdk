@@ -10,4 +10,20 @@ coverage/
 pkg/
 vendor/bundle
 .bundle/
-.claude/settings.local.json
+
+# Agent tooling, playbooks, and audit notes: local working files, never committed
+# and never shipped in the gem.
+.claude/
+.codex/
+.cursor/
+.aider*
+AGENTS.md
+AGENT.md
+CLAUDE.md
+CODEX.md
+GEMINI.md
+.mcp.json
+AUDIT*.md
+audit/
+*-audit.md
+*_audit.md

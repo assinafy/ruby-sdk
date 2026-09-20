@@ -13,10 +13,20 @@ module Assinafy
   # @example Construct from a config Hash (e.g. parsed YAML/JSON)
   #   client = Assinafy::Client.from_config(api_key: '...', account_id: '...')
   #
+  # @example Act as a user through OAuth 2.1
+  #   tokens = Assinafy::Client.new.oauth.exchange_code(
+  #     code: params.fetch('code'), client_id: client_id,
+  #     code_verifier: verifier, redirect_uri: callback_url
+  #   )
+  #   client = Assinafy::Client.new(token: tokens.fetch('access_token'), account_id: '...')
+  #
+  # @see Assinafy::OAuth
   # @see https://api.assinafy.com.br/v1/docs
   class Client
     # @return [Resources::AuthResource]
     attr_reader :auth
+    # @return [Resources::OAuthResource]
+    attr_reader :oauth
     # @return [Resources::AccountResource]
     attr_reader :accounts
     # @return [Resources::UserResource]
@@ -41,8 +51,10 @@ module Assinafy
     attr_reader :webhook_verifier
 
     # @param api_key        [String, nil] sent as `X-Api-Key`
-    # @param token          [String, nil] legacy session token; sent as
-    #   `Authorization: Bearer ...` when no `api_key` is given
+    # @param token          [String, nil] bearer token; sent as
+    #   `Authorization: Bearer ...` when no `api_key` is given. Pass either a
+    #   login session token or an OAuth access token from
+    #   {Resources::OAuthResource#exchange_code} here.
     # @param account_id     [String, nil] default workspace ID for account-scoped
     #   resources; those methods document their supported per-call overrides
     # @param base_url       [String]
@@ -68,6 +80,7 @@ module Assinafy
       @logger     = config.logger || NullLogger.new
 
       @auth             = Resources::AuthResource.new(@connection, nil, @logger)
+      @oauth            = Resources::OAuthResource.new(@connection, nil, @logger)
       @accounts         = Resources::AccountResource.new(@connection, account_id, @logger)
       @users            = Resources::UserResource.new(@connection, nil, @logger)
       @documents        = Resources::DocumentResource.new(@connection, account_id, @logger)

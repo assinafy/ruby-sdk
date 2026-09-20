@@ -29,6 +29,16 @@ RSpec.describe Assinafy::Client, type: :coverage_matrix do
       ['POST',   '/auth/link-social-login',
        'AuthResource#link_social_login'],
 
+      # OAuth 2.1 / OpenID Connect
+      ['POST',   '/oauth/token',
+       'OAuthResource#token'],
+      ['POST',   '/oauth/revoke',
+       'OAuthResource#revoke'],
+      ['GET',    '/oauth/userinfo',
+       'OAuthResource#userinfo'],
+      ['GET',    '/.well-known/oauth-protected-resource',
+       'OAuthResource#protected_resource_metadata'],
+
       # Accounts
       ['GET',    '/accounts',
        'AccountResource#list'],
@@ -233,7 +243,11 @@ RSpec.describe Assinafy::Client, type: :coverage_matrix do
       'SignerResource'         => %i[find_by_email validate_create!],
       'SignerDocumentResource' => %i[document],
       'AuthResource'           => %i[api_key],
-      'WebhookResource'        => %i[update]
+      'WebhookResource'        => %i[update],
+      # exchange_code/refresh are the two grants of POST /oauth/token;
+      # authorization_server_metadata is served by the authorization server
+      # host, not by this API, so it has no operation in this contract.
+      'OAuthResource'          => %i[exchange_code refresh authorization_server_metadata]
     }
   end
 

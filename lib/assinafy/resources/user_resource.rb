@@ -19,11 +19,11 @@ module Assinafy
       ].freeze
 
       # Fetch the authenticated user's profile. The current OpenAPI response is
-      # an `AuthUser` directly, while some sandbox deployments return the login-like
+      # an `AuthUser` directly, while the deployed API returns the login-like
       # `{ 'user' => AuthUser, 'accounts' => [...] }` shape. The SDK does not reshape
       # either form; it returns the envelope's `data` value unchanged.
       #
-      # @return [Hash{String=>Object}] an AuthUser Hash, or the sandbox
+      # @return [Hash{String=>Object}] an AuthUser Hash, or the deployed API's
       #   `{ 'user' => {..}, 'accounts' => [{..}] }` form
       # @see GET /users/self
       # @example Fetch the current user
@@ -44,7 +44,7 @@ module Assinafy
       #     'to_be_deleted_at' => nil
       #   }
       #
-      #   # Shape returned by some sandbox deployments (also passed through unchanged):
+      #   # Shape returned by the deployed API (also passed through unchanged):
       #   {
       #     'user' => {
       #       'id' => 'user-id',
@@ -76,8 +76,8 @@ module Assinafy
 
       # Fetch the authenticated user's cross-account document KPIs.
       #
-      # @note Documented in the API reference but not enabled on every
-      #   environment — the sandbox currently returns 404 for this route.
+      # @note Documented in the API reference, but gated on the account's plan:
+      #   this route answers 404 where the KPI feature is not enabled.
       # @param granularity [String, nil] `"monthly"` or `"daily"`
       # @param month       [String, nil] e.g. `"2026-06"`
       # @return [Array<Hash>] one KPI entry per period
