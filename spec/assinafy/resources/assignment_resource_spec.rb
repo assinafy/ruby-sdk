@@ -67,9 +67,13 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
       )
     end
 
-    it 'omits an empty signers array from collect payloads' do
-      expect(described_class.build_payload(method: 'collect', entries: [{ page_id: 'p1', fields: [] }])).to eq(
-        'method' => 'collect', 'entries' => [{ 'page_id' => 'p1', 'fields' => [] }]
+    it 'sends signers alongside entries in collect payloads' do
+      body = described_class.build_payload(
+        { method: 'collect', signers: %w[s1], entries: [{ page_id: 'p1', fields: [] }] }
+      )
+      expect(body).to eq(
+        'method' => 'collect', 'signers' => [{ 'id' => 's1' }],
+        'entries' => [{ 'page_id' => 'p1', 'fields' => [] }]
       )
     end
 
@@ -195,9 +199,12 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
       expect { described_class.build_payload(signers: []) }.to raise_error(Assinafy::ValidationError)
     end
 
-    it 'allows collect payloads with entries and no top-level signers' do
-      body = described_class.build_payload(method: 'collect', entries: [{ page_id: 'page', fields: [] }])
-      expect(body['entries']).to eq([{ 'page_id' => 'page', 'fields' => [] }])
+    # The API refuses a signer-less body in either mode:
+    # 400 "Pelo menos um signatários precisa ser informado."
+    it 'raises ValidationError on collect payloads without signers' do
+      expect do
+        described_class.build_payload(method: 'collect', entries: [{ page_id: 'page', fields: [] }])
+      end.to raise_error(Assinafy::ValidationError, /At least one signer/)
     end
 
     it 'raises ValidationError on invalid signer reference (empty hash without allow flag)' do

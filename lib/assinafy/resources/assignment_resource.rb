@@ -105,7 +105,7 @@ module Assinafy
           validate_optional_fields!(p)
 
           result = { method: method }
-          result[:signers] = signers.map { |ref| normalise_signer_ref(ref, options) } unless signers.empty?
+          result[:signers] = signers.map { |ref| normalise_signer_ref(ref, options) }
           OPTIONAL_FIELDS.each { |key| result[key] = p[key] if p[key] }
           result[:entries] = entries if entries
           Utils.body_params(result)
@@ -118,7 +118,11 @@ module Assinafy
             raise ValidationError.new("Assignment method must be one of: #{METHODS.join(', ')}")
           end
 
-          if method == 'virtual' && signers.empty?
+          # `signers` is required for both methods: creation needs to know who signs, and the
+          # estimate is priced per signer. The published contract marks it required only for
+          # `virtual`, but the API answers a signer-less body with
+          # 400 "Pelo menos um signatários precisa ser informado."
+          if signers.empty?
             raise ValidationError.new(
               'At least one signer is required',
               { signers: payload[:signers] || payload[:signer_ids] || payload[:signerIds] }

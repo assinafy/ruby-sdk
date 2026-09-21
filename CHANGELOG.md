@@ -2,6 +2,15 @@
 
 All notable changes to the `assinafy` Ruby gem are documented here.
 
+## 1.7.0
+
+- Require at least one signer on every assignment payload, not just `virtual` ones. The published
+  contract marks `signers` as required only for `virtual`, but the API prices per signer in both
+  modes and answers a signer-less body with
+  `400 "Pelo menos um signatários precisa ser informado."` `build_payload` also dropped the
+  `signers` key entirely when the list was empty, so a `collect` estimate could never be priced.
+  Both `create` and `estimate_cost` now raise `ValidationError` locally instead of failing upstream.
+
 ## 1.6.0
 
 ### Added
