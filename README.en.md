@@ -147,6 +147,7 @@ The flow is authorization-code with **mandatory PKCE**; the authorization server
 | `templates:read` | Read templates, pages, roles, fields, tags |
 | `templates:write` | Create, update, delete templates |
 | `account:read` | Read the workspace profile, theme, logo |
+| `webhooks:write` | Configure and deactivate the workspace webhook subscription |
 | `openid` | Identify the user (`sub` claim) and enable `/oauth/userinfo` |
 | `profile` | Include the user's name in the claims |
 | `email` | Include the user's email and verification status in the claims |
@@ -801,10 +802,6 @@ bundle exec rspec spec/integration
 ```
 
 > These tests create and clean up real resources and, for the assignment flow, send real signature-request emails to the addresses in `ASSINAFY_TEST_EMAIL` / `ASSINAFY_TEST_EMAIL2`.
-
-GitHub Actions provides the manual **Live Sandbox** workflow. Select a protected environment containing
-`ASSINAFY_API_KEY`, `ASSINAFY_ACCOUNT_ID`, `ASSINAFY_TEST_EMAIL`, and `ASSINAFY_TEST_EMAIL2`; environment
-branch/tag rules and approvals are applied before GitHub exposes those secrets to the job.
 
 ## Contributing
 

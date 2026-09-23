@@ -395,6 +395,7 @@ Fluxo *authorization code* com **PKCE obrigatório** (o servidor aceita apenas `
 | `templates:read` | ler templates, páginas, papéis, campos e tags |
 | `templates:write` | criar, alterar e excluir templates |
 | `account:read` | ler perfil, tema e logo da workspace |
+| `webhooks:write` | configurar e desativar a assinatura de webhooks da workspace |
 | `openid` | identificar o usuário (claim `sub`) e habilitar `/oauth/userinfo` |
 | `profile` | incluir o nome do usuário nas claims |
 | `email` | incluir o e-mail e seu status de verificação nas claims |

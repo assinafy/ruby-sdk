@@ -2,6 +2,10 @@
 
 All notable changes to the `assinafy` Ruby gem are documented here.
 
+## 1.8.0
+
+- The OAuth scope catalog includes `webhooks:write` for configuring and deactivating a workspace webhook subscription.
+
 ## 1.7.0
 
 - Require at least one signer on every assignment payload, not just `virtual` ones. The published

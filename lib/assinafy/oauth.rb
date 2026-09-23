@@ -62,6 +62,7 @@ module Assinafy
       templates:read
       templates:write
       account:read
+      webhooks:write
       openid
       profile
       email

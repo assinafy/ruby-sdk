@@ -122,7 +122,7 @@ RSpec.describe Assinafy::OAuth do
         client_id:     'client-id',
         redirect_uri:  'https://app.example.com/oauth/callback',
         code_verifier: verifier,
-        scope:         %w[documents:read offline_access],
+        scope:         %w[documents:read webhooks:write offline_access],
         state:         'state-token'
       )
     end
@@ -144,7 +144,7 @@ RSpec.describe Assinafy::OAuth do
     end
 
     it 'space-delimits the requested scopes' do
-      expect(params['scope']).to eq('documents:read offline_access')
+      expect(params['scope']).to eq('documents:read webhooks:write offline_access')
     end
 
     it 'derives the S256 challenge from the verifier' do
@@ -263,7 +263,7 @@ RSpec.describe Assinafy::OAuth do
     it 'lists the scopes the authorization server advertises' do
       expect(described_class::SCOPES).to eq(
         %w[documents:read documents:write templates:read templates:write
-           account:read openid profile email offline_access]
+           account:read webhooks:write openid profile email offline_access]
       )
     end
   end
