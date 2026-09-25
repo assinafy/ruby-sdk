@@ -3,6 +3,7 @@
 require 'digest'
 require 'json'
 require 'net/http'
+require 'openssl'
 require 'uri'
 
 require_relative '../lib/assinafy/version'
@@ -52,7 +53,8 @@ module AssinafyApiContract
   end
 
   def fetch_remote
-    Net::HTTP.start(SOURCE.host, SOURCE.port, use_ssl: true, open_timeout: 10, read_timeout: 30) do |http|
+    Net::HTTP.start(SOURCE.host, SOURCE.port, use_ssl: true, min_version: OpenSSL::SSL::TLS1_2_VERSION,
+                                              open_timeout: 10, read_timeout: 30) do |http|
       request = Net::HTTP::Get.new(SOURCE)
       request['Accept'] = 'application/json'
       request['User-Agent'] = Assinafy::USER_AGENT

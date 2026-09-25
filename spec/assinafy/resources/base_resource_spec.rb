@@ -93,6 +93,42 @@ RSpec.describe Assinafy::Resources::BaseResource do
     end
   end
 
+  describe 'error mapping' do
+    # The challenge is the only thing that tells "reconnect with this scope
+    # added" apart from a 403 for another workspace or the user's role.
+    it 'keeps the WWW-Authenticate challenge naming a missing OAuth scope' do
+      challenge = 'Bearer error="insufficient_scope", scope="documents:write"'
+      stub_request(:get, "#{base_url}/items").to_return(
+        json_response({ 'status' => 403, 'message' => 'Forbidden' },
+                      status: 403, headers: { 'WWW-Authenticate' => challenge })
+      )
+
+      expect { resource.list }.to raise_error(
+        an_instance_of(Assinafy::ApiError).and(having_attributes(context: hash_including(www_authenticate: challenge)))
+      )
+    end
+
+    it 'keeps the challenge when the error status is embedded in a 2xx envelope' do
+      challenge = 'Bearer error="insufficient_scope", scope="documents:write"'
+      stub_request(:get, "#{base_url}/items").to_return(
+        json_response({ 'status' => 403, 'message' => 'Forbidden' }, headers: { 'WWW-Authenticate' => challenge })
+      )
+
+      expect { resource.list }.to raise_error(
+        an_instance_of(Assinafy::ApiError).and(
+          having_attributes(status_code: 403, context: hash_including(www_authenticate: challenge))
+        )
+      )
+    end
+
+    # The API refuses TLS 1.0/1.1 during the handshake, before any HTTP status.
+    it 'reports a TLS handshake failure as a NetworkError, not an API error' do
+      stub_request(:get, "#{base_url}/items").to_raise(OpenSSL::SSL::SSLError.new('unsupported protocol'))
+
+      expect { resource.list }.to raise_error(Assinafy::NetworkError, /unsupported protocol/)
+    end
+  end
+
   describe 'request authentication' do
     it 'sets the exact versioned SDK User-Agent on directly constructed resources' do
       connection.headers['User-Agent'] = 'custom-agent'

@@ -21,6 +21,16 @@ RSpec.describe AssinafyApiContract do
 
       expect(described_class.fetch_remote).to eq('{}')
     end
+
+    it 'requires TLS 1.2 or newer' do
+      stub_request(:get, described_class::SOURCE.to_s).to_return(status: 200, body: '{}')
+      allow(Net::HTTP).to receive(:start).and_call_original
+
+      described_class.fetch_remote
+
+      expect(Net::HTTP).to have_received(:start)
+        .with(anything, anything, hash_including(min_version: OpenSSL::SSL::TLS1_2_VERSION))
+    end
   end
 
   describe 'the SDK route matrix' do

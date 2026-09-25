@@ -411,8 +411,9 @@ credenciais ou superfícies administrativas — independentemente do escopo.
 verificador = Assinafy::OAuth.generate_code_verifier
 state       = Assinafy::OAuth.generate_state
 
-session[:assinafy_code_verifier] = verificador   # guarde os dois na sessão
+session[:assinafy_code_verifier] = verificador   # guarde os três na sessão
 session[:assinafy_state]         = state
+session[:assinafy_issuer]        = Assinafy::OAuth::AUTHORIZATION_SERVER # emissor do servidor usado nesta tentativa
 
 redirect_to Assinafy::OAuth.authorization_url(
   client_id:     ENV.fetch('ASSINAFY_CLIENT_ID'),
@@ -424,11 +425,18 @@ redirect_to Assinafy::OAuth.authorization_url(
 ```
 
 O `code_challenge` é derivado do verificador (`S256`) — o verificador em si nunca vai para a URL.
+`Assinafy::OAuth::AUTHORIZATION_SERVER` é o emissor de produção. O sandbox tem o seu: passe
+`authorization_endpoint: 'https://auth-sandbox.assinafy.com.br/oauth/authorize'` e guarde
+`https://auth-sandbox.assinafy.com.br`.
 
 ### Passo 2 — trocar o código por tokens
 
 ```ruby
-raise 'state divergente' unless params[:state] == session.delete(:assinafy_state)
+unless params[:state] == session.delete(:assinafy_state) &&
+       params[:iss] == session.delete(:assinafy_issuer)
+  raise 'resposta de autorização inválida'
+end
+raise "autorização não concedida: #{params[:error]}" if params[:error] # access_denied, invalid_scope, ...
 
 tokens = Assinafy::Client.new.oauth.exchange_code(
   code:          params.fetch(:code),
@@ -443,41 +451,74 @@ tokens['refresh_token']  # => presente apenas com offline_access
 tokens['scope']          # => "documents:read documents:write"
 ```
 
-Compare o `state` **antes** de trocar o código — é a proteção contra CSRF.
+Confira `state` e `iss` contra os valores guardados nesta tentativa **antes de qualquer outra
+coisa**, inclusive num retorno com `error=` — é a proteção contra CSRF e contra respostas que não
+são suas. O código vale uma vez e expira 60
+segundos depois da aprovação: troque-o na hora, sem repetir.
 
 ### Passo 3 — agir como o usuário
 
 ```ruby
-usuario = Assinafy::Client.new(
-  token:      tokens.fetch('access_token'),
-  account_id: ENV.fetch('ASSINAFY_ACCOUNT_ID')
-)
+access_token = tokens.fetch('access_token')
 
+# O token só vale na workspace que o usuário escolheu; guarde o id junto dos tokens.
+workspace_id = Assinafy::Client.new(token: access_token).accounts.list[:data].first.fetch('id')
+
+usuario = Assinafy::Client.new(token: access_token, account_id: workspace_id)
 usuario.documents.list
 usuario.oauth.userinfo  # => { 'sub' => ..., 'name' => ..., 'email' => ... }
 ```
 
 ### Renovar e revogar
 
+`conexao` abaixo é o registro que você guarda para o usuário: tokens, validade e id da workspace.
+
 ```ruby
-novos = client.oauth.refresh(
-  refresh_token: refresh_token_guardado,
+novos = Assinafy::Client.new.oauth.refresh(
+  refresh_token: conexao.refresh_token,
   client_id:     ENV.fetch('ASSINAFY_CLIENT_ID')
 )
 
-client.oauth.revoke(
-  token:           refresh_token_guardado,
+# O refresh token enviado foi aposentado: guarde os tokens novos antes de qualquer outra coisa.
+conexao.update!(
+  refresh_token: novos.fetch('refresh_token'),
+  access_token:  novos.fetch('access_token'),
+  expires_at:    Time.now + novos.fetch('expires_in')
+)
+usuario = Assinafy::Client.new(token: conexao.access_token, account_id: conexao.workspace_id)
+```
+
+Quando o usuário desconectar, revogue o refresh token guardado **agora** — o mais recente — e só
+depois apague os tokens:
+
+```ruby
+Assinafy::Client.new.oauth.revoke(
+  token:           conexao.reload.refresh_token,
   client_id:       ENV.fetch('ASSINAFY_CLIENT_ID'),
   token_type_hint: 'refresh_token'
 )
+conexao.destroy!
 ```
 
 Sem `offline_access` não há refresh token: quando o access token expirar, mande o usuário pelo
 fluxo de autorização de novo. Revogar um refresh token invalida também os access tokens emitidos
-a partir dele.
+a partir dele. A revogação responde `200` inclusive para um token já aposentado, então revogar uma
+cópia antiga parece dar certo enquanto a conexão continua ativa.
 
-> O SDK **não renova o token automaticamente**. Guarde `expires_in`, renove antes de expirar, e
-> trate `invalid_grant` reiniciando o fluxo de autorização.
+> O SDK **não renova o token automaticamente**. Guarde `expires_in` e renove antes de expirar.
+> Cada renovação devolve um refresh token **novo**, válido por mais 30 dias, e aposenta o
+> anterior: a conexão só expira se passar 30 dias sem renovar. Reutilizar um refresh token
+> aposentado encerra a conexão inteira, então guarde os tokens novos antes de usá-los e faça uma
+> renovação por vez por conexão. `refresh` levanta `Assinafy::Error` em vez de devolver um
+> sucesso sem refresh token novo; trate como `invalid_grant`.
+>
+> O SDK envia cada pedido de token uma única vez. Se a renovação falhar sem resposta clara —
+> timeout, conexão interrompida, `5xx` —, o servidor pode ter trocado o token sem que a resposta
+> chegasse. Releia o refresh token guardado: se ainda for o que você enviou, **nunca o reenvie**;
+> peça ao usuário para conectar de novo. Siga em frente só se outro processo já tiver guardado um
+> token diferente. Só é seguro repetir uma falha que comprovadamente aconteceu antes do envio:
+> DNS, conexão recusada, handshake TLS. Num `401` da API, renove uma vez; se falhar, ou em
+> `invalid_grant`, peça ao usuário para conectar de novo.
 
 ### Descoberta
 
@@ -507,7 +548,10 @@ rescue Assinafy::OAuthError => e
 end
 ```
 
-Num `403`, `e.context[:www_authenticate]` traz o desafio que **nomeia o escopo faltante**.
+Num `403` de qualquer recurso, `e.context[:www_authenticate]` traz o desafio que **nomeia o escopo
+faltante**: peça ao usuário para conectar de novo incluindo esse escopo, sem repetir a chamada. Um
+`403` sem esse desafio indica outra workspace, o papel do usuário ou uma área que tokens OAuth não
+alcançam.
 
 ---
 
@@ -786,8 +830,9 @@ cadeia de certificação.
 | Sandbox | `https://sandbox.assinafy.com.br/v1` |
 
 O sandbox é gratuito e espelha a produção 1 para 1 — mesmas rotas, mesmos contratos, incluindo
-OAuth 2.1 e certificado digital. Troque apenas a `base_url` para testar a integração de ponta a
-ponta antes de ir para produção.
+OAuth 2.1 e certificado digital. Troque apenas a `base_url` — e, no OAuth, o servidor de
+autorização (`https://auth-sandbox.assinafy.com.br`) — para testar a integração de ponta a ponta
+antes de ir para produção.
 
 ---
 

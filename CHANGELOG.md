@@ -2,6 +2,25 @@
 
 All notable changes to the `assinafy` Ruby gem are documented here.
 
+## 1.9.0
+
+- `OAuthResource#refresh`, and `#token` with the `refresh_token` grant, raise `Assinafy::Error` instead of
+  returning a success whose `refresh_token` is missing, blank, or the one sent. The token sent may already be
+  retired, so handle the error like `invalid_grant`.
+- `OAuthResource` posts `/oauth/token` and `/oauth/revoke` bodies as `application/x-www-form-urlencoded`, as
+  RFC 6749 and RFC 7009 define them. The API accepts this and JSON alike; no caller change is needed.
+- Every `ApiError`, not only `OAuthError`, carries the `WWW-Authenticate` challenge in
+  `context[:www_authenticate]`, including one raised for an error status inside a `2xx` envelope, so a `403` for
+  a missing OAuth scope can be told apart from one for another workspace or role.
+- `DocumentResource#verify` documents the nullable `agreement_code` field, the agreement code printed on the
+  document certificate. `spec/fixtures/api_contract.json` tracks the current contract.
+- `scripts/check_api_contract.rb` requires TLS 1.2 or newer.
+- The OAuth guides cover refresh-token rotation (every refresh returns a new refresh token valid for 30 days and
+  retires the old one): storing the new tokens and rebuilding the client, never resending a refresh token after
+  an ambiguous failure, and revoking the refresh token currently stored on disconnect. They also cover checking
+  `state` and `iss` against the values stored for each authorization attempt (the sandbox has its own issuer)
+  and finding the connected workspace through `GET /accounts`.
+
 ## 1.8.1
 
 - The SDK's own HTTPS client now requires TLS 1.2 or newer; TLS 1.0 and 1.1 are refused. Caller-supplied clients are unchanged.

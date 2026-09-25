@@ -15,11 +15,13 @@ module Assinafy
   # helpers exist so an integration never hand-rolls the S256 transform.
   #
   # @example Full authorization-code flow with PKCE
-  #   # 1. Before redirecting, mint and store a verifier for this user session.
+  #   # 1. Before redirecting, mint and store a verifier and state for this
+  #   #    attempt, with the issuer of the authorization server it uses.
   #   verifier = Assinafy::OAuth.generate_code_verifier
   #   state    = Assinafy::OAuth.generate_state
   #   session[:assinafy_code_verifier] = verifier
   #   session[:assinafy_state]         = state
+  #   session[:assinafy_issuer]        = Assinafy::OAuth::AUTHORIZATION_SERVER
   #
   #   # 2. Send the user to the authorization server.
   #   redirect_to Assinafy::OAuth.authorization_url(
@@ -34,13 +36,17 @@ module Assinafy
   #   #     &scope=documents%3Aread+documents%3Awrite+offline_access&state=...
   #   #     &code_challenge=...&code_challenge_method=S256"
   #
-  #   # 3. On the callback, compare `state`, then exchange the code
-  #   #    (see Resources::OAuthResource#exchange_code).
+  #   # 3. On the callback, before anything else (an `error=` return
+  #   #    included), check `state` and `iss` against the values stored for
+  #   #    this attempt; stop if either differs. Then exchange the code (see
+  #   #    Resources::OAuthResource#exchange_code).
   #
   # @see https://api.assinafy.com.br/v1/docs
   module OAuth
-    # Authorization server that owns the browser-facing flow. Published by
-    # `GET /.well-known/oauth-protected-resource` as `authorization_servers[0]`.
+    # Production authorization server, which owns the browser-facing flow.
+    # Published by `GET /.well-known/oauth-protected-resource` as
+    # `authorization_servers[0]`, and the `iss` its callbacks carry. The
+    # sandbox publishes its own, `https://auth-sandbox.assinafy.com.br`.
     AUTHORIZATION_SERVER = 'https://auth.assinafy.com.br'
 
     # RFC 8414 discovery document for {AUTHORIZATION_SERVER}.
@@ -151,7 +157,8 @@ module Assinafy
       # @param resource       [String, nil] RFC 8707 resource indicator; when sent
       #   here it must also be sent to the token endpoint, and must be the
       #   `resource` published by `/.well-known/oauth-protected-resource`
-      # @param authorization_endpoint [String] override for a non-default server
+      # @param authorization_endpoint [String] override for a non-default
+      #   server; store that server's issuer for the callback's `iss` check
       # @param extra_params   [Hash] additional query parameters, merged last
       # @return [String] the absolute URL to redirect to
       # @raise [ValidationError] on a missing client_id/redirect_uri, an invalid

@@ -241,6 +241,10 @@ module Assinafy
     # Expose the underlying Faraday connection (for advanced use cases,
     # such as adding middleware or inspecting headers in tests).
     #
+    # OAuth token requests share this connection: never add middleware that
+    # retries `POST /oauth/token`. A retried refresh resends a refresh token the
+    # first attempt may already have retired, which ends the user's connection.
+    #
     # @return [Faraday::Connection]
     #
     # @example Inspect the auth header the SDK sends

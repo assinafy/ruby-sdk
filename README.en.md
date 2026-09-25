@@ -154,7 +154,7 @@ The flow is authorization-code with **mandatory PKCE**; the authorization server
 | `email` | Include the user's email and verification status in the claims |
 | `offline_access` | Be issued a refresh token |
 
-**1. Redirect the user.** Store the verifier and state in the session first.
+**1. Redirect the user.** Store the verifier, the state, and the expected issuer in the session first.
 
 ```ruby
 verifier = Assinafy::OAuth.generate_code_verifier
@@ -162,6 +162,7 @@ state    = Assinafy::OAuth.generate_state
 
 session[:assinafy_code_verifier] = verifier
 session[:assinafy_state]         = state
+session[:assinafy_issuer]        = Assinafy::OAuth::AUTHORIZATION_SERVER # issuer of the server this attempt uses
 
 redirect_to Assinafy::OAuth.authorization_url(
   client_id:     ENV.fetch('ASSINAFY_CLIENT_ID'),
@@ -173,11 +174,20 @@ redirect_to Assinafy::OAuth.authorization_url(
 ```
 
 The `code_challenge` is derived from the verifier; the verifier itself never appears in the URL.
+`Assinafy::OAuth::AUTHORIZATION_SERVER` is the production issuer. The sandbox has its own: pass
+`authorization_endpoint: 'https://auth-sandbox.assinafy.com.br/oauth/authorize'` and store
+`https://auth-sandbox.assinafy.com.br` instead.
 
-**2. Exchange the code.** Compare `state` before exchanging — that is the CSRF check.
+**2. Exchange the code.** Check `state` and `iss` against the values stored for this attempt before anything
+else, including on an `error=` return — that is the CSRF check, and it rejects responses that are not yours. The
+code is single-use and expires 60 seconds after approval: exchange it at once, and never retry.
 
 ```ruby
-raise 'state mismatch' unless params[:state] == session.delete(:assinafy_state)
+unless params[:state] == session.delete(:assinafy_state) &&
+       params[:iss] == session.delete(:assinafy_issuer)
+  raise 'authorization response is not ours'
+end
+raise "authorization not granted: #{params[:error]}" if params[:error] # access_denied, invalid_scope, ...
 
 tokens = Assinafy::Client.new.oauth.exchange_code(
   code:          params.fetch(:code),
@@ -189,34 +199,63 @@ tokens = Assinafy::Client.new.oauth.exchange_code(
 #      'refresh_token' => ..., 'scope' => 'documents:read documents:write' }
 ```
 
-**3. Act as the user.**
+**3. Act as the user.** The token works only in the workspace the user picked; store its id next to the tokens.
 
 ```ruby
-user_client = Assinafy::Client.new(
-  token:      tokens.fetch('access_token'),
-  account_id: ENV.fetch('ASSINAFY_ACCOUNT_ID')
-)
+access_token = tokens.fetch('access_token')
+workspace_id = Assinafy::Client.new(token: access_token).accounts.list[:data].first.fetch('id')
 
+user_client = Assinafy::Client.new(token: access_token, account_id: workspace_id)
 user_client.documents.list
 user_client.oauth.userinfo  # => { 'sub' => ..., 'name' => ..., 'email' => ... }
 ```
 
-**Refresh and revoke.**
+**Refresh and revoke.** `connection` below is your stored record for this user: tokens, expiry, workspace id.
 
 ```ruby
-client.oauth.refresh(refresh_token: stored_refresh_token, client_id: client_id)
-
-client.oauth.revoke(
-  token: stored_refresh_token, client_id: client_id, token_type_hint: 'refresh_token'
+tokens = Assinafy::Client.new.oauth.refresh(
+  refresh_token: connection.refresh_token,
+  client_id:     ENV.fetch('ASSINAFY_CLIENT_ID')
 )
+
+# The refresh token just sent is retired: store the new tokens before anything else.
+connection.update!(
+  refresh_token: tokens.fetch('refresh_token'),
+  access_token:  tokens.fetch('access_token'),
+  expires_at:    Time.now + tokens.fetch('expires_in')
+)
+user_client = Assinafy::Client.new(token: connection.access_token, account_id: connection.workspace_id)
+```
+
+When a user disconnects, revoke the refresh token in storage **now** — the latest one — then delete the stored
+tokens:
+
+```ruby
+Assinafy::Client.new.oauth.revoke(
+  token:           connection.reload.refresh_token,
+  client_id:       ENV.fetch('ASSINAFY_CLIENT_ID'),
+  token_type_hint: 'refresh_token'
+)
+connection.destroy!
 ```
 
 A refresh token exists only when `offline_access` was requested *and* consented. Revoking a refresh token also
-invalidates the access tokens issued from it. Every revoke outcome returns `200` — including an unknown or
-already-revoked token — so the endpoint cannot be used to probe whether a token exists.
+invalidates the access tokens issued from it. Every revoke outcome returns `200` — including an unknown,
+already-revoked, or rotated token — so the endpoint cannot be used to probe whether a token exists, and revoking
+a stale copy can look successful while the connection stays active.
 
-> The SDK does **not** refresh automatically. Persist `expires_in`, refresh before expiry, and treat
-> `invalid_grant` as a signal to restart the authorization flow.
+> The SDK does **not** refresh automatically. Persist `expires_in` and refresh before expiry. Every refresh
+> returns a **new** refresh token, valid for another 30 days, and retires the old one, so a connection only
+> expires after 30 days without a refresh. Reusing a retired refresh token ends the whole connection: store the
+> new tokens before using them, and refresh one at a time per connection. `refresh` raises `Assinafy::Error`
+> rather than return a success without a new refresh token; handle it like `invalid_grant`.
+>
+> The SDK sends each token request once. If a refresh fails without a clear answer — a timeout, a reset
+> connection, a `5xx` — the server may have rotated the token without the response reaching you. Re-read the
+> stored refresh token: if it is still the one you sent, **never send it again**; ask the user to connect again.
+> Carry on only if another worker has since stored a different one. Only a failure that provably happened before
+> the request was sent — DNS resolution, a refused connection, a failed TLS handshake — is safe to retry. On an
+> API `401`, refresh once; if that fails, or on `invalid_grant`, ask the user to connect again.
 
 **Discovery**, instead of hardcoding endpoints:
 
@@ -240,6 +279,10 @@ rescue Assinafy::OAuthError => e
   e.error_description # => "The authorization code is invalid or has expired."
   e.context[:www_authenticate] # on a 403, names the missing scope
 ```
+
+Any resource, not only these routes, puts that challenge in `context[:www_authenticate]`. Treat it as a prompt to
+reconnect with that scope added, not as a retry; a `403` without it means another workspace, the user's role, or
+an area OAuth tokens never reach.
 
 ### Accounts
 
@@ -760,11 +803,11 @@ result[:signer_ids] # => ['<sid-1>', '<sid-2>']
 The SDK raises one of:
 
 - `Assinafy::ValidationError` — caller-side input invalid (missing IDs, bad email, etc.).
-- `Assinafy::ApiError` — the API returned a non-2xx status. Includes `status_code` and `response_data`.
+- `Assinafy::ApiError` — the API returned a non-2xx status. Includes `status_code` and `response_data`; on a
+  `403`, `context[:www_authenticate]` names the scope an OAuth token is missing.
 - `Assinafy::OAuthError` — an OAuth endpoint failed. Subclasses `ApiError`, and adds `error` and
-  `error_description` from the flat RFC 6749 body; on a `403`, `context[:www_authenticate]` names the missing
-  scope.
-- `Assinafy::NetworkError` — Faraday connection error or timeout.
+  `error_description` from the flat RFC 6749 body.
+- `Assinafy::NetworkError` — Faraday connection error, timeout, or TLS failure.
 - `Assinafy::Error` — base class; other unexpected errors get wrapped here with the operation label.
 
 All inherit a `#context` Hash with debugging metadata.

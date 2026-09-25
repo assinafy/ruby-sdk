@@ -18,15 +18,19 @@ module Assinafy
     #    `{status, data, message}`. These methods return the body as-is.
     # 2. **No workspace credentials.** `/oauth/token` and `/oauth/revoke` are
     #    unauthenticated routes that identify the client through `client_id` in
-    #    the body, so the SDK strips `X-Api-Key`/`Authorization` from them.
+    #    the body, so the SDK strips `X-Api-Key`/`Authorization` from them and
+    #    posts that body form-encoded, as RFC 6749 and RFC 7009 define it.
     # 3. **OAuth-shaped errors.** A failure raises {Assinafy::OAuthError}, which
     #    carries `error` and `error_description` separately.
     #
     # An OAuth access token never reaches billing, account lifecycle, credential
     # management or admin surfaces, whatever scopes it holds. A request missing
     # a scope answers `403` with `WWW-Authenticate: Bearer
-    # error="insufficient_scope"` naming it; the SDK puts that header in
-    # {Assinafy::Error#context} under `:www_authenticate`.
+    # error="insufficient_scope"` naming it; on every resource, the SDK puts
+    # that header in {Assinafy::Error#context} under `:www_authenticate`. Treat
+    # it as a prompt to reconnect with that scope added, not as a retry; a `403`
+    # without it means another workspace, the user's role, or an area OAuth
+    # tokens never reach.
     #
     # @example End-to-end: exchange a callback code, then act as the user
     #   tokens = Assinafy::Client.new.oauth.exchange_code(
@@ -35,11 +39,13 @@ module Assinafy
     #     code_verifier: session.delete(:assinafy_code_verifier),
     #     redirect_uri:  'https://app.example.com/oauth/callback'
     #   )
+    #   access_token = tokens.fetch('access_token')
     #
-    #   user_client = Assinafy::Client.new(
-    #     token:      tokens.fetch('access_token'),
-    #     account_id: ENV.fetch('ASSINAFY_ACCOUNT_ID')
-    #   )
+    #   # The token works only in the workspace the user picked; store its id
+    #   # next to the tokens.
+    #   workspace_id = Assinafy::Client.new(token: access_token).accounts.list[:data].first.fetch('id')
+    #
+    #   user_client = Assinafy::Client.new(token: access_token, account_id: workspace_id)
     #   user_client.documents.list
     #
     # @see Assinafy::OAuth
@@ -59,11 +65,14 @@ module Assinafy
       # Exchange an authorization code for tokens (RFC 6749 §4.1.3 + PKCE).
       #
       # Call this on your OAuth callback, after checking that the returned
-      # `state` matches the one you stored. `code_verifier` must be the exact
-      # value whose challenge was sent to
-      # {Assinafy::OAuth.authorization_url} — the SDK validates its grammar
-      # locally, because the server reports a malformed verifier as
-      # `invalid_grant`, indistinguishable from an expired code.
+      # `state` and `iss` match the values you stored for this authorization
+      # attempt (`iss` is the issuer of the authorization server it used,
+      # {Assinafy::OAuth::AUTHORIZATION_SERVER} in production). The code is
+      # single-use and expires 60 seconds after approval: exchange it at once,
+      # and never retry. `code_verifier` must be the exact value whose
+      # challenge was sent to {Assinafy::OAuth.authorization_url} — the SDK
+      # validates its grammar locally, because the server reports a malformed
+      # verifier as `invalid_grant`, indistinguishable from an expired code.
       #
       # @param code          [String] the `code` query parameter from the callback
       # @param client_id     [String] the registered client identifier
@@ -89,14 +98,13 @@ module Assinafy
       #     redirect_uri:  'https://app.example.com/oauth/callback'
       #   )
       #
-      #   # Request body sent by the SDK (no X-Api-Key/Authorization header):
-      #   #   {
-      #   #     "grant_type":    "authorization_code",
-      #   #     "client_id":     "client-id",
-      #   #     "code":          "authorization-code-from-callback",
-      #   #     "code_verifier": "<43-128 unreserved characters>",
-      #   #     "redirect_uri":  "https://app.example.com/oauth/callback"
-      #   #   }
+      #   # Request body sent by the SDK, application/x-www-form-urlencoded
+      #   # (no X-Api-Key/Authorization header):
+      #   #   grant_type=authorization_code
+      #   #   client_id=client-id
+      #   #   code=authorization-code-from-callback
+      #   #   code_verifier=<43-128 unreserved characters>
+      #   #   redirect_uri=https://app.example.com/oauth/callback
       #   #
       #   # Response (flat, NOT enveloped):
       #   # {
@@ -126,22 +134,45 @@ module Assinafy
       # consented. Without one, send the user through the authorization flow
       # again once the access token expires.
       #
-      # @param refresh_token [String] issued alongside a previous access token
+      # Every refresh returns a new refresh token, valid for another 30 days,
+      # and retires the one sent, so a connection ends only after 30 days
+      # without a refresh. Reusing a retired refresh token ends the whole
+      # connection. Store the new refresh and access tokens before using
+      # either, and run one refresh at a time per connection.
+      #
+      # The SDK sends this request once and never retries it. After an
+      # ambiguous failure (a timeout, a reset connection, a 5xx) the server may
+      # have rotated the token without the response arriving: re-read the
+      # stored token, and if it is still the one sent, never send it again —
+      # ask the user to connect again. Proceed only if another worker has since
+      # stored a different one. Only a failure that provably happened before
+      # sending (DNS, a refused connection, a failed TLS handshake) is safe to
+      # retry.
+      #
+      # @param refresh_token [String] the most recently issued refresh token
       # @param client_id     [String] the registered client identifier
       # @param client_secret [String, nil] confidential clients only
-      # @param resource      [String, nil] RFC 8707 resource indicator
-      # @return [Hash{String=>Object}] the flat token response
+      # @param resource      [String, nil] RFC 8707 resource indicator; may repeat
+      #   the value sent when authorizing, never change it (`invalid_target`)
+      # @return [Hash{String=>Object}] the flat token response, always with a
+      #   new `refresh_token`
       # @raise [Assinafy::OAuthError] `invalid_grant` when the refresh token is
-      #   unknown, revoked, or its authorization no longer includes `offline_access`
+      #   unknown, already used, expired, or revoked, or the user approved the
+      #   app again with different permissions: the connection is over, so ask
+      #   the user to connect again instead of retrying
+      # @raise [Assinafy::Error] when a success carries no new refresh token
+      #   (missing, blank, or the one sent): the one sent may already be
+      #   retired, so handle it like `invalid_grant`
       #
       # @see POST /oauth/token
       #
       # @example Request and response
       #   client.oauth.refresh(refresh_token: stored_refresh_token, client_id: 'client-id')
       #
-      #   # Request body sent by the SDK:
-      #   #   { "grant_type": "refresh_token", "client_id": "client-id",
-      #   #     "refresh_token": "refresh-token-placeholder" }
+      #   # Request body sent by the SDK, application/x-www-form-urlencoded:
+      #   #   grant_type=refresh_token
+      #   #   client_id=client-id
+      #   #   refresh_token=refresh-token-placeholder
       #   #
       #   # Response (flat, NOT enveloped):
       #   # {
@@ -164,13 +195,17 @@ module Assinafy
       # Call the token endpoint directly.
       #
       # {#exchange_code} and {#refresh} cover both supported grants; reach for
-      # this only to send a parameter they do not model.
+      # this only to send a parameter they do not model. The `refresh_token`
+      # grant gets the same rotation check, and the same retry rules, as
+      # {#refresh}.
       #
       # @param grant_type [String] `"authorization_code"` or `"refresh_token"`
       # @param client_id  [String] the registered client identifier
       # @param params     [Hash] additional body parameters; nil values are dropped
       # @return [Hash{String=>Object}] the flat token response
       # @raise [Assinafy::OAuthError] on any non-2xx response
+      # @raise [Assinafy::Error] when a `refresh_token` grant succeeds without a
+      #   new refresh token
       # @raise [Assinafy::ValidationError] on an unsupported `grant_type`
       #
       # @see POST /oauth/token
@@ -180,21 +215,26 @@ module Assinafy
           raise ValidationError.new("Grant type must be one of: #{GRANT_TYPES.join(', ')}", { grant_type: grant_type })
         end
 
-        body = body_params(params.merge(grant_type: grant, client_id: require_string(client_id, 'Client ID')))
+        body  = body_params(params.merge(grant_type: grant, client_id: require_string(client_id, 'Client ID')))
+        label = 'Failed to exchange OAuth token'
 
         @logger.info("Requesting OAuth token (#{grant})")
-        call('Failed to exchange OAuth token') do
-          http_post('oauth/token', body, {}, workspace_auth: false)
-        end
+        response = request(label) { http_post_form('oauth/token', body, workspace_auth: false) }
+        tokens   = unwrap(response)
+        return tokens if grant != 'refresh_token' || rotated?(tokens, body['refresh_token'])
+
+        raise unexpected_response(label, 'a new refresh token', response, tokens)
       end
 
       # Revoke an access or refresh token (RFC 7009).
       #
-      # Revoking a refresh token also invalidates the access tokens issued from
-      # it. Every token outcome answers `200` — including a token that is
-      # unknown, already revoked, or malformed — so the endpoint cannot be used
-      # to probe whether a token exists. Only failed client authentication
-      # raises.
+      # Call it when a user disconnects, with the refresh token in storage at
+      # that moment, then delete the stored tokens. Revoking a refresh token
+      # also invalidates the access tokens issued from it. Every token outcome
+      # answers `200` — including a token that is unknown, already revoked or
+      # rotated, or malformed — so the endpoint cannot be used to probe whether
+      # a token exists, and revoking a stale copy can look successful while the
+      # connection stays active. Only failed client authentication raises.
       #
       # @param token           [String] the access or refresh token to revoke
       # @param client_id       [String] the registered client identifier
@@ -212,9 +252,11 @@ module Assinafy
       #     token_type_hint: 'refresh_token'
       #   )
       #
-      #   # Request body sent by the SDK (no X-Api-Key/Authorization header):
-      #   #   { "token": "refresh-token-placeholder", "client_id": "client-id",
-      #   #     "token_type_hint": "refresh_token" }
+      #   # Request body sent by the SDK, application/x-www-form-urlencoded
+      #   # (no X-Api-Key/Authorization header):
+      #   #   token=refresh-token-placeholder
+      #   #   client_id=client-id
+      #   #   token_type_hint=refresh_token
       #   #
       #   # Response: HTTP 200, empty body
       #   # => nil
@@ -235,7 +277,7 @@ module Assinafy
 
         @logger.info('Revoking OAuth token')
         call_void('Failed to revoke OAuth token') do
-          http_post('oauth/revoke', body, {}, workspace_auth: false)
+          http_post_form('oauth/revoke', body, workspace_auth: false)
         end
       end
 
@@ -355,15 +397,17 @@ module Assinafy
 
       # OAuth routes report failures as RFC 6749 error objects rather than this
       # API's envelope, so they raise {OAuthError} (an {ApiError}, so existing
-      # `rescue Assinafy::ApiError` handlers keep working). The
-      # `WWW-Authenticate` challenge is carried along because on a 403 it names
-      # the scope that was missing.
-      def check_status!(response, _label)
-        return if (200..299).cover?(response.status)
+      # `rescue Assinafy::ApiError` handlers keep working).
+      def error_class
+        OAuthError
+      end
 
-        error = OAuthError.from_response(response.status, response.body)
-        error.context[:www_authenticate] = response.headers&.[]('www-authenticate')
-        raise error
+      # A refresh retires the refresh token it sends. A success without a
+      # different one leaves nothing to refresh with next time, and sending the
+      # retired one again ends the whole connection.
+      def rotated?(tokens, sent)
+        replacement = tokens['refresh_token'] if tokens.is_a?(Hash)
+        replacement.is_a?(String) && !replacement.strip.empty? && replacement != sent
       end
     end
   end

@@ -1,7 +1,7 @@
 # Assinafy Ruby SDK API Reference
 
-> Contract source: Assinafy API v1 OpenAPI 3.0.0, retrieved 2026-08-26 from
-> `https://api.assinafy.com.br/v1/docs/openapi.json` (67 paths, 89 operations, 39 schemas).
+> Contract source: Assinafy API v1 OpenAPI 3.0.0, retrieved 2026-09-25 from
+> `https://api.assinafy.com.br/v1/docs/openapi.json` (71 paths, 93 operations, 39 schemas).
 > `scripts/check_api_contract.rb` validates contract compatibility weekly.
 
 This is the SDK-facing contract reference. Paths below are wire paths; Ruby methods return the unwrapped
@@ -21,12 +21,15 @@ Required parameters and object properties are marked with `*`.
   `client.oauth` covers the token lifecycle. A token is scoped to one workspace and carries only the scopes the
   user approved, and it never reaches billing, account lifecycle, credential management, or admin surfaces
   regardless of scope. A missing scope answers `403` with a `WWW-Authenticate` challenge naming it, which the
-  SDK exposes as `OAuthError#context[:www_authenticate]`. Store the `code_verifier` and `state` per user session,
-  compare `state` on the callback before exchanging the code, and keep refresh tokens out of logs.
+  SDK exposes as `ApiError#context[:www_authenticate]` on every resource: reconnect with that scope added rather
+  than retrying. Store the `code_verifier`, `state`, and expected issuer with each authorization attempt — the
+  issuer of the authorization server it uses: `https://auth.assinafy.com.br` in production,
+  `https://auth-sandbox.assinafy.com.br` in the sandbox. Check `state` and `iss` against those stored values on
+  the callback before anything else, including an `error=` return, and keep refresh tokens out of logs.
 - Signer-facing operations use the one-time `signer-access-code` query parameter where shown. Never log, commit,
   or place API keys, bearer tokens, signer codes, or real recipient addresses in examples or fixtures.
-- HTTP connections use Ruby/Faraday TLS verification and the host system trust store; the SDK does not pin the
-  upstream TLS certificate.
+- HTTP connections require TLS 1.2 or newer and use Ruby/Faraday TLS verification and the host system trust store;
+  the SDK does not pin the upstream TLS certificate.
 - `DocumentResource#verify` reports Assinafy upstream verification data. It does not independently validate a PDF
   signature, certificate chain, OCSP/CRL status, or legal validity. The API artifact name `certificated` is not an
   additional local guarantee.
@@ -103,8 +106,8 @@ Required parameters and object properties are marked with `*`.
 | GET | `/v1/documents/{documentSignatureHash}/verify` | `DocumentResource#verify` | Public | path `documentSignatureHash*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`DocumentVerification`](#documentverification) } |
 | GET | `/v1/field-types` | `FieldResource#types` | Bearer token or `X-Api-Key` | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`FieldType`](#fieldtype)> } |
 | POST | `/v1/login` | `AuthResource#login` | Public | None | required; `application/json` object { `email*`: string (email); `password*`: string (password) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`AuthSession`](#authsession) } |
-| POST | `/v1/oauth/token` | `OAuthResource#token`, `#exchange_code`, `#refresh` | Public (client authenticates with `client_id` in the body) | None | required; `application/json` object { `grant_type*`: string enum `authorization_code`, `refresh_token`; `client_id*`: string; `code`: string; `redirect_uri`: string (uri); `code_verifier`: string; `refresh_token`: string; `client_secret`: string; `resource`: string (uri) } | `200` `application/json` **flat** object { `access_token`: string; `token_type`: string; `expires_in`: integer; `refresh_token`: string (nullable); `scope`: string; `id_token`: string (nullable) } — not enveloped |
-| POST | `/v1/oauth/revoke` | `OAuthResource#revoke` | Public (client authenticates with `client_id` in the body) | None | required; `application/json` object { `token*`: string; `client_id*`: string; `token_type_hint`: string enum `access_token`, `refresh_token`; `client_secret`: string } | `200` empty body — every token outcome reports success |
+| POST | `/v1/oauth/token` | `OAuthResource#token`, `#exchange_code`, `#refresh` | Public (client authenticates with `client_id` in the body) | None | required; `application/x-www-form-urlencoded` (RFC 6749; the contract lists `application/json`) object { `grant_type*`: string enum `authorization_code`, `refresh_token`; `client_id*`: string; `code`: string; `redirect_uri`: string (uri); `code_verifier`: string; `refresh_token`: string; `client_secret`: string; `resource`: string (uri) } | `200` `application/json` **flat** object { `access_token`: string; `token_type`: string; `expires_in`: integer; `refresh_token`: string (nullable); `scope`: string; `id_token`: string (nullable) } — not enveloped |
+| POST | `/v1/oauth/revoke` | `OAuthResource#revoke` | Public (client authenticates with `client_id` in the body) | None | required; `application/x-www-form-urlencoded` (RFC 7009; the contract lists `application/json`) object { `token*`: string; `client_id*`: string; `token_type_hint`: string enum `access_token`, `refresh_token`; `client_secret`: string } | `200` empty body — every token outcome reports success |
 | GET | `/v1/oauth/userinfo` | `OAuthResource#userinfo` | Bearer token or `X-Api-Key`; requires the `openid` scope | None | None | `200` `application/json` **flat** object { `sub`: string; `name`: string (nullable); `email`: string (email, nullable); `email_verified`: boolean (nullable) } — not enveloped |
 | GET | `/v1/public/documents/{documentId}` | `DocumentResource#public_info` | Public | path `documentId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Document`](#document) } |
 | PUT | `/v1/public/documents/{documentId}/send-token` | `DocumentResource#send_token` | Public | path `documentId*`: string | optional; `application/json` object { `email`: string (email) } | `200` `application/json` [`Envelope`](#envelope) |
@@ -167,7 +170,8 @@ raise `Assinafy::ApiError`:
 - `message` uses the API's `message`, `error`, or `name` value.
 - `response_data` preserves the parsed response body.
 - `error_name` and `error_code` expose framework `name` and `code` values when present.
-- `context` contains `status_code` and `response_data` for structured logging or support diagnostics.
+- `context` contains `status_code` and `response_data` for structured logging or support diagnostics, plus
+  `www_authenticate` when the response carries that header.
 
 Transport, timeout, and TLS failures raise `Assinafy::NetworkError`; caller-side validation failures raise
 `Assinafy::ValidationError` before a request is sent.
@@ -228,10 +232,28 @@ that `base_url` carries.
 
 ### Token refresh
 
-The SDK does not refresh access tokens automatically. Persist `expires_in` alongside the token,
-call `OAuthResource#refresh` before expiry, and treat `invalid_grant` as a signal to restart the
-authorization flow. A refresh token is issued only when `offline_access` was both requested and
-consented.
+The SDK does not refresh access tokens automatically. Persist `expires_in` alongside the token and
+call `OAuthResource#refresh` before expiry. A refresh token is issued only when `offline_access` was
+both requested and consented.
+
+Every refresh returns a new refresh token, valid for another 30 days, and retires the one sent, so a
+connection only expires after 30 days without a refresh. Reusing a retired refresh token ends the
+whole connection. Store the new refresh and access tokens before using either, rebuild the client with
+the new access token, and run one refresh at a time per connection. `OAuthResource#refresh`, and
+`#token` with the `refresh_token` grant, raise `Assinafy::Error` rather than return a success whose
+`refresh_token` is missing, blank, or the one sent; handle that like `invalid_grant`.
+
+The SDK never retries token requests; do not add middleware that does. After an ambiguous failure — a
+timeout, a reset connection, a `5xx` — the server may have rotated the token without the response
+arriving. Re-read the stored refresh token: if it is still the one you sent, never send it again; ask
+the user to connect again. Proceed only if another worker has since stored a different one. Only a
+failure that provably happened before the request was sent (DNS resolution, a refused connection, a
+failed TLS handshake) is safe to retry. On an API `401`, refresh once; if that fails, or on
+`invalid_grant`, ask the user to connect again.
+
+When a user disconnects, revoke the refresh token in storage at that moment with `OAuthResource#revoke`,
+then delete the stored tokens. Revoking a rotated token also answers `200`, so revoking a stale copy can
+look successful while the connection stays active.
 
 ### Digital-certificate signing
 
@@ -530,6 +552,7 @@ The verification result for a document looked up by signature hash. When not ver
 | --- | --- | --- | --- | --- |
 | `hash` | string | No | No | — |
 | `id` | string | No | Yes | — |
+| `agreement_code` | string | No | Yes | Agreement code printed on the document certificate. |
 | `status` | string | No | Yes | — |
 | `page_count` | string | No | Yes | — |
 | `signer_count` | string | No | Yes | — |

@@ -27,8 +27,14 @@ RSpec.describe Assinafy::Resources::OAuthResource do
     ->(request) { !request.headers.key?('X-Api-Key') && !request.headers.key?('Authorization') }
   end
 
+  # RFC 6749 §4.1.3/§6 and RFC 7009 §2.1: token and revocation requests are
+  # form posts, not JSON.
+  def form_encoded
+    { 'Content-Type' => 'application/x-www-form-urlencoded' }
+  end
+
   def body_keys_of(request)
-    JSON.parse(request.body).keys.sort
+    URI.decode_www_form(request.body).to_h.keys.sort
   end
 
   describe '#exchange_code' do
@@ -46,7 +52,8 @@ RSpec.describe Assinafy::Resources::OAuthResource do
       expect(result).to eq(token_response)
       expect(
         a_request(:post, "#{base_url}/oauth/token").with(
-          body: {
+          headers: form_encoded,
+          body:    {
             'grant_type'    => 'authorization_code',
             'client_id'     => 'client-id',
             'code'          => 'auth-code',
@@ -159,13 +166,39 @@ RSpec.describe Assinafy::Resources::OAuthResource do
 
       expect(
         a_request(:post, "#{base_url}/oauth/token").with(
-          body: {
+          headers: form_encoded,
+          body:    {
             'grant_type'    => 'refresh_token',
             'client_id'     => 'client-id',
             'refresh_token' => 'stored-refresh'
           }
         )
       ).to have_been_made
+    end
+
+    # Every refresh retires the refresh token it sends. Retrying after a
+    # timeout resends a token the first attempt may already have retired, and
+    # the server treats that reuse as theft: the whole connection ends.
+    it 'never retries a refresh that timed out' do
+      stub_request(:post, "#{base_url}/oauth/token").to_raise(Net::ReadTimeout)
+
+      expect { Assinafy::Client.new.oauth.refresh(refresh_token: 'stored-refresh', client_id: 'i') }
+        .to raise_error(Assinafy::NetworkError)
+
+      expect(a_request(:post, "#{base_url}/oauth/token")).to have_been_made.once
+    end
+
+    # The refresh token sent is retired either way; a success without a
+    # different one leaves nothing to refresh with, and resending the old one
+    # ends the connection.
+    { 'missing' => nil, 'blank' => ' ', 'the one sent' => 'stored-refresh' }.each do |shape, replacement|
+      it "rejects a success whose refresh token is #{shape}, naming no token" do
+        stub_request(:post, "#{base_url}/oauth/token")
+          .to_return(json_response(token_response.merge('refresh_token' => replacement).compact))
+
+        expect { resource.refresh(refresh_token: 'stored-refresh', client_id: 'i') }
+          .to raise_error(Assinafy::Error, 'Failed to exchange OAuth token: expected a new refresh token')
+      end
     end
 
     it 'rejects a blank refresh token before sending anything' do
@@ -200,6 +233,23 @@ RSpec.describe Assinafy::Resources::OAuthResource do
       expect { resource.token(grant_type: 'refresh_token', client_id: '  ') }
         .to raise_error(Assinafy::ValidationError, /Client ID is required/)
     end
+
+    it 'applies the refresh-token rotation check to the refresh_token grant' do
+      stub_request(:post, "#{base_url}/oauth/token")
+        .to_return(json_response(token_response.merge('refresh_token' => 'stored-refresh')))
+
+      expect { resource.token(grant_type: 'refresh_token', client_id: 'i', refresh_token: 'stored-refresh') }
+        .to raise_error(Assinafy::Error, 'Failed to exchange OAuth token: expected a new refresh token')
+    end
+
+    # Without offline_access the code exchange issues no refresh token at all.
+    it 'accepts an authorization_code success without a refresh token' do
+      stub_request(:post, "#{base_url}/oauth/token")
+        .to_return(json_response(token_response.except('refresh_token')))
+
+      expect(resource.token(grant_type: 'authorization_code', client_id: 'i', code: 'c'))
+        .to eq(token_response.except('refresh_token'))
+    end
   end
 
   describe '#revoke' do
@@ -214,7 +264,8 @@ RSpec.describe Assinafy::Resources::OAuthResource do
 
       expect(
         a_request(:post, "#{base_url}/oauth/revoke").with(
-          body: {
+          headers: form_encoded,
+          body:    {
             'token'           => 'a-token',
             'client_id'       => 'client-id',
             'token_type_hint' => 'refresh_token'

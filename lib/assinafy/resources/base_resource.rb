@@ -177,6 +177,17 @@ module Assinafy
         end
       end
 
+      # RFC 6749 §4.1.3/§6 and RFC 7009 §2.1 define token and revocation
+      # requests as form posts. The connection's JSON and multipart middleware
+      # leave a pre-encoded String body alone.
+      def http_post_form(path, form, workspace_auth: true)
+        @connection.post(path) do |request|
+          prepare_request(request, {}, workspace_auth: workspace_auth)
+          request.headers['Content-Type'] = 'application/x-www-form-urlencoded'
+          request.body = URI.encode_www_form(form)
+        end
+      end
+
       def http_put(path, body = nil, params = {}, workspace_auth: true)
         @connection.put(path) do |request|
           prepare_request(request, params, workspace_auth: workspace_auth)
@@ -204,7 +215,7 @@ module Assinafy
       end
 
       def call(label)
-        Utils.handle_assinafy_response(request(label) { yield }.body)
+        unwrap(request(label) { yield })
       end
 
       def call_optional(label)
@@ -223,7 +234,7 @@ module Assinafy
       def call_binary(label)
         response = request(label) { yield }
         body = response.body
-        body = Utils.handle_assinafy_response(body) if body.is_a?(Hash)
+        body = unwrap(response) if body.is_a?(Hash)
         content_type = response.headers&.[]('content-type').to_s.downcase
 
         if body.is_a?(String) && !body.empty? && !textual_content_type?(content_type)
@@ -235,7 +246,7 @@ module Assinafy
 
       def call_array(label)
         response = request(label) { yield }
-        body = Utils.handle_assinafy_response(response.body)
+        body = unwrap(response)
         return body if body.is_a?(Array)
 
         raise unexpected_response(label, 'an Array data payload', response, body)
@@ -243,7 +254,7 @@ module Assinafy
 
       def call_list(label)
         response = request(label) { yield }
-        body     = Utils.handle_assinafy_response(response.body)
+        body     = unwrap(response)
         # @type var result: Assinafy::list_result
         result   = { data: extract_list_data(body, label, response) }
         meta     = parse_pagination_meta(response.headers)
@@ -268,10 +279,30 @@ module Assinafy
         raise Assinafy::Error.new("#{label}: #{e.message}", { cause: e.class.name })
       end
 
+      # On a `403` the `WWW-Authenticate` challenge names the scope an OAuth
+      # token is missing, which tells "reconnect with more scope" apart from
+      # "wrong workspace or role", so it travels with the error.
       def check_status!(response, _label)
         return if (200..299).cover?(response.status)
 
-        raise ApiError.from_response(response.status, response.body)
+        raise with_challenge(error_class.from_response(response.status, response.body), response)
+      end
+
+      # A 2xx envelope can still carry an error status, with the same challenge.
+      def unwrap(response)
+        Utils.handle_assinafy_response(response.body)
+      rescue ApiError => e
+        raise with_challenge(e, response)
+      end
+
+      def with_challenge(error, response)
+        challenge = response.headers&.[]('www-authenticate')
+        error.context[:www_authenticate] = challenge if challenge
+        error
+      end
+
+      def error_class
+        ApiError
       end
 
       def extract_list_data(body, label, response)

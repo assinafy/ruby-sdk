@@ -136,10 +136,10 @@ RSpec.describe Assinafy::Resources::DocumentResource do
     it 'calls the verify endpoint' do
       stub_request(:get, "#{base_url}/documents/abc123/verify")
         .with { |request| without_workspace_auth?(request) }
-        .to_return(api_envelope({ 'is_valid' => true }))
+        .to_return(api_envelope({ 'is_valid' => true, 'agreement_code' => '550E8400-E29B-41D4-A716-446655440000' }))
 
       result = resource.verify('abc123')
-      expect(result['is_valid']).to be true
+      expect(result).to include('is_valid' => true, 'agreement_code' => '550E8400-E29B-41D4-A716-446655440000')
     end
   end
 
