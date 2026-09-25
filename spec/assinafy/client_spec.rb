@@ -36,6 +36,11 @@ RSpec.describe Assinafy::Client do
       expect(client.faraday_connection.headers['X-Api-Key']).to eq('my-key')
     end
 
+    it 'requires TLS 1.2 or newer' do
+      client = described_class.new(api_key: 'my-key', account_id: 'acc')
+      expect(client.faraday_connection.ssl.min_version).to eq(OpenSSL::SSL::TLS1_2_VERSION)
+    end
+
     it 'sends Bearer Authorization header when only token is provided' do
       client = described_class.new(token: 'legacy', account_id: 'acc')
       expect(client.faraday_connection.headers['Authorization']).to eq('Bearer legacy')

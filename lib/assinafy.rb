@@ -2,6 +2,7 @@
 
 require 'faraday'
 require 'faraday/multipart'
+require 'openssl'
 require 'stringio'
 
 require_relative 'assinafy/version'

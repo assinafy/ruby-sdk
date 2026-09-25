@@ -253,7 +253,8 @@ module Assinafy
     private
 
     def build_connection(config)
-      Faraday.new(url: config.base_url) do |f|
+      # The API rejects TLS 1.0 and 1.1; never offer them.
+      Faraday.new(url: config.base_url, ssl: { min_version: OpenSSL::SSL::TLS1_2_VERSION }) do |f|
         f.request :multipart
         f.request :json
         f.response :json, content_type: /\bjson/

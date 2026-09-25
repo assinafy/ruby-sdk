@@ -2,6 +2,10 @@
 
 All notable changes to the `assinafy` Ruby gem are documented here.
 
+## 1.8.1
+
+- The SDK's own HTTPS client now requires TLS 1.2 or newer; TLS 1.0 and 1.1 are refused. Caller-supplied clients are unchanged.
+
 ## 1.8.0
 
 - The OAuth scope catalog includes `webhooks:write` for configuring and deactivating a workspace webhook subscription.

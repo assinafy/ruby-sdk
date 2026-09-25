@@ -42,6 +42,7 @@ Este documento acompanha uma integração do início ao fim. Para consulta rápi
 
 - Ruby 3.2+ (suporte mantido: 3.3+; 3.2 é compatibilidade legada/EOL)
 - Bundler
+- TLS 1.2 ou superior (o SDK recusa TLS 1.0 e 1.1)
 
 Do RubyGems.org:
 

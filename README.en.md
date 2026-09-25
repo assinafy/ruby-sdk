@@ -18,6 +18,7 @@ The SDK exposes every Assinafy API v1 operation — including the OAuth 2.1 flow
 
 - Ruby 3.2+ (maintained support: 3.3+; 3.2 is legacy/EOL compatibility)
 - Bundler
+- TLS 1.2 or newer (the SDK refuses TLS 1.0 and 1.1)
 
 ## Installation
 
