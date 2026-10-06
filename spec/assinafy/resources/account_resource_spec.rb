@@ -143,4 +143,11 @@ RSpec.describe Assinafy::Resources::AccountResource do
       expect(resource.delete_logo).to be_nil
     end
   end
+
+  describe 'payload validation' do
+    it 'rejects non-string names and unknown sender types before a request' do
+      expect { resource.create(name: 123) }.to raise_error(Assinafy::ValidationError)
+      expect { resource.update(notification_sender_type: 'Signer') }.to raise_error(Assinafy::ValidationError)
+    end
+  end
 end

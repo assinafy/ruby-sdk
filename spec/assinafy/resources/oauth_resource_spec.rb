@@ -247,7 +247,7 @@ RSpec.describe Assinafy::Resources::OAuthResource do
       stub_request(:post, "#{base_url}/oauth/token")
         .to_return(json_response(token_response.except('refresh_token')))
 
-      expect(resource.token(grant_type: 'authorization_code', client_id: 'i', code: 'c'))
+      expect(resource.token(grant_type: 'authorization_code', client_id: 'i', code: 'c', code_verifier: verifier))
         .to eq(token_response.except('refresh_token'))
     end
   end
@@ -448,6 +448,47 @@ RSpec.describe Assinafy::Resources::OAuthResource do
 
       expect(client.faraday_connection.headers['Authorization'])
         .to eq('Bearer access-token-placeholder')
+    end
+  end
+
+  describe 'token request and response validation' do
+    it 'validates direct token calls as strictly as the grant helpers' do
+      expect { resource.token(grant_type: 'authorization_code', client_id: 'id', code: 'code') }
+        .to raise_error(Assinafy::ValidationError, /Code verifier/)
+      expect { resource.token(grant_type: 'refresh_token', client_id: 'id') }
+        .to raise_error(Assinafy::ValidationError, /Refresh token/)
+    end
+
+    it 'rejects successful responses without usable bearer credentials' do
+      [nil, [], {}, token_response.merge('access_token' => ''), token_response.merge('token_type' => 'Basic')]
+        .each do |body|
+        stub_request(:post, "#{base_url}/oauth/token").to_return(json_response(body))
+        expect { resource.exchange_code(code: 'code', client_id: 'id', code_verifier: verifier) }
+          .to raise_error(Assinafy::Error, /access token/)
+      end
+    end
+
+    it 'sends the RFC 8693 grant form without workspace credentials' do
+      response = token_response.except('refresh_token').merge(
+        'issued_token_type' => 'urn:ietf:params:oauth:token-type:access_token'
+      )
+      body = { grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange', client_id: 'internal-client',
+               client_secret: 'placeholder-secret', subject_token: 'subject-token',
+               subject_token_type: 'urn:ietf:params:oauth:token-type:access_token',
+               resource: 'https://api.assinafy.com.br' }
+      stub_request(:post, "#{base_url}/oauth/token")
+        .with(headers: form_encoded, body: body.transform_keys(&:to_s), &unauthenticated_request)
+        .to_return(json_response(response))
+
+      expect(resource.token(**body)).to eq(response)
+    end
+
+    it 'rejects unsupported token exchange types before the network' do
+      expect do
+        resource.token(grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange', client_id: 'internal-client',
+                       client_secret: 'secret', subject_token: 'subject', resource: 'https://api.assinafy.com.br',
+                       subject_token_type: 'urn:ietf:params:oauth:token-type:id_token')
+      end.to raise_error(Assinafy::ValidationError, /access_token token types/)
     end
   end
 end

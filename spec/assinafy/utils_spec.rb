@@ -81,4 +81,24 @@ RSpec.describe Assinafy::Utils do
       expect { described_class.body_params(values: values) }.to raise_error(Assinafy::ValidationError, /cycle/)
     end
   end
+
+  describe '.require_expiration' do
+    it 'accepts a zoned deadline and preserves nil' do
+      expect(described_class.require_expiration('2099-12-31T23:59:00Z')).to eq('2099-12-31T23:59:00Z')
+      expect(described_class.require_expiration(nil)).to be_nil
+    end
+
+    it 'rejects invalid offsets that DateTime otherwise normalizes to UTC' do
+      %w[2099-12-31T23:59:00+99:99 2099-12-31T23:59:00+14:99].each do |deadline|
+        expect { described_class.require_expiration(deadline) }.to raise_error(Assinafy::ValidationError)
+      end
+    end
+
+    it 'rejects malformed, impossible, timezone-free and too-soon deadlines' do
+      ['', 'not-a-date', '2099-02-30T12:00:00Z', '2099-12-31', '2099-12-31T12:00:00',
+       (Time.now + 1800).iso8601].each do |value|
+        expect { described_class.require_expiration(value) }.to raise_error(Assinafy::ValidationError)
+      end
+    end
+  end
 end

@@ -186,4 +186,14 @@ RSpec.describe Assinafy::Resources::WebhookResource do
       expect(a_request(:put, "#{base_url}/accounts/acc/webhooks/inactivate")).to have_been_made
     end
   end
+
+  describe 'payload validation' do
+    it 'rejects invalid callback addresses before a request' do
+      resource = described_class.new(connection, 'acc')
+      expect { resource.register(url: 'https://example.com/hook', email: 'invalid', events: ['document_ready']) }
+        .to raise_error(Assinafy::ValidationError)
+      expect { resource.register(url: 123, email: 'ops@example.com', events: ['document_ready']) }
+        .to raise_error(Assinafy::ValidationError)
+    end
+  end
 end

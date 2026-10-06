@@ -1,7 +1,7 @@
 # Assinafy Ruby SDK API Reference
 
-> Contract source: Assinafy API v1 OpenAPI 3.0.0, retrieved 2026-09-25 from
-> `https://api.assinafy.com.br/v1/docs/openapi.json` (71 paths, 93 operations, 39 schemas).
+> Contract source: Assinafy API v1 OpenAPI 3.0.0, retrieved 2026-10-05 from
+> `https://api.assinafy.com.br/v1/docs/openapi.json` (71 paths, 93 operations, 41 schemas).
 > `scripts/check_api_contract.rb` validates contract compatibility weekly.
 
 This is the SDK-facing contract reference. Paths below are wire paths; Ruby methods return the unwrapped
@@ -106,8 +106,8 @@ Required parameters and object properties are marked with `*`.
 | GET | `/v1/documents/{documentSignatureHash}/verify` | `DocumentResource#verify` | Public | path `documentSignatureHash*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`DocumentVerification`](#documentverification) } |
 | GET | `/v1/field-types` | `FieldResource#types` | Bearer token or `X-Api-Key` | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`FieldType`](#fieldtype)> } |
 | POST | `/v1/login` | `AuthResource#login` | Public | None | required; `application/json` object { `email*`: string (email); `password*`: string (password) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`AuthSession`](#authsession) } |
-| POST | `/v1/oauth/token` | `OAuthResource#token`, `#exchange_code`, `#refresh` | Public (client authenticates with `client_id` in the body) | None | required; `application/x-www-form-urlencoded` (RFC 6749; the contract lists `application/json`) object { `grant_type*`: string enum `authorization_code`, `refresh_token`; `client_id*`: string; `code`: string; `redirect_uri`: string (uri); `code_verifier`: string; `refresh_token`: string; `client_secret`: string; `resource`: string (uri) } | `200` `application/json` **flat** object { `access_token`: string; `token_type`: string; `expires_in`: integer; `refresh_token`: string (nullable); `scope`: string; `id_token`: string (nullable) } — not enveloped |
-| POST | `/v1/oauth/revoke` | `OAuthResource#revoke` | Public (client authenticates with `client_id` in the body) | None | required; `application/x-www-form-urlencoded` (RFC 7009; the contract lists `application/json`) object { `token*`: string; `client_id*`: string; `token_type_hint`: string enum `access_token`, `refresh_token`; `client_secret`: string } | `200` empty body — every token outcome reports success |
+| POST | `/v1/oauth/token` | `OAuthResource#token`, `#exchange_code`, `#refresh` | Public (client authenticates with `client_id` in the body) | None | required; `application/x-www-form-urlencoded` (RFC 6749; also accepts `application/json`) object { `grant_type*`: string enum `authorization_code`, `refresh_token`, `urn:ietf:params:oauth:grant-type:token-exchange`; `client_id*`: string; `code`: string; `redirect_uri`: string (uri); `code_verifier`: string; `refresh_token`: string; `client_secret`: string; `resource`: string (uri); `subject_token`: string; `subject_token_type`: string; `requested_token_type`: string } | `200` `application/json` **flat** object { `access_token`: string; `token_type`: string; `expires_in`: integer; `refresh_token`: string (nullable); `scope`: string; `id_token`: string (nullable); `issued_token_type`: string (token exchange only) } — not enveloped |
+| POST | `/v1/oauth/revoke` | `OAuthResource#revoke` | Public (client authenticates with `client_id` in the body) | None | required; `application/x-www-form-urlencoded` (RFC 7009; also accepts `application/json`) object { `token*`: string; `client_id*`: string; `token_type_hint`: string enum `access_token`, `refresh_token`; `client_secret`: string } | `200` empty body — every token outcome reports success |
 | GET | `/v1/oauth/userinfo` | `OAuthResource#userinfo` | Bearer token or `X-Api-Key`; requires the `openid` scope | None | None | `200` `application/json` **flat** object { `sub`: string; `name`: string (nullable); `email`: string (email, nullable); `email_verified`: boolean (nullable) } — not enveloped |
 | GET | `/v1/public/documents/{documentId}` | `DocumentResource#public_info` | Public | path `documentId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Document`](#document) } |
 | PUT | `/v1/public/documents/{documentId}/send-token` | `DocumentResource#send_token` | Public | path `documentId*`: string | optional; `application/json` object { `email`: string (email) } | `200` `application/json` [`Envelope`](#envelope) |
@@ -136,7 +136,7 @@ Required parameters and object properties are marked with `*`.
 
 OAuth endpoints are the exception to everything in this section: `/v1/oauth/token` and
 `/v1/oauth/revoke` report failures as the flat RFC 6749 §5.2 object `{error, error_description}`,
-and `/v1/oauth/userinfo` uses the ordinary envelope. Both raise `Assinafy::OAuthError`, a subclass
+and `/v1/oauth/userinfo` can report a framework error envelope. Both raise `Assinafy::OAuthError`, a subclass
 of `Assinafy::ApiError` that exposes `#error` and `#error_description` separately rather than
 flattening them into one message.
 
@@ -200,7 +200,7 @@ per-call override.
 
 ### Assignment optional fields
 
-`message` and `expires_at` must be strings, and `copy_receivers` must be an array of non-empty signer IDs.
+`message` must be a string; `expires_at` must be an ISO 8601 timestamp with a timezone at least one hour in the future, and `copy_receivers` must be an array of non-empty signer IDs.
 `AssignmentResource.build_payload` rejects other shapes locally, so `Client#upload_and_request_signatures`
 fails before it uploads a document or creates signers.
 
@@ -306,16 +306,20 @@ return-value, and usage details.
 | `Assinafy::OAuth.generate_code_verifier`, `.code_challenge`, `.generate_state`, `.normalize_scope`, `.validate_code_verifier!`, `.authorization_url` | Build the PKCE pair, CSRF state, and authorization URL for the browser half of the OAuth flow. No network request. | [`oauth.rb`](../lib/assinafy/oauth.rb) |
 | `Assinafy::OAuth::AUTHORIZATION_SERVER`, `::AUTHORIZATION_SERVER_METADATA_URL`, `::AUTHORIZATION_ENDPOINT`, `::CODE_CHALLENGE_METHOD`, `::SCOPES` | Published authorization-server endpoints and scopes. | [`oauth.rb`](../lib/assinafy/oauth.rb) |
 | `AssignmentResource::VERIFICATION_METHODS`, `::NOTIFICATION_METHODS` | The signer verification (`Email`, `Whatsapp`, `DigitalCertificate`) and notification (`Email`, `Whatsapp`) enums, validated locally by `build_payload`. | [`assignment_resource.rb`](../lib/assinafy/resources/assignment_resource.rb) |
-| `Assinafy::Utils.handle_assinafy_response`, `.clean_params`, `.query_params`, `.body_params` | Internal public helpers used by resources for envelope and parameter normalization; applications should prefer resource methods. | [`utils.rb`](../lib/assinafy/utils.rb) |
+| `Assinafy::Utils.handle_assinafy_response`, `.clean_params`, `.query_params`, `.body_params`, `.require_email`, `.require_expiration` | Internal public helpers used by resources for envelope and parameter normalization; applications should prefer resource methods. | [`utils.rb`](../lib/assinafy/utils.rb) |
 | `Assinafy::NullLogger#debug`, `#info`, `#warn`, `#error`, `#fatal`, `#unknown` | Internal no-op logger methods used when no logger is configured. | [`null_logger.rb`](../lib/assinafy/null_logger.rb) |
 | `Assinafy::VERSION` | Published SDK version constant. | [`version.rb`](../lib/assinafy/version.rb) |
 | `Assinafy::USER_AGENT` | Version-derived `Assinafy-Ruby-SDK/v[VERSION]` request identifier. | [`version.rb`](../lib/assinafy/version.rb) |
 
+## Request and response examples
+
+The resource methods linked above include request and response examples in their YARD documentation.
+The schema catalog below describes the published response objects and their nested properties.
+
 ## Schema catalog
 
-The following catalog includes every schema and property published by the API on 2026-08-26. A schema may be
-used for requests, responses, or both; endpoint-specific required bodies and authentication remain authoritative
-in the operation table above.
+Every published schema and its nested properties is listed below. Required fields are marked per
+schema; operation-specific requirements and grant-specific OAuth requirements still apply.
 
 ### Account
 
@@ -328,7 +332,7 @@ A workspace account (organization).
 | `name` | string | No | No | — |
 | `primary_color` | string | No | Yes | — |
 | `secondary_color` | string | No | Yes | — |
-| `notification_sender_type` | string | No | No | enum: `"User"`, `"Account"` |
+| `notification_sender_type` | string | No | No | enum: `["User", "Account"]` |
 | `roles` | Array<string> | No | No | — |
 | `is_delete_allowed` | boolean | No | No | — |
 | `created_at` | string (date-time) | No | No | — |
@@ -359,7 +363,7 @@ A request for signers to sign a document.
 | `resource` | string | No | No | — |
 | `id` | string | No | No | — |
 | `sender_email` | string (email) | No | No | — |
-| `method` | string | No | No | enum: `"virtual"`, `"collect"` |
+| `method` | string | No | No | enum: `["virtual", "collect"]` |
 | `expires_at` | string (date-time) | No | Yes | — |
 | `message` | string | No | Yes | — |
 | `signers` | Array<[`AssignmentSigner`](#assignmentsigner)> | No | No | — |
@@ -373,18 +377,31 @@ A request for signers to sign a document.
 | Property | Type | Required | Nullable | Constraints / description |
 | --- | --- | --- | --- | --- |
 | `id` | string | No | No | — |
-| `page` | [`DocumentPage`](#documentpage) | No | Yes | — |
+| `page` | any JSON value | No | Yes | — |
 | `signer` | object | No | No | Signer responsible for this item. |
 | `field` | object | No | Yes | Field definition associated with the item. |
-| `display_settings` | object | No | No | Rendering metadata for the item. Collect items use the DisplaySettings schema; virtual and legacy items may return an empty or non-object value. |
-| `value` | object | No | Yes | Captured value when completed. |
+| `display_settings` | any JSON value | No | No | Rendering metadata for the item. Collect items use the DisplaySettings schema; virtual and legacy items may return an empty or non-object value. |
+| `value` | any JSON value | No | Yes | Captured value when completed. |
 | `completed` | boolean | No | No | — |
 
 ### AssignmentSigner
 
 A signer within an assignment: the base Signer plus per-assignment verification/notification details.
 
-Type: [`Signer`](#signer) plus object { `verification_method`: string; `notification_methods`: Array<string>; `step`: integer; `notified`: boolean; `completed`: boolean; `notification_history`: Array<[`NotificationHistoryEntry`](#notificationhistoryentry)> }.
+| Property | Type | Required | Nullable | Constraints / description |
+| --- | --- | --- | --- | --- |
+| `resource` | string | No | No | Present in single-resource responses. |
+| `id` | string | No | No | — |
+| `full_name` | string | No | No | — |
+| `email` | string (email) | No | Yes | — |
+| `whatsapp_phone_number` | string | No | Yes | E.164 format; normalized on save. |
+| `has_accepted_terms` | boolean | No | No | — |
+| `verification_method` | string | No | Yes | — |
+| `notification_methods` | Array<string> | No | Yes | — |
+| `step` | integer | No | Yes | Sequential signing step (defaults to 1). |
+| `notified` | boolean | No | Yes | — |
+| `completed` | boolean | No | Yes | Only present in account-owner contexts. |
+| `notification_history` | Array<[`NotificationHistoryEntry`](#notificationhistoryentry)> | No | Yes | Per-channel delivery history for this signer (email + WhatsApp), most-recent send order. |
 
 ### AssignmentSummary
 
@@ -443,7 +460,7 @@ Cost breakdown for an assignment plus current account balances.
 | `document_balance` | number | No | No | — |
 | `credit_balance` | number | No | No | — |
 | `has_sufficient_resources` | boolean | No | No | — |
-| `blocking_reason` | string | No | Yes | enum: `"PendingPayment"`, `"InsufficientDocuments"`, `"InsufficientCredits"` |
+| `blocking_reason` | string | No | Yes | enum: `["PendingPayment", "InsufficientDocuments", "InsufficientCredits"]` |
 | `message` | string | No | Yes | — |
 
 ### CostEstimateBreakdownItem
@@ -462,12 +479,12 @@ A field placement rectangle on a document page. Geometry values are pixels in As
 
 | Property | Type | Required | Nullable | Constraints / description |
 | --- | --- | --- | --- | --- |
-| `left` | number (float) | Yes | No | Horizontal distance from the page's left edge, in page-image pixels.; minimum: `0` |
-| `top` | number (float) | Yes | No | Vertical distance from the page's top edge, in page-image pixels.; minimum: `0` |
-| `width` | number (float) | Yes | No | Width of the placement rectangle, in page-image pixels.; minimum: `0` |
-| `height` | number (float) | Yes | No | Height of the placement rectangle, in page-image pixels.; minimum: `0` |
+| `left` | number (float) | Yes | No | minimum: `0`; Horizontal distance from the page's left edge, in page-image pixels. |
+| `top` | number (float) | Yes | No | minimum: `0`; Vertical distance from the page's top edge, in page-image pixels. |
+| `width` | number (float) | Yes | No | minimum: `0`; Width of the placement rectangle, in page-image pixels. |
+| `height` | number (float) | Yes | No | minimum: `0`; Height of the placement rectangle, in page-image pixels. |
 | `fontFamily` | string | No | No | Font-family presentation metadata. |
-| `fontSize` | number (float) | Yes | No | Font size in the 150-DPI page-image coordinate system.; minimum: `0` |
+| `fontSize` | number (float) | Yes | No | minimum: `0`; Font size in the 150-DPI page-image coordinate system. |
 | `backgroundColor` | string | No | No | CSS-compatible background-color presentation metadata. |
 
 ### Document
@@ -482,13 +499,26 @@ A document and its current lifecycle state.
 | `template_id` | string | No | Yes | — |
 | `name` | string | No | No | — |
 | `status` | string | No | No | Status code — see GET /v1/documents/statuses. |
-| `artifacts` | object | No | No | Artifact download URLs keyed by name (original, certificated, certificate-page, bundle). |
+| `artifacts` | object | No | No | Artifact download URLs keyed by name. Always `original`, plus `thumbnail` once one exists. A certificated document also carries `certificated`, `certificate-page` and `bundle`, and `pades` when it was signed with a digital certificate — the PAdES version holds the signers' ICP-Brasil signatures, which certification flattens out of the certificated PDF. |
 | `is_closed` | boolean | No | No | — |
 | `signing_url` | string | No | No | — |
 | `decline_reason` | string | No | Yes | — |
-| `declined_by` | [`Signer`](#signer) | No | Yes | — |
-| `tags` | Array<object { `id`: string; `name`: string }> | No | No | — |
-| `assignment` | [`Assignment`](#assignment) | No | Yes | Expanded assignment data when included via ?expand=assignment; null otherwise. |
+| `declined_by` | any JSON value | No | Yes | — |
+| `tags` | Array<object> | No | No | — |
+| `tags[].id` | string | No | No | — |
+| `tags[].name` | string | No | No | — |
+| `assignment` | object | No | Yes | Expanded assignment data when included via ?expand=assignment; null otherwise. |
+| `assignment.resource` | string | No | No | — |
+| `assignment.id` | string | No | No | — |
+| `assignment.sender_email` | string (email) | No | No | — |
+| `assignment.method` | string | No | No | enum: `["virtual", "collect"]` |
+| `assignment.expires_at` | string (date-time) | No | Yes | — |
+| `assignment.message` | string | No | Yes | — |
+| `assignment.signers` | Array<[`AssignmentSigner`](#assignmentsigner)> | No | No | — |
+| `assignment.copy_receivers` | Array<object> | No | No | — |
+| `assignment.items` | Array<[`AssignmentItem`](#assignmentitem)> | No | No | — |
+| `assignment.summary` | [`AssignmentSummary`](#assignmentsummary) | No | No | — |
+| `assignment.signing_urls` | Array<[`SigningUrl`](#signingurl)> | No | No | — |
 | `pages` | Array<[`DocumentPage`](#documentpage)> | No | No | — |
 | `created_at` | string (date-time) | No | No | — |
 | `updated_at` | string (date-time) | No | No | — |
@@ -502,8 +532,10 @@ A document activity event.
 | `id` | integer | No | No | — |
 | `event` | string | No | No | Event type code. |
 | `message` | string | No | No | — |
-| `payload` | object | No | Yes | Event-specific payload state. Keys vary per event. |
-| `origin` | object { `ip`: string; `user-agent`: string } | No | Yes | Request origin when available. |
+| `payload` | object | No | Yes | Event-specific payload snapshot. Keys vary per event. |
+| `origin` | object | No | Yes | Request origin when available. |
+| `origin.ip` | string | No | No | — |
+| `origin.user-agent` | string | No | No | — |
 | `created_at` | string (date-time) | No | No | — |
 
 ### DocumentPage
@@ -636,7 +668,7 @@ A single notification delivery record for a signer channel.
 | Property | Type | Required | Nullable | Constraints / description |
 | --- | --- | --- | --- | --- |
 | `event` | string | No | No | — |
-| `status` | string | No | No | enum: `"sent"`, `"failed"` |
+| `status` | string | No | No | enum: `["sent", "failed"]` |
 | `error_code` | string | No | Yes | — |
 | `error_message` | string | No | Yes | — |
 | `sent_at` | string (date-time) | No | Yes | — |
@@ -658,6 +690,35 @@ Owner-facing document notifications, keyed by notification type. `true` means th
 | `TemplateProcessingFailed` | boolean | No | No | A template could not be processed. |
 | `SignerWhatsappFailed` | boolean | No | No | A WhatsApp notification to a signer could not be delivered. |
 
+### OAuthRevokeRequest
+
+Body of `POST /v1/oauth/revoke`. Sent form-encoded per RFC 7009, or as JSON.
+
+| Property | Type | Required | Nullable | Constraints / description |
+| --- | --- | --- | --- | --- |
+| `token` | string | Yes | No | — |
+| `token_type_hint` | string | No | No | enum: `["access_token", "refresh_token"]` |
+| `client_id` | string | Yes | No | — |
+| `client_secret` | string | No | No | — |
+
+### OAuthTokenRequest
+
+Body of `POST /v1/oauth/token`. Sent form-encoded per RFC 6749, or as JSON.
+
+| Property | Type | Required | Nullable | Constraints / description |
+| --- | --- | --- | --- | --- |
+| `grant_type` | string | Yes | No | enum: `["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:token-exchange"]`; `urn:ietf:params:oauth:grant-type:token-exchange` is for internal service clients only (Assinafy's own MCP server) — an ordinary confidential or public client authenticates with it and always gets `invalid_client`, exactly as an unrecognized client would. Everyday integrators use `authorization_code` and `refresh_token`. |
+| `code` | string | No | No | — |
+| `redirect_uri` | string (uri) | No | No | — |
+| `code_verifier` | string | No | No | RFC 7636: 43-128 characters from [A-Za-z0-9-._~]. Shorter values are rejected with `invalid_grant`. |
+| `refresh_token` | string | No | No | — |
+| `client_id` | string | Yes | No | — |
+| `client_secret` | string | No | No | Confidential clients only. Public clients authenticate with PKCE and are never issued a secret; the token-exchange grant requires a confidential, internal-service client and therefore always requires this. |
+| `resource` | string (uri) | No | No | RFC 8707 resource indicator. For `authorization_code`/`refresh_token`, optional; when present it must be the `resource` value published by /.well-known/oauth-protected-resource and must match the one sent to /authorize, otherwise `invalid_target`. For the token-exchange grant it is REQUIRED and must equal this API's own resource identifier exactly (never a front-end resource such as the MCP server), otherwise `invalid_target`. |
+| `subject_token` | string | No | No | Token-exchange grant only. The front-end resource's access token being traded in. Must be a live, original (never itself exchanged) token minted for a resource this server issues tokens for, other than this API's own audience. |
+| `subject_token_type` | string | No | No | enum: `["urn:ietf:params:oauth:token-type:access_token"]`; Token-exchange grant only. Required; only `urn:ietf:params:oauth:token-type:access_token` is supported. |
+| `requested_token_type` | string | No | No | enum: `["urn:ietf:params:oauth:token-type:access_token"]`; Token-exchange grant only. Optional; when present it must agree with the only type this server issues. |
+
 ### Signer
 
 A signing party belonging to a workspace account.
@@ -675,7 +736,17 @@ A signing party belonging to a workspace account.
 
 The current signer, as returned by `GET /v1/signers/self`. Extends Signer with the signature-state flags that are only computed for the authenticated signer.
 
-Type: [`Signer`](#signer) plus object { `has_signature`: boolean; `has_initial`: boolean; `is_signature_reusable`: boolean }.
+| Property | Type | Required | Nullable | Constraints / description |
+| --- | --- | --- | --- | --- |
+| `resource` | string | No | No | Present in single-resource responses. |
+| `id` | string | No | No | — |
+| `full_name` | string | No | No | — |
+| `email` | string (email) | No | Yes | — |
+| `whatsapp_phone_number` | string | No | Yes | E.164 format; normalized on save. |
+| `has_accepted_terms` | boolean | No | No | — |
+| `has_signature` | boolean | No | No | Whether the signer has a saved signature image stored. |
+| `has_initial` | boolean | No | No | Whether the signer has a saved initials image stored. |
+| `is_signature_reusable` | boolean | No | No | Whether the signer opted to reuse their saved signature/initials in future processes. When false, clients should not pre-render the saved image even if `has_signature`/`has_initial` is true. |
 
 ### SigningUrl
 
@@ -711,8 +782,12 @@ A reusable document template.
 | `status` | string | No | No | One of uploading, uploaded, processing, ready, failed. |
 | `pages` | Array<[`TemplatePage`](#templatepage)> | No | No | — |
 | `roles` | Array<[`TemplateRole`](#templaterole)> | No | No | — |
-| `tags` | Array<object { `id`: string; `name`: string }> | No | No | — |
-| `default_document_tags` | Array<object { `id`: string; `name`: string }> | No | No | Applied to documents created from this template; only returned by the single-template endpoint. |
+| `tags` | Array<object> | No | No | — |
+| `tags[].id` | string | No | No | — |
+| `tags[].name` | string | No | No | — |
+| `default_document_tags` | Array<object> | No | No | Applied to documents created from this template; only returned by the single-template endpoint. |
+| `default_document_tags[].id` | string | No | No | — |
+| `default_document_tags[].name` | string | No | No | — |
 | `created_at` | string (date-time) | No | No | — |
 | `updated_at` | string (date-time) | No | No | — |
 
@@ -724,7 +799,7 @@ A reusable document template.
 | `field_id` | string | No | No | — |
 | `role_id` | string | No | No | — |
 | `label` | string | No | No | — |
-| `display_settings` | object | No | No | Rendering metadata for the placement. |
+| `display_settings` | any JSON value | No | No | Rendering metadata for the placement. |
 | `created_at` | string (date-time) | No | No | — |
 | `updated_at` | string (date-time) | No | No | — |
 
@@ -798,6 +873,7 @@ A rendered WhatsApp notification sent for an assignment, split into header/body/
 | `sent_at` | integer | No | No | Unix timestamp when sent. |
 | `header` | string | No | No | — |
 | `body` | string | No | No | — |
-| `buttons` | Array<object { `text`: string }> | No | No | — |
+| `buttons` | Array<object> | No | No | — |
+| `buttons[].text` | string | No | No | The button label shown to the signer. |
 | `phone_number` | string | No | No | Recipient phone (E.164). |
 | `signer_id` | string | No | No | — |

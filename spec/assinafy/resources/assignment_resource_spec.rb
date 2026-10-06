@@ -59,11 +59,11 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
     it 'keeps well-formed optional fields' do
       body = described_class.build_payload(
         signers: %w[s1], message: 'Please sign',
-        expires_at: '2026-12-31T23:59:00Z', copy_receivers: %w[cc1]
+        expires_at: '2099-12-31T23:59:00Z', copy_receivers: %w[cc1]
       )
 
       expect(body).to include(
-        'message' => 'Please sign', 'expires_at' => '2026-12-31T23:59:00Z', 'copy_receivers' => %w[cc1]
+        'message' => 'Please sign', 'expires_at' => '2099-12-31T23:59:00Z', 'copy_receivers' => %w[cc1]
       )
     end
 
@@ -114,13 +114,10 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
       end
     end
 
-    it 'carries both notification channels' do
-      body = described_class.build_payload(
-        signers: [{ id: 'a', notification_methods: %w[Email Whatsapp] }]
-      )
-
-      expect(body['signers'])
-        .to eq([{ 'id' => 'a', 'notification_methods' => %w[Email Whatsapp] }])
+    it 'rejects multiple notification channels' do
+      expect do
+        described_class.build_payload(signers: [{ id: 'a', notification_methods: %w[Email Whatsapp] }])
+      end.to raise_error(Assinafy::ValidationError, /exactly one/)
     end
 
     it 'pairs certificate signing with a WhatsApp notification' do
@@ -181,11 +178,11 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
       body = described_class.build_payload(
         signers:        ['a'],
         message:        'hi',
-        expires_at:     '2024-12-31',
+        expires_at:     '2099-12-31T23:59:00Z',
         copy_receivers: ['c']
       )
       expect(body['message']).to        eq('hi')
-      expect(body['expires_at']).to     eq('2024-12-31')
+      expect(body['expires_at']).to     eq('2099-12-31T23:59:00Z')
       expect(body['copy_receivers']).to eq(['c'])
     end
 
@@ -275,10 +272,10 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
       stub_request(:put, path).to_return(api_envelope({ 'id' => 'asg' }))
 
       resource = described_class.new(connection, 'acc')
-      resource.reset_expiration('doc', 'asg', '2026-12-31T23:59:00Z')
+      resource.reset_expiration('doc', 'asg', '2099-12-31T23:59:00Z')
 
       expect(
-        a_request(:put, path).with(body: { 'expires_at' => '2026-12-31T23:59:00Z' })
+        a_request(:put, path).with(body: { 'expires_at' => '2099-12-31T23:59:00Z' })
       ).to have_been_made
     end
 
@@ -486,6 +483,39 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
         end.to raise_error(Assinafy::ValidationError, /Decline reason/)
       end
       expect(a_request(:put, "#{base_url}/documents/doc/assignments/asg/reject")).not_to have_been_made
+    end
+  end
+
+  describe 'assignment preflight' do
+    it 'rejects mismatched channels and malformed signer references' do
+      [{ id: 'a', verification_method: 'Email', notification_methods: ['Whatsapp'] },
+       { id: 'a', verification_method: false }, { id: 'a', notification_methods: false },
+       { id: ' ' }].each do |signer|
+        expect { described_class.build_payload(signers: [signer]) }.to raise_error(Assinafy::ValidationError)
+      end
+    end
+
+    it 'rejects incomplete and non-contiguous step sequences' do
+      [[{ id: 'a', step: 1 }, { id: 'b' }], [{ id: 'a', step: 2 }],
+       [{ id: 'a', step: 1 }, { id: 'b', step: 10**10 }]].each do |signers|
+        expect { described_class.build_payload(signers: signers) }.to raise_error(Assinafy::ValidationError)
+      end
+    end
+
+    it 'requires a certificate signer to have its own step' do
+      expect do
+        described_class.build_payload(signers: [{ id: 'a', verification_method: 'DigitalCertificate' }, { id: 'b' }])
+      end.to raise_error(Assinafy::ValidationError, /alone/)
+      expect(described_class.build_payload(signers: [
+                                             { id: 'a', verification_method: 'DigitalCertificate', step: 1 },
+                                             { id: 'b', step: 2 }
+                                           ])['signers'].length).to eq(2)
+    end
+
+    it 'rejects a malformed expiration on reset before sending a request' do
+      resource = described_class.new(connection, 'acc')
+      expect { resource.reset_expiration('doc', 'assignment', 'bad') }
+        .to raise_error(Assinafy::ValidationError, /expires_at/)
     end
   end
 end

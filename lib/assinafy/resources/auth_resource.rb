@@ -39,7 +39,12 @@ module Assinafy
       #   #       "is_delete_allowed" => true, "created_at" => "2023-03-03T11:51:34Z" }
       #   #   ]
       #   # }
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       def login(email:, password:)
+        Utils.require_email(email)
+        require_string(password, 'Password')
+
         call('Failed to login') do
           http_post('login', body_params(email: email, password: password), workspace_auth: false)
         end
@@ -54,6 +59,9 @@ module Assinafy
       # @param has_accepted_terms [Boolean]
       # @return [Hash] unwrapped payload: { "access_token" => String, "user" => Hash, "accounts" => Array<Hash> }
       #
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see POST /authentication/social-login
       #
       # @example Request and response
@@ -71,6 +79,9 @@ module Assinafy
       #   #   ]
       #   # }
       def social_login(provider:, token:, has_accepted_terms:)
+        validate_provider!(provider, token)
+        require_boolean(has_accepted_terms, 'has_accepted_terms')
+
         call('Failed to login with social provider') do
           http_post(
             'authentication/social-login',
@@ -89,6 +100,9 @@ module Assinafy
       # @param provider [String] the provider type; currently only `google`
       # @param token    [String] provider-issued OAuth/OIDC token
       # @return [nil] the documented success envelope has no `data` payload
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see POST /auth/link-social-login
       # @example Link a Google account
       #   client.auth.link_social_login(provider: 'google', token: 'provider-token')
@@ -97,7 +111,9 @@ module Assinafy
       #   # Response: { "status": 200, "message": "Provider linked" }
       #   # => nil
       def link_social_login(provider:, token:)
-        call('Failed to link social login') do
+        validate_provider!(provider, token)
+
+        call_void('Failed to link social login') do
           http_post('auth/link-social-login', body_params(provider: provider, token: token))
         end
       end
@@ -111,6 +127,9 @@ module Assinafy
       # @param password [String] the user's current password
       # @return [Hash] unwrapped payload: { "api_key" => String } (the new key, in full)
       #
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see POST /users/api-keys
       #
       # @example Request and response
@@ -121,6 +140,8 @@ module Assinafy
       #   # Returns the unwrapped data payload (envelope stripped):
       #   # { "api_key" => "api-key-created-once" }
       def create_api_key(password:)
+        require_string(password, 'Password')
+
         call('Failed to create API key') do
           http_post('users/api-keys', body_params(password: password))
         end
@@ -133,6 +154,9 @@ module Assinafy
       # This endpoint works with `X-Api-Key` authentication (verified live), not only a Bearer token.
       #
       # @return [Hash, nil] unwrapped payload: { "api_key" => String } (masked), or nil if no key exists yet
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /users/api-keys
       #
       # @example Request and response (key exists)
@@ -158,6 +182,9 @@ module Assinafy
       # responds with an empty `data` payload.)
       #
       # @return [nil]
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see DELETE /users/api-keys
       #
       # @example Request and response
@@ -179,6 +206,9 @@ module Assinafy
       # @param new_password [String] the new password to set
       # @return [Hash] unwrapped payload: { "email" => String }
       #
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see PUT /authentication/change-password
       #
       # @example Request and response
@@ -191,6 +221,10 @@ module Assinafy
       #   # Returns the unwrapped data payload (envelope stripped):
       #   # { "email" => "user@example.com" }
       def change_password(email:, password:, new_password:)
+        Utils.require_email(email)
+        require_string(password, 'Password')
+        require_string(new_password, 'New password')
+
         call('Failed to change password') do
           http_put(
             'authentication/change-password',
@@ -207,6 +241,9 @@ module Assinafy
       # @param email [String]
       # @return [Hash] unwrapped payload: { "email" => String }
       #
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see PUT /authentication/request-password-reset
       #
       # @example Request and response
@@ -217,6 +254,8 @@ module Assinafy
       #   # Returns the unwrapped data payload (envelope stripped):
       #   # { "email" => "user@example.com" }
       def request_password_reset(email:)
+        Utils.require_email(email)
+
         call('Failed to request password reset') do
           http_put('authentication/request-password-reset', body_params(email: email), workspace_auth: false)
         end
@@ -229,6 +268,9 @@ module Assinafy
       # @param token        [String, nil] reset token from the email; omitted from the body when nil
       # @return [Hash] unwrapped payload: { "email" => String }
       #
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see PUT /authentication/reset-password
       #
       # @example Request and response
@@ -240,6 +282,10 @@ module Assinafy
       #   # Returns the unwrapped data payload (envelope stripped):
       #   # { "email" => "user@example.com" }
       def reset_password(email:, new_password:, token: nil)
+        Utils.require_email(email)
+        require_string(new_password, 'New password')
+        require_string(token, 'Reset token') unless token.nil?
+
         call('Failed to reset password') do
           http_put(
             'authentication/reset-password',
@@ -247,6 +293,14 @@ module Assinafy
             workspace_auth: false
           )
         end
+      end
+
+      private
+
+      def validate_provider!(provider, token)
+        raise ValidationError.new('Provider must be google') unless provider == 'google'
+
+        require_string(token, 'Provider token')
       end
     end
   end

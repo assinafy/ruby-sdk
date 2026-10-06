@@ -2,6 +2,16 @@
 
 All notable changes to the `assinafy` Ruby gem are documented here.
 
+## 1.10.0
+
+- Support the RFC 8693 token-exchange grant for Assinafy-provisioned internal service clients.
+- Validate OAuth grant parameters, PKCE challenges, authorization URLs, and token response shapes.
+- Validate assignment deadlines, notification and verification method combinations, and signing steps before requests.
+- Validate template role and signer IDs, distinct role assignments, and editor field payloads before document creation.
+- Validate contact addresses, scalar payload fields, decline-reason lengths, and finite polling intervals consistently.
+- Expand the document workflow guides, OAuth integration instructions, and API schema reference.
+- Use Ruby 4.0.7 for the development and release toolchain.
+
 ## 1.9.0
 
 - `OAuthResource#refresh`, and `#token` with the `refresh_token` grant, raise `Assinafy::Error` instead of

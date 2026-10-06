@@ -137,4 +137,26 @@ RSpec.describe Assinafy::Resources::AuthResource do
       expect(a_request(:put, "#{base_url}/authentication/request-password-reset")).to have_been_made
     end
   end
+
+  describe 'input validation' do
+    it 'rejects invalid authentication inputs before sending requests' do
+      expect { resource.login(email: 'bad', password: 'secret') }.to raise_error(Assinafy::ValidationError)
+      expect { resource.login(email: 'user@example.com', password: nil) }.to raise_error(Assinafy::ValidationError)
+      expect { resource.create_api_key(password: ' ') }.to raise_error(Assinafy::ValidationError)
+      expect { resource.request_password_reset(email: 123) }.to raise_error(Assinafy::ValidationError)
+      expect { resource.reset_password(email: 'user@example.com', new_password: nil) }
+        .to raise_error(Assinafy::ValidationError)
+      expect { resource.change_password(email: 'user@example.com', password: 'old', new_password: []) }
+        .to raise_error(Assinafy::ValidationError)
+    end
+
+    it 'rejects unsupported providers, blank tokens and non-boolean consent' do
+      expect { resource.link_social_login(provider: 'facebook', token: 'token') }
+        .to raise_error(Assinafy::ValidationError)
+      expect { resource.link_social_login(provider: 'google', token: '') }
+        .to raise_error(Assinafy::ValidationError)
+      expect { resource.social_login(provider: 'google', token: 'token', has_accepted_terms: 'true') }
+        .to raise_error(Assinafy::ValidationError)
+    end
+  end
 end

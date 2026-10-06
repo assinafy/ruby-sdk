@@ -29,7 +29,7 @@ module Assinafy
       #   of its representatives.
       VERIFICATION_METHODS = %w[Email Whatsapp DigitalCertificate].freeze
 
-      # Channels used to notify a signer of the request. Any combination;
+      # Channels used to notify a signer of the request. Exactly one per signer;
       # WhatsApp incurs an additional cost and is available only on paid
       # subscriptions. Omit to default to `["Email"]`.
       NOTIFICATION_METHODS = %w[Email Whatsapp].freeze
@@ -49,9 +49,8 @@ module Assinafy
         # - `signers: [{ id:, verification_method:, notification_methods:, step: }]`
         # - Legacy `signer_ids:`/`signerIds:` arrays of IDs
         #
-        # @note The OpenAPI marks top-level `signers` as required, but the deployed
-        #   API accepts `collect` payloads that reference signer IDs only in positioned
-        #   fields. This builder preserves that live-compatible form.
+        # @note Both methods require top-level `signers`; `collect` additionally
+        #   requires positioned `entries`.
         # @param payload [Hash]
         # @param options [Hash]
         # @option options [Boolean] :allow_signers_without_id allow estimate-cost
@@ -65,24 +64,28 @@ module Assinafy
         #   Assinafy::Resources::AssignmentResource.build_payload(
         #     signers:        [{ id: "s1", verification_method: "Email", notification_methods: ["Email"], step: 1 }],
         #     message:        "Please sign",
-        #     expires_at:     "2026-12-31T23:59:00Z",
+        #     expires_at:     "2099-12-31T23:59:00Z",
         #     copy_receivers: ["copy-signer-id"]
         #   )
         #   # => {
         #   #   "method"     => "virtual",
         #   #   "signers"    => [{ "id" => "s1", "verification_method" => "Email",
         #   #                      "notification_methods" => ["Email"], "step" => 1 }],
-        #   #   "message"    => "Please sign", "expires_at" => "2026-12-31T23:59:00Z",
+        #   #   "message"    => "Please sign", "expires_at" => "2099-12-31T23:59:00Z",
         #   #   "copy_receivers" => ["copy-signer-id"]
         #   # }
         # @example Estimate-cost payload — method-only descriptor with no id (allow flag set)
         #   Assinafy::Resources::AssignmentResource.build_payload(
-        #     { signers: [{ verification_method: "Whatsapp" }] }, { allow_signers_without_id: true }
+        #     { signers: [{ verification_method: "Whatsapp", notification_methods: ["Whatsapp"] }] },
+        #     { allow_signers_without_id: true }
         #   )
-        #   # => { "method" => "virtual", "signers" => [{ "verification_method" => "Whatsapp" }] }
+        #   # => { "method" => "virtual", "signers" => [
+        #   #      { "verification_method" => "Whatsapp", "notification_methods" => ["Whatsapp"] }
+        #   #    ] }
         # @example Collect method — positioned fields include all required display settings
         #   Assinafy::Resources::AssignmentResource.build_payload(
         #     method: "collect",
+        #     signers: [{ id: "signer-id" }],
         #     entries: [{
         #       page_id: "page-id",
         #       fields: [{
@@ -92,7 +95,14 @@ module Assinafy
         #       }]
         #     }]
         #   )
-        #   # => { "method" => "collect", "entries" => [{ ... }] }
+        #   # => {
+        #   #   "method" => "collect", "signers" => [{ "id" => "signer-id" }],
+        #   #   "entries" => [{ "page_id" => "page-id", "fields" => [{
+        #   #     "signer_id" => "signer-id", "field_id" => "field-id",
+        #   #     "display_settings" => { "left" => 100, "top" => 100, "width" => 240,
+        #   #                             "height" => 48, "fontSize" => 16 }
+        #   #   }] }]
+        #   # }
         def build_payload(payload, options = {})
           p = Utils.clean_params(payload).transform_keys(&:to_sym) if payload.is_a?(Hash)
           raise ValidationError.new('Assignment payload must be a Hash') unless p
@@ -106,6 +116,7 @@ module Assinafy
 
           result = { method: method }
           result[:signers] = signers.map { |ref| normalise_signer_ref(ref, options) }
+          validate_signing_steps!(result[:signers])
           OPTIONAL_FIELDS.each { |key| result[key] = p[key] if p[key] }
           result[:entries] = entries if entries
           Utils.body_params(result)
@@ -119,9 +130,7 @@ module Assinafy
           end
 
           # `signers` is required for both methods: creation needs to know who signs, and the
-          # estimate is priced per signer. The published contract marks it required only for
-          # `virtual`, but the API answers a signer-less body with
-          # 400 "Pelo menos um signatários precisa ser informado."
+          # estimate is priced per signer. Positioned fields do not replace this list.
           if signers.empty?
             raise ValidationError.new(
               'At least one signer is required',
@@ -144,6 +153,7 @@ module Assinafy
 
             raise ValidationError.new("#{key} must be a String", { key => value })
           end
+          Utils.require_expiration(payload[:expires_at])
 
           receivers = payload[:copy_receivers]
           return if receivers.nil?
@@ -171,7 +181,7 @@ module Assinafy
         end
 
         def string_signer_ref(ref)
-          raise ValidationError.new('Signer ID cannot be empty') if ref.empty?
+          raise ValidationError.new('Signer ID cannot be empty') if ref.strip.empty?
 
           { id: ref }
         end
@@ -182,12 +192,13 @@ module Assinafy
 
           normalised = {}
           normalised[:id]                   = id                                  if id
-          normalised[:verification_method]  = verification_method!(r)             if r[:verification_method]
-          normalised[:notification_methods] = notification_methods!(r)            if r[:notification_methods]
+          normalised[:verification_method]  = verification_method!(r)             unless r[:verification_method].nil?
+          normalised[:notification_methods] = notification_methods!(r)            unless r[:notification_methods].nil?
           normalised[:step]                 = signer_step!(r[:step])              unless r[:step].nil?
+          validate_method_pair!(normalised)
 
-          return normalised if id.is_a?(String) && !id.empty?
-          return normalised.tap { |h| h.delete(:id) } if options[:allow_signers_without_id]
+          return normalised if id.is_a?(String) && !id.strip.empty?
+          return normalised if id.nil? && options[:allow_signers_without_id]
 
           raise ValidationError.new('Invalid signer reference', { ref: ref })
         end
@@ -208,12 +219,12 @@ module Assinafy
 
         def notification_methods!(ref)
           value = ref[:notification_methods]
-          if value.is_a?(Array) && !value.empty? && value.all? { |m| NOTIFICATION_METHODS.include?(m) }
+          if value.is_a?(Array) && value.length == 1 && NOTIFICATION_METHODS.include?(value.first)
             return value
           end
 
           raise ValidationError.new(
-            "notification_methods must be a non-empty Array of: #{NOTIFICATION_METHODS.join(', ')}",
+            "notification_methods must be a non-empty Array with exactly one of: #{NOTIFICATION_METHODS.join(', ')}",
             { notification_methods: value }
           )
         end
@@ -222,6 +233,31 @@ module Assinafy
           return step if step.is_a?(Integer) && step > 0
 
           raise ValidationError.new('step must be a positive Integer', { step: step })
+        end
+
+        def validate_method_pair!(signer)
+          verification = signer[:verification_method]
+          notification = signer[:notification_methods]&.first
+          return if verification.nil? || notification.nil? || verification == 'DigitalCertificate'
+          return if verification == notification
+
+          raise ValidationError.new('notification_methods must match the verification_method')
+        end
+
+        def validate_signing_steps!(signers)
+          steps = signers.map { |signer| signer[:step] }
+          contiguous = steps.compact.uniq.sort.each_with_index.all? { |step, index| step == index + 1 }
+          if steps.any? && (steps.any?(nil) || !contiguous)
+            raise ValidationError.new('Signing steps must be supplied for every signer and be contiguous from 1')
+          end
+
+          step_counts = signers.map { |signer| signer[:step] || 1 }.tally
+          signers.each do |signer|
+            next unless signer[:verification_method] == 'DigitalCertificate'
+            next if step_counts[signer[:step] || 1] == 1
+
+            raise ValidationError.new('A DigitalCertificate signer must be alone in its signing step')
+          end
         end
       end
 
@@ -232,6 +268,9 @@ module Assinafy
       # @param params [Hash] documented `page` and `per_page` query parameters
       # @param account_id_override [String, nil]
       # @return [Hash{Symbol=>Array,Hash}] `{ data: [assignment, ...], meta: {..} | nil }`
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /assignments
       # @example List assignments for the account
       #   # Request: GET /assignments?accountId={account_id}
@@ -265,13 +304,15 @@ module Assinafy
       end
 
       # Create an assignment for a document. See {.build_payload} for the
-      # accepted shapes, including the live-compatible `collect` form without
-      # a top-level `signers` array.
+      # accepted virtual and collect payload shapes.
       #
       # @param document_id [String]
       # @param payload     [Hash]
       # @return [Hash] the assignment object (resource, id, method, expires_at, message, signers[],
       #   items[], summary{signer_count, completed_count, signers[]}, signing_urls[], copy_receivers[])
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see POST /documents/{documentId}/assignments
       # @example Create a virtual assignment for one signer
       #   resource.create("document-id", signers: %w[signer-id], message: "Please sign")
@@ -317,6 +358,9 @@ module Assinafy
       # @return [Hash] cost breakdown (documents, credits, needs_extra_document, extra_document_cost,
       #   total_credits, breakdown[], document_balance, credit_balance, has_sufficient_resources,
       #   blocking_reason, message)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see POST /documents/{documentId}/assignments/estimate-cost
       # @example Estimate cost of inviting a WhatsApp signer (no id needed)
       #   resource.estimate_cost("document-id",
@@ -351,13 +395,16 @@ module Assinafy
       # @param expires_at    [String, nil] ISO 8601 timestamp, or nil for no expiry
       # @return [Hash] the updated assignment object (same shape as {#create}; expires_at reflects
       #   the new value — nil when cleared)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see PUT /documents/{documentId}/assignments/{assignmentId}/reset-expiration
       # @example Set a new expiration timestamp
       #   resource.reset_expiration("document-id", "assignment-id",
-      #                             "2026-12-31T23:59:00Z")
-      #   # Request body the SDK sends: { "expires_at" => "2026-12-31T23:59:00Z" }
+      #                             "2099-12-31T23:59:00Z")
+      #   # Request body the SDK sends: { "expires_at" => "2099-12-31T23:59:00Z" }
       #   # => { "resource" => "assignment", "id" => "assignment-id",
-      #   #      "method" => "virtual", "expires_at" => "2026-12-31T23:59:00Z",
+      #   #      "method" => "virtual", "expires_at" => "2099-12-31T23:59:00Z",
       #   #      "signers" => [{ ... }], "items" => [{ ... }], "summary" => { ... },
       #   #      "signing_urls" => [{ ... }], "copy_receivers" => [] } # ... (see docs for full shape)
       # @example Clear the expiration (nil is sent verbatim as JSON null)
@@ -368,6 +415,8 @@ module Assinafy
       def reset_expiration(document_id, assignment_id, expires_at)
         doc_id = require_id(document_id, 'Document ID')
         asg_id = require_id(assignment_id, 'Assignment ID')
+
+        Utils.require_expiration(expires_at)
 
         call('Failed to update assignment expiration') do
           http_put("documents/#{doc_id}/assignments/#{asg_id}/reset-expiration",
@@ -382,6 +431,9 @@ module Assinafy
       # @param assignment_id [String]
       # @param signer_id     [String]
       # @return [Hash] delivery confirmation (is_sent, document_id, signer_id)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see PUT /documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/resend
       # @example Resend the signing notification to a signer
       #   resource.resend_notification("document-id", "assignment-id", "signer-id")
@@ -405,6 +457,9 @@ module Assinafy
       # @return [Hash] cost breakdown (documents, credits, needs_extra_document, extra_document_cost,
       #   total_credits, breakdown[], document_balance, credit_balance, has_sufficient_resources,
       #   blocking_reason, message)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see POST /documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/estimate-resend-cost
       # @example Preview the cost of resending to a WhatsApp signer
       #   resource.estimate_resend_cost("document-id", "assignment-id", "signer-id")
@@ -434,6 +489,9 @@ module Assinafy
       # @param has_accepted_terms  [Boolean, nil]
       # @return [Hash] the document (id, account_id, name, status, artifacts, signing_url, ...) with an
       #   embedded current_signer and assignment (items filtered to the current signer); no pages array
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /sign
       # @example Resolve the document a signer was invited to sign
       #   resource.signer_document(signer_access_code: "signer-access-code")
@@ -475,6 +533,9 @@ module Assinafy
       # @return [Hash] empty Hash `{}` on success per the API reference. Signing
       #   requires an emailed OTP, so this exact shape is not independently
       #   verifiable with a workspace API key.
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see POST /documents/{documentId}/assignments/{assignmentId}
       # @example Sign with snake_case keys — mapped to camelCase itemId/fieldId/pageId
       #   resource.sign("document-id", "assignment-id",
@@ -504,6 +565,9 @@ module Assinafy
       # @param decline_reason     [String]
       # @param signer_access_code [String]
       # @return [Array] empty array on success (the API returns no payload)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see PUT /documents/{documentId}/assignments/{assignmentId}/reject
       # @example Decline an assignment as the signer
       #   resource.decline("document-id", "assignment-id",
@@ -514,7 +578,7 @@ module Assinafy
       def decline(document_id, assignment_id, decline_reason:, signer_access_code:)
         doc_id = require_id(document_id, 'Document ID')
         asg_id = require_id(assignment_id, 'Assignment ID')
-        reason = require_string(decline_reason, 'Decline reason')
+        reason = require_string(decline_reason, 'Decline reason', max_length: 2000)
         access_code = require_signer_access_code(signer_access_code)
 
         call_array('Failed to decline assignment') do
@@ -531,6 +595,9 @@ module Assinafy
       # @param assignment_id [String]
       # @return [Array<Hash>] notification objects (sent_at, header, body, buttons[]{text}, phone_number,
       #   signer_id); empty array when no WhatsApp notifications were sent
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /documents/{documentId}/assignments/{assignmentId}/whatsapp-notifications
       # @example List WhatsApp notifications sent for an assignment
       #   resource.whatsapp_notifications("document-id", "assignment-id")

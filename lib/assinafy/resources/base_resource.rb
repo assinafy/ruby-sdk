@@ -48,11 +48,14 @@ module Assinafy
         raise ValidationError.new("#{name} contains invalid characters")
       end
 
-      def require_string(value, name)
+      def require_string(value, name, max_length: nil)
         string = require_present(value, name)
-        return string if string.is_a?(String)
+        raise ValidationError.new("#{name} must be a String") unless string.is_a?(String)
+        if max_length && string.length > max_length
+          raise ValidationError.new("#{name} must be at most #{max_length} characters")
+        end
 
-        raise ValidationError.new("#{name} must be a String")
+        string
       end
 
       def require_boolean(value, name)

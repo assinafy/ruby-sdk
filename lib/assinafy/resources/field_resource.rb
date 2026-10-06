@@ -16,6 +16,9 @@ module Assinafy
       # @option payload [Boolean] :is_required default `true`
       # @param account_id_override [String, nil]
       # @return [Hash] the created field definition (envelope `data` unwrapped)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see POST /accounts/{accountId}/fields
       # @example Create a text field
       #   field = client.fields.create(type: 'text', name: 'customer-reference')
@@ -39,6 +42,9 @@ module Assinafy
       def create(payload, account_id_override = nil)
         acc_id = account_id(account_id_override)
         body   = body_params(require_payload(payload))
+        require_string(body['name'], 'Field name')
+        require_string(body['type'], 'Field type')
+        require_boolean(body['is_required'], 'is_required') if body.key?('is_required')
 
         call('Failed to create field definition') do
           http_post("accounts/#{acc_id}/fields", body)
@@ -53,6 +59,9 @@ module Assinafy
       # @param params [Hash] `include_inactive`, `include_standard`
       # @param account_id_override [String, nil]
       # @return [Hash{Symbol=>Array,nil}] `{ data: [...], meta: nil }`
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /accounts/{accountId}/fields
       # @example List including inactive fields
       #   result = client.fields.list(include_inactive: true)
@@ -88,6 +97,9 @@ module Assinafy
       # @param field_id            [String]
       # @param account_id_override [String, nil]
       # @return [Hash] the field definition (envelope `data` unwrapped)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /accounts/{accountId}/fields/{field_id}
       # @example Fetch one field definition
       #   field = client.fields.get('1032009e858cc1f859ccf3a61229')
@@ -125,6 +137,9 @@ module Assinafy
       # @option payload [Boolean] :is_active enable/disable the field
       # @param account_id_override [String, nil]
       # @return [Hash] the updated field definition (envelope `data` unwrapped)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see PUT /accounts/{account_id}/fields/{field_id}
       # @example Rename a field definition
       #   field = client.fields.update('1032009e858cc1f859ccf3a61229', name: 'New Field Name')
@@ -152,6 +167,8 @@ module Assinafy
         body   = body_params(raw)
         body['regex'] = nil if (raw.key?(:regex) && raw[:regex].nil?) ||
                                (raw.key?('regex') && raw['regex'].nil?)
+        require_string(body['name'], 'Field name') if body.key?('name')
+        require_boolean(body['is_active'], 'is_active') if body.key?('is_active')
 
         call('Failed to update field definition') do
           http_put("accounts/#{acc_id}/fields/#{fid}", body)
@@ -163,6 +180,9 @@ module Assinafy
       # @param field_id            [String]
       # @param account_id_override [String, nil]
       # @return [nil] the API returns `data: []`; the SDK normalizes this to `nil`
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see DELETE /accounts/{account_id}/fields/{field_id}
       # @example Delete a field definition
       #   client.fields.delete('1032009e858cc1f859ccf3a61229')
@@ -187,6 +207,9 @@ module Assinafy
       # @param account_id_override  [String, nil]
       # @param signer_access_code   [String, nil]
       # @return [Hash{String=>Object}] `{ "type" =>, "success" =>, "error_message" => }`
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see POST /accounts/{accountId}/fields/{field_id}/validate
       # @example Validate a value (workspace auth)
       #   result = client.fields.validate('1032009e858cc1f859ccf3a61229', 'Some text')
@@ -221,6 +244,9 @@ module Assinafy
       # @param account_id_override  [String, nil]
       # @param signer_access_code   [String, nil]
       # @return [Array<Hash>] one validation Hash per input, each carrying its `field_id`
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see POST /accounts/{accountId}/fields/validate-multiple
       # @example Validate several values at once
       #   results = client.fields.validate_multiple([
@@ -255,6 +281,9 @@ module Assinafy
       # List the catalog of supported field types.
       #
       # @return [Array<Hash{String=>String}>] each entry is `{ "type" =>, "name" => }`
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /field-types
       # @example List supported field types
       #   types = client.fields.types

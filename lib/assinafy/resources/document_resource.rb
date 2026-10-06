@@ -53,8 +53,10 @@ module Assinafy
       #   client.documents.upload(buffer: pdf_bytes, file_name: 'in_memory.pdf')
       # @note The SDK enforces the `.pdf` extension and 25 MB limit; the API
       #   performs authoritative PDF-structure validation.
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
       def upload(source, options = {})
         options = require_payload(options, 'Upload options')
+        require_string(options[:name], 'Name') unless options[:name].nil?
         buffer, file_name = read_source(source, max_bytes: MAX_UPLOAD_BYTES)
         validate_pdf_source!(buffer, file_name, max_bytes: MAX_UPLOAD_BYTES)
 
@@ -81,6 +83,9 @@ module Assinafy
       # @param account_id_override [String, nil]
       # @return [Hash{Symbol=>Array,Hash}] `{ data: [...], meta: { current_page:, per_page:, total:, last_page: } }`
       #
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /accounts/{account_id}/documents
       # @example List the first page of documents
       #   # Request: GET /accounts/{account_id}/documents?per-page=3
@@ -131,6 +136,9 @@ module Assinafy
       # @param params [Hash] extra query parameters (`status`, `page`, `per_page`, ...)
       # @param account_id_override [String, nil]
       # @return [Hash{Symbol=>Array,Hash}] `{ data: [...], meta: {..} | nil }`
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /accounts/{account_id}/documents/search
       # @example Search documents by name
       #   # Request: GET /accounts/{account_id}/documents/search?search=contract
@@ -159,6 +167,7 @@ module Assinafy
       def search(query, params = {}, account_id_override = nil)
         acc_id = account_id(account_id_override)
         filters = require_payload(params, 'Document search parameters')
+        require_string(query, 'Search query')
 
         call_list('Failed to search documents') do
           http_get("accounts/#{acc_id}/documents/search", filters.merge(search: query))
@@ -168,6 +177,9 @@ module Assinafy
       # List the catalog of document status codes.
       #
       # @return [Array<Hash>] each entry has `code` and a `deletable` flag
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /documents/statuses
       # @example List status codes
       #   # Request: GET /documents/statuses
@@ -197,6 +209,9 @@ module Assinafy
       #
       # @param document_id [String]
       # @return [Hash] document object (includes `assignment` once one exists, else nil)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /documents/{document_id}
       # @example Fetch a document
       #   # Request: GET /documents/{document_id}
@@ -242,6 +257,9 @@ module Assinafy
       # @param document_id [String]
       # @param name        [String] the new display name
       # @return [Hash] the updated document object (envelope `data` unwrapped)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see PATCH /documents/{document_id}
       # @example Rename a document
       #   # Request: PATCH /documents/{document_id}
@@ -265,7 +283,7 @@ module Assinafy
       #   }
       def rename(document_id, name)
         doc_id   = require_id(document_id, 'Document ID')
-        new_name = require_present(name, 'Name')
+        new_name = require_string(name, 'Name')
 
         call('Failed to rename document') do
           http_patch("documents/#{doc_id}", body_params(name: new_name))
@@ -293,8 +311,9 @@ module Assinafy
       #   }
       def wait_until_ready(document_id, max_wait_seconds: 30, poll_interval_seconds: 2)
         doc_id = require_id(document_id, 'Document ID')
-        unless max_wait_seconds.is_a?(Numeric) && max_wait_seconds > 0 &&
-               poll_interval_seconds.is_a?(Numeric) && poll_interval_seconds > 0
+        unless [max_wait_seconds, poll_interval_seconds].all? do |value|
+                 value.is_a?(Numeric) && value.real? && value.finite? && value > 0
+               end
           raise ValidationError.new('Wait and poll intervals must be positive numbers')
         end
 
@@ -349,6 +368,8 @@ module Assinafy
       #   bytes.class      # => String
       #   bytes.bytesize   # => 607
       #   File.binwrite('original.pdf', bytes)
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
       def download(document_id, artifact_name = 'certificated')
         doc_id = require_id(document_id, 'Document ID')
         art    = artifact_type(artifact_name)
@@ -362,6 +383,9 @@ module Assinafy
       #
       # @param document_id [String]
       # @return [String] binary image body
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /documents/{document_id}/thumbnail
       # @example Download the thumbnail and save it
       #   # Request: GET /documents/{document_id}/thumbnail
@@ -384,6 +408,9 @@ module Assinafy
       # @param document_id [String]
       # @param page_id     [String]
       # @return [String] binary image body
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /documents/{document_id}/pages/{page_id}/download
       # @example Download a single page image
       #   # Request: GET /documents/{document_id}/pages/{page_id}/download
@@ -406,6 +433,9 @@ module Assinafy
       #
       # @param document_id [String]
       # @return [Array<Hash>] newest-first activity entries (empty Array when there are none)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /documents/{documentId}/activities
       # @example List a document's activity log
       #   # Request: GET /documents/{document_id}/activities
@@ -426,7 +456,7 @@ module Assinafy
       #       'event' => 'document_uploaded',
       #       'message' => 'Documento criado.',
       #       'payload' => [],
-      #       'origin' => { 'ip' => '99.75.13.162', 'user-agent' => 'assinafy-ruby-sdk/1.3.1' },
+      #       'origin' => { 'ip' => '192.0.2.1', 'user-agent' => 'assinafy-ruby-sdk/1.3.1' },
       #       'created_at' => '2026-06-05T21:21:13Z'
       #     }
       #   ]
@@ -442,6 +472,9 @@ module Assinafy
       #
       # @param document_id [String]
       # @return [nil]
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see DELETE /documents/{documentId}
       # @example Delete a deletable document
       #   # Request: DELETE /documents/{document_id}
@@ -467,6 +500,9 @@ module Assinafy
       # @param account_id_override  [String, nil]
       # @return [Hash] document object with an embedded `assignment` (signers, items, signing_urls)
       #
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see POST /accounts/{account_id}/templates/{template_id}/documents
       # @example Create a document from a template with two signers
       #   # Request: POST /accounts/{account_id}/templates/{template_id}/documents
@@ -477,7 +513,7 @@ module Assinafy
       #   #     { "role_id": "fa8c14f3...", "id": "fa8c140c...", "verification_method": "Email",
       #   #       "notification_methods": ["Email"], "step": 1 }
       #   #   ],
-      #   #   "expires_at": "2024-07-30T23:59:00Z"
+      #   #   "expires_at": "2099-12-31T23:59:00Z"
       #   # }
       #   client.documents.create_from_template(
       #     '60f720572d7fecf7c16c8463',
@@ -510,7 +546,7 @@ module Assinafy
       def create_from_template(template_id, signers_or_payload, options = {}, account_id_override = nil)
         tmpl_id = require_id(template_id, 'Template ID')
         acc_id  = account_id(account_id_override)
-        body    = template_body(signers_or_payload, options)
+        body    = template_body(signers_or_payload, options, require_signer_id: true)
 
         @logger.info("Creating document from template #{tmpl_id} for account #{acc_id}")
 
@@ -527,6 +563,9 @@ module Assinafy
       # @param account_id_override  [String, nil]
       # @return [Hash] cost breakdown with current account balances
       #
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see POST /accounts/{account_id}/templates/{template_id}/documents/estimate-cost
       # @example Estimate cost before creating from a template
       #   # Request: POST /accounts/{account_id}/templates/{template_id}/documents/estimate-cost
@@ -564,6 +603,9 @@ module Assinafy
       #
       # @param hash [String]
       # @return [Hash] verification result; `is_valid` is false when the hash is unknown
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /documents/{signature_hash}/verify
       # @example Verify a certificated document
       #   # Request: GET /documents/{signature_hash}/verify
@@ -599,6 +641,9 @@ module Assinafy
       #
       # @param document_id [String]
       # @return [Hash] a Document Hash, or the deployed API's minimal metadata Hash
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /public/documents/{document_id}
       # @example Fetch public-facing document info (no auth required)
       #   # Request: GET /public/documents/{document_id}
@@ -630,6 +675,9 @@ module Assinafy
       # @param email       [String, nil] email address for the current OpenAPI request shape
       # @return [nil, Hash] `nil` for the OpenAPI's no-data envelope; the deployed
       #   API returns `{ 'document' => {..}, 'channel' => String, 'recipient' => String }`
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see PUT /public/documents/{document_id}/send-token
       # @example Ask the API to use the document's signer contact (no auth required)
       #   client.documents.send_token('document-id')
@@ -665,9 +713,9 @@ module Assinafy
             raise ValidationError.new('Use either email or recipient/channel, not both')
           end
 
-          payload = { email: require_present(email, 'Email') }
+          payload = { email: Utils.require_email(email) }
         else
-          require_present(recipient, 'Recipient')
+          require_string(recipient, 'Recipient')
           delivery_channel = require_present(channel, 'Channel').to_s
           unless %w[email whatsapp].include?(delivery_channel)
             raise ValidationError.new('Channel must be email or whatsapp')
@@ -686,6 +734,9 @@ module Assinafy
       # @param document_id [String]
       # @param account_id_override [String, nil]
       # @return [Array<Hash>] the document's tag objects
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /accounts/{account_id}/documents/{document_id}/tags
       # @example List the tags attached to a document
       #   # Request: GET /accounts/{account_id}/documents/{document_id}/tags
@@ -717,6 +768,9 @@ module Assinafy
       # @param tags [Array<String>] tag IDs per OpenAPI; the deployed API also accepts existing names
       # @param account_id_override [String, nil]
       # @return [Array<Hash>] the document's full tag set after replacement (empty Array when detaching all)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see PUT /accounts/{account_id}/documents/{document_id}/tags
       # @example Replace the tag set with a single tag
       #   # Request: PUT /accounts/{account_id}/documents/{document_id}/tags
@@ -750,6 +804,9 @@ module Assinafy
       # @param tags [Array<String>] tag IDs per OpenAPI; the deployed API also accepts existing names
       # @param account_id_override [String, nil]
       # @return [Array<Hash>] the document's full tag set after the append
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see POST /accounts/{account_id}/documents/{document_id}/tags
       # @example Attach a tag without removing existing ones
       #   # Request: POST /accounts/{account_id}/documents/{document_id}/tags
@@ -782,6 +839,9 @@ module Assinafy
       # @param tag_id [String]
       # @param account_id_override [String, nil]
       # @return [Hash] `{ 'detached' => true }`
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see DELETE /accounts/{account_id}/documents/{document_id}/tags/{tag_id}
       # @example Detach a single tag from a document
       #   # Request: DELETE /accounts/{account_id}/documents/{document_id}/tags/{tag_id}
@@ -867,7 +927,8 @@ module Assinafy
         )
       end
 
-      def template_body(signers_or_payload, options = {})
+      def template_body(signers_or_payload, options = {}, require_signer_id: false)
+        require_payload(options, 'Template document options')
         body =
           if signers_or_payload.is_a?(Hash)
             signers_or_payload.merge(options)
@@ -879,11 +940,37 @@ module Assinafy
           raise ValidationError.new('signers are required')
         end
 
-        require_array(body[:signers] || body['signers'], 'Signers').each do |signer|
-          require_payload(signer, 'Signer')
-        end
+        body = body_params(body)
+        validate_template_signers!(body['signers'], require_signer_id)
+        normalised = AssignmentResource.build_payload(
+          { signers: body['signers'], expires_at: body['expires_at'], message: body['message'] },
+          allow_signers_without_id: !require_signer_id
+        )
+        body['signers'].zip(normalised['signers']).each { |signer, ref| signer.merge!(ref) }
+        validate_editor_fields!(body['editor_fields']) if body.key?('editor_fields')
+        body
+      end
 
-        body_params(body)
+      def validate_template_signers!(signers, require_signer_id)
+        require_array(signers, 'Signers').each do |signer|
+          require_payload(signer, 'Signer')
+          require_id(signer['role_id'], 'Template role ID')
+          require_id(signer['id'], 'Signer ID') if require_signer_id
+        end
+        %w[role_id id].each do |key|
+          values = signers.filter_map { |signer| signer[key] }
+          raise ValidationError.new("Template signers must have distinct #{key} values") unless values.uniq == values
+        end
+      end
+
+      def validate_editor_fields!(fields)
+        raise ValidationError.new('editor_fields must be an Array') unless fields.is_a?(Array)
+
+        fields.each do |field|
+          require_payload(field, 'Editor field')
+          require_id(field['field_id'], 'Editor field ID')
+          raise ValidationError.new('Editor field value must be a String') unless field['value'].is_a?(String)
+        end
       end
 
       def tag_names(tags, allow_empty: false)

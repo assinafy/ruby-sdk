@@ -276,14 +276,14 @@ RSpec.describe Assinafy::Client do
 
       client.upload_and_request_signatures(
         source: pdf_source, signers: signers,
-        expires_at: '2026-12-31T23:59:00Z', copy_receivers: %w[cc-1]
+        expires_at: '2099-12-31T23:59:00Z', copy_receivers: %w[cc-1]
       )
 
       expect(
         a_request(:post, "#{base_url}/documents/doc-1/assignments").with(
           body: hash_including(
             'signers'        => [{ 'id' => 'signer-1' }],
-            'expires_at'     => '2026-12-31T23:59:00Z',
+            'expires_at'     => '2099-12-31T23:59:00Z',
             'copy_receivers' => %w[cc-1]
           )
         )

@@ -12,6 +12,9 @@ module Assinafy
       # @param params [Hash] documented `search`, `page`, and `per_page` query parameters
       # @param account_id_override [String, nil]
       # @return [Hash{Symbol=>Array,Hash}] `{ data: [Template, ...], meta: { current_page:, per_page:, ... } }`
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /accounts/{account_id}/templates
       #
       # @example Search templates and read pagination metadata
@@ -48,6 +51,9 @@ module Assinafy
       # @param template_id         [String]
       # @param account_id_override [String, nil]
       # @return [Hash] the unwrapped Template Object
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /accounts/{account_id}/templates/{template_id}
       #
       # @example Fetch a single template (includes default_document_tags, omitted from #list)
@@ -92,6 +98,9 @@ module Assinafy
       # @param options [Hash] additional multipart form fields (e.g. `:message`)
       # @param account_id_override [String, nil]
       # @return [Hash] the unwrapped Template Object for the created template
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see POST /accounts/{account_id}/templates
       #
       # @example Create a template from a PDF on disk
@@ -135,6 +144,9 @@ module Assinafy
       # @param payload             [Hash]
       # @param account_id_override [String, nil]
       # @return [Hash] the unwrapped Template Object for the updated template
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see PUT /accounts/{account_id}/templates/{template_id}
       #
       # @example Rename a template and set its default invitation message
@@ -177,6 +189,8 @@ module Assinafy
       # @example Deleting an unknown template raises
       #   client.templates.delete('does-not-exist')
       #   # raises Assinafy::ApiError (status 404, message "Template não encontrado.")
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       def delete(template_id, account_id_override = nil)
         acc_id  = account_id(account_id_override)
         tmpl_id = require_id(template_id, 'Template ID')
@@ -204,6 +218,8 @@ module Assinafy
       # @example Downloading an unknown page raises
       #   client.templates.download_page('bad-id', 'bad-page')
       #   # raises Assinafy::ApiError (status 404, message 'Template "{id}" não encontrado.')
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       def download_page(template_id, page_id, account_id_override = nil)
         acc_id  = account_id(account_id_override)
         tmpl_id = require_id(template_id, 'Template ID')

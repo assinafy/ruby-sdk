@@ -15,6 +15,9 @@ module Assinafy
       # @param params [Hash] documented `search` query; additional deployment-specific keys are forwarded
       # @param account_id_override [String, nil]
       # @return [Hash{Symbol=>Array,Hash}] `{ data: [...], meta: { ... } }`
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /accounts/{account_id}/tags
       # @example List tags matching a search term
       #   # Request: GET /accounts/{account_id}/tags?search=doc
@@ -68,6 +71,8 @@ module Assinafy
       #     'created_at' => '2026-06-05T21:21:19Z',
       #     'updated_at' => '2026-06-05T21:21:19Z'
       #   }
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
       def create(payload, account_id_override = nil)
         acc_id = account_id(account_id_override)
         body   = tag_payload(payload, require_name: true)
@@ -113,6 +118,8 @@ module Assinafy
       #   # Body: { "color": null }
       #   client.tags.update('1032009e69e366ca5adc879ef26c', color: nil)
       #   #=> { 'resource' => 'tag', 'id' => '1032009e69e366ca5adc879ef26c', 'color' => nil, ... }
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
       def update(tag_id, payload, account_id_override = nil)
         acc_id = account_id(account_id_override)
         tid    = require_id(tag_id, 'Tag ID')
@@ -132,6 +139,9 @@ module Assinafy
       # @param account_id_override [String, nil]
       # @param force [Boolean]
       # @return [Hash] `{ 'deleted' => true }`
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see DELETE /accounts/{account_id}/tags/{tag_id}
       # @example Delete a tag, detaching it from documents and templates first
       #   # Request: DELETE /accounts/{account_id}/tags/{tag_id}?force=true
@@ -168,7 +178,8 @@ module Assinafy
 
       def validate_tag_name!(body, require_name:)
         has_name = body.key?('name')
-        blank    = body['name'].to_s.strip.empty?
+        require_string(body['name'], 'Tag name') if has_name && !body['name'].to_s.strip.empty?
+        blank = body['name'].to_s.strip.empty?
 
         raise ValidationError.new('Tag name is required') if require_name && (!has_name || blank)
         raise ValidationError.new('Tag name cannot be blank') if !require_name && has_name && blank

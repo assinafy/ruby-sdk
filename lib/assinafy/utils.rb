@@ -1,13 +1,51 @@
 # frozen_string_literal: true
 
+require 'time'
+require 'date'
+
 module Assinafy
   # Small, stateless helpers shared across resources. Intentionally private
   # by convention — callers should reach for these via the resource methods,
   # not directly.
   module Utils
     MAX_NORMALIZATION_DEPTH = 100
+    EMAIL_PATTERN = /\A[^\s@]+@[^\s@]+\.[^\s@]+\z/
 
     class << self
+      # Validate a contact address without exposing it in error metadata.
+      # @param email [String]
+      # @return [String] the unchanged address
+      # @raise [ValidationError] on an invalid address
+      # @example
+      #   Assinafy::Utils.require_email('signer@example.com') # => 'signer@example.com'
+      def require_email(email)
+        return email if email.is_a?(String) && EMAIL_PATTERN.match?(email)
+
+        raise ValidationError.new('Invalid email address')
+      end
+
+      # Validate an optional assignment deadline before creating remote resources.
+      # @param value [String, nil] ISO 8601 timestamp with an explicit timezone
+      # @return [String, nil] the unchanged deadline
+      # @raise [ValidationError] on malformed or insufficiently future timestamps
+      # @example
+      #   Assinafy::Utils.require_expiration('2099-12-31T23:59:59Z') # => '2099-12-31T23:59:59Z'
+      #   Assinafy::Utils.require_expiration(nil) # => nil
+      def require_expiration(value)
+        return nil if value.nil?
+        raise ValidationError.new('expires_at must be a String') unless value.is_a?(String)
+
+        unless value.match?(/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?
+                            (?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)\z/x) &&
+               DateTime.iso8601(value).to_time >= Time.now + 3600
+          raise ValidationError.new('expires_at must be an ISO 8601 timestamp at least one hour in the future')
+        end
+
+        value
+      rescue ArgumentError
+        raise ValidationError.new('expires_at must be an ISO 8601 timestamp at least one hour in the future')
+      end
+
       # Unwrap an Assinafy envelope — a Hash with a numeric `status` and an
       # optional `data` key. Returns `data` (or nil) for 2xx, raises {ApiError}
       # otherwise, and passes through non-envelope bodies.

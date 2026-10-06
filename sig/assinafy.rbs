@@ -102,6 +102,10 @@ module Assinafy
 
   module Utils
     MAX_NORMALIZATION_DEPTH: Integer
+    EMAIL_PATTERN: Regexp
+
+    def self.require_email: (String email) -> String
+    def self.require_expiration: (String? value) -> String?
 
     def self.handle_assinafy_response: (untyped body) -> untyped
     def self.clean_params: (params? hash) -> params

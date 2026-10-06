@@ -63,16 +63,8 @@ module Assinafy
     # request-time signal (it asks for a refresh token) rather than a
     # permission, so it never comes back in the granted `scope`.
     SCOPES = %w[
-      documents:read
-      documents:write
-      templates:read
-      templates:write
-      account:read
-      webhooks:write
-      openid
-      profile
-      email
-      offline_access
+      documents:read documents:write templates:read templates:write
+      account:read webhooks:write openid profile email offline_access
     ].freeze
 
     # RFC 7636 bounds on a `code_verifier`, enforced by the token endpoint:
@@ -159,7 +151,7 @@ module Assinafy
       #   `resource` published by `/.well-known/oauth-protected-resource`
       # @param authorization_endpoint [String] override for a non-default
       #   server; store that server's issuer for the callback's `iss` check
-      # @param extra_params   [Hash] additional query parameters, merged last
+      # @param extra_params   [Hash] additional query parameters (e.g. nonce); protocol fields cannot be overridden
       # @return [String] the absolute URL to redirect to
       # @raise [ValidationError] on a missing client_id/redirect_uri, an invalid
       #   verifier, or when neither (or both) of verifier/challenge are given
@@ -186,9 +178,16 @@ module Assinafy
           'code_challenge'        => challenge,
           'code_challenge_method' => CODE_CHALLENGE_METHOD
         }.compact
-        extra_params.each { |key, value| params[key.to_s] = value unless value.nil? }
+        extra_params.each do |key, value|
+          if params.key?(key.to_s) || %w[scope state resource].include?(key.to_s)
+            raise ValidationError.new("Cannot override OAuth parameter: #{key}")
+          end
 
-        uri = URI.parse(authorization_endpoint)
+          params[key.to_s] = value unless value.nil?
+        end
+
+        uri = https_uri!(authorization_endpoint, 'authorization_endpoint')
+        https_uri!(redirect_uri, 'redirect_uri')
         uri.query = URI.encode_www_form(params)
         uri.to_s
       end
@@ -206,7 +205,10 @@ module Assinafy
         case scope
         when nil    then nil
         when String then scope.strip.empty? ? nil : scope.strip
-        when Array  then normalize_scope(scope.join(' '))
+        when Array
+          raise ValidationError.new('scope must be an Array of Strings') unless scope.all?(String)
+
+          normalize_scope(scope.join(' '))
         else raise ValidationError.new('scope must be a String or an Array of Strings', { scope: scope })
         end
       end
@@ -240,13 +242,25 @@ module Assinafy
           raise ValidationError.new('Provide exactly one of code_verifier or code_challenge')
         end
 
-        challenge || code_challenge(verifier)
+        return code_challenge(verifier) unless verifier.nil?
+        return challenge if challenge.is_a?(String) && challenge.match?(/\A[A-Za-z0-9_-]{43}\z/)
+
+        raise ValidationError.new('code_challenge must be an unpadded S256 challenge')
       end
 
       def require_value!(value, name)
         return value if value.is_a?(String) && !value.strip.empty?
 
         raise ValidationError.new("#{name} is required")
+      end
+
+      def https_uri!(value, name)
+        uri = URI.parse(require_value!(value, name))
+        return uri if uri.is_a?(URI::HTTPS) && !uri.host.to_s.empty? && uri.userinfo.nil? && uri.fragment.nil?
+
+        raise ValidationError.new("#{name} must be an absolute HTTPS URL without userinfo or fragment")
+      rescue URI::InvalidURIError
+        raise ValidationError.new("#{name} must be a valid HTTPS URL")
       end
     end
   end

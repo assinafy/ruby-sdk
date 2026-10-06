@@ -267,4 +267,29 @@ RSpec.describe Assinafy::OAuth do
       )
     end
   end
+
+  describe 'authorization input validation' do
+    it 'rejects malformed S256 challenges and security parameter overrides' do
+      expect do
+        described_class.authorization_url(client_id: 'id', redirect_uri: 'https://example.com/cb',
+                                          code_challenge: 'short')
+      end.to raise_error(Assinafy::ValidationError)
+      expect do
+        described_class.authorization_url(client_id: 'id', redirect_uri: 'https://example.com/cb',
+                                          code_verifier: described_class.generate_code_verifier,
+                                          code_challenge_method: 'plain')
+      end.to raise_error(Assinafy::ValidationError, /Cannot override/)
+    end
+
+    it 'rejects insecure or malformed callback URLs and mixed scope arrays' do
+      ['http://localhost/cb', '/callback', 'https://example.com/cb#fragment', 'https://user:pass@example.com/cb']
+        .each do |uri|
+        expect do
+          described_class.authorization_url(client_id: 'id', redirect_uri: uri,
+                                            code_verifier: described_class.generate_code_verifier)
+        end.to raise_error(Assinafy::ValidationError)
+      end
+      expect { described_class.normalize_scope(['documents:read', nil]) }.to raise_error(Assinafy::ValidationError)
+    end
+  end
 end

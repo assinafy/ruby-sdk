@@ -25,6 +25,9 @@ module Assinafy
       # @param signer_id          [String]
       # @param signer_access_code [String]
       # @return [Hash] the document (envelope `data` unwrapped)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /signers/{signer_id}/document
       # @example Fetch the document tied to an access code
       #   doc = client.signer_documents.current('signer-id', signer_access_code: 'signer-access-code')
@@ -67,6 +70,9 @@ module Assinafy
       # @param params             [Hash] documented `page` and `per_page` query parameters
       # @param signer_access_code [String, nil]
       # @return [Hash{Symbol=>Array,Hash}] `{ data: [...], meta: { current_page:, per_page:, total:, last_page: } }`
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /signers/{signer_id}/documents
       # @example List the signer's documents with pagination
       #   page = client.signer_documents.list('signer-id',
@@ -110,6 +116,9 @@ module Assinafy
       # @param params             [Hash] optional deployment-specific query parameters
       # @param signer_access_code [String, nil]
       # @return [Hash{Symbol=>Array,Hash}] `{ data: [...], meta: {..} | nil }`
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /signers/{signer_id}/documents/search
       # @example Search the signer's documents
       #   page = client.signer_documents.search('signer-id', 'contract')
@@ -129,6 +138,7 @@ module Assinafy
       def search(signer_id, query, params = {}, signer_access_code: nil)
         sid                  = require_id(signer_id, 'Signer ID')
         filters, access_code = signer_query(params, signer_access_code)
+        require_string(query, 'Search query')
 
         call_list('Failed to search signer documents') do
           http_get("signers/#{sid}/documents/search",
@@ -144,6 +154,9 @@ module Assinafy
       # @param document_ids       [Array<String>]
       # @param signer_access_code [String]
       # @return [Array] empty array on success (envelope `data` unwrapped)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see PUT /signers/documents/sign-multiple
       # @example Sign two documents at once
       #   client.signer_documents.sign_multiple(%w[document-1 document-2],
@@ -170,6 +183,9 @@ module Assinafy
       # @param decline_reason     [String]
       # @param signer_access_code [String]
       # @return [Array] empty array on success (envelope `data` unwrapped)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see PUT /signers/documents/decline-multiple
       # @example Decline two documents with a reason
       #   client.signer_documents.decline_multiple(%w[document-1 document-2],
@@ -182,7 +198,7 @@ module Assinafy
       #   # => []
       def decline_multiple(document_ids, decline_reason:, signer_access_code:)
         ids         = require_array(document_ids, 'Document IDs').map { |id| require_id(id, 'Document ID') }
-        reason      = require_string(decline_reason, 'Decline reason')
+        reason      = require_string(decline_reason, 'Decline reason', max_length: 2000)
         access_code = require_signer_access_code(signer_access_code)
 
         call_array('Failed to decline documents') do
@@ -205,6 +221,9 @@ module Assinafy
       # @param signer_access_code [String, nil] retained for call compatibility;
       #   validated when present but never transmitted by this public endpoint
       # @return [String] binary file body (ASCII-8BIT), e.g. the raw PDF bytes
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /signers/{signer_id}/documents/{document_id}/download/{artifact_name}
       # @example Download the original PDF and write it to disk (no access code needed)
       #   pdf = client.signer_documents.download('signer-id', 'document-id', 'original')

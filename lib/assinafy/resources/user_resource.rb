@@ -25,6 +25,9 @@ module Assinafy
       #
       # @return [Hash{String=>Object}] an AuthUser Hash, or the deployed API's
       #   `{ 'user' => {..}, 'accounts' => [{..}] }` form
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /users/self
       # @example Fetch the current user
       #   # Request: GET /users/self
@@ -81,6 +84,9 @@ module Assinafy
       # @param granularity [String, nil] `"monthly"` or `"daily"`
       # @param month       [String, nil] e.g. `"2026-06"`
       # @return [Array<Hash>] one KPI entry per period
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /users/self/stats
       # @example Fetch monthly cross-account KPIs
       #   # Request: GET /users/self/stats?granularity=monthly
@@ -116,6 +122,9 @@ module Assinafy
       # configurable through this endpoint.
       #
       # @return [Hash{String=>Boolean}] all nine documented preference codes
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /users/self/notification-preferences
       # @example Fetch the current preferences
       #   # Request: GET /users/self/notification-preferences
@@ -145,6 +154,9 @@ module Assinafy
       #
       # @param preferences [Hash{String,Symbol=>Boolean}] non-empty partial map
       # @return [Hash{String=>Boolean}] the full updated map
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see PUT /users/self/notification-preferences
       # @example Disable one notification
       #   client.users.update_notification_preferences(SignerDeclined: false)

@@ -26,11 +26,29 @@ RSpec.describe 'Assinafy live sandbox', :live, order: :defined do # rubocop:disa
     required_env('ASSINAFY_TEST_EMAIL')
     required_env('ASSINAFY_TEST_EMAIL2')
 
-    Assinafy::Client.create(
+    client = Assinafy::Client.create(
       required_env('ASSINAFY_API_KEY'),
       required_env('ASSINAFY_ACCOUNT_ID'),
       base_url: base_url
     )
+    pacing = Class.new(Faraday::Middleware) do
+      def call(env)
+        request_env = env.dup
+        3.times do |attempt|
+          sleep 2
+          request_env.body.rewind if request_env.body.respond_to?(:rewind)
+          response = super(request_env.dup)
+          return response unless response.status == 429 && attempt < 2 &&
+                                 !%w[/v1/oauth/token /v1/oauth/revoke].include?(env.url.path)
+
+          delay = response.headers['retry-after'].to_i
+          delay = response.body.to_s[/Try again in (\d+) seconds/, 1].to_i if delay.zero?
+          sleep(delay.clamp(1, 60))
+        end
+      end
+    end
+    client.faraday_connection.builder.insert_before(Faraday::Request::Json, pacing)
+    client
   end
 
   def required_env(name)
@@ -259,7 +277,8 @@ RSpec.describe 'Assinafy live sandbox', :live, order: :defined do # rubocop:disa
         expect(client.documents.download_page(id, page_id).bytesize).to be > 0
         expect(client.documents.download(id, 'original').byteslice(0, 4)).to eq('%PDF')
         expect(client.documents.list(per_page: 3)[:meta]).to include(:current_page)
-        expect(client.assignments.list[:data].map { |a| a['id'] }).to include(aid)
+        expect(client.documents.details(id).dig('assignment', 'id')).to eq(aid)
+        expect(client.assignments.list(per_page: 3)[:data]).to be_an(Array)
         expect(client.assignments.whatsapp_notifications(id, aid)).to be_an(Array)
         expect(client.assignments.reset_expiration(id, aid, nil)['id']).to eq(aid)
         resend_estimate = client.assignments.estimate_resend_cost(id, aid, s1)
@@ -400,7 +419,6 @@ RSpec.describe 'Assinafy live sandbox', :live, order: :defined do # rubocop:disa
 
   it 'creates, reads and lists a template via multipart upload' do
     id = nil
-    document_id = nil
     created_signer_id = nil
 
     begin
@@ -415,9 +433,9 @@ RSpec.describe 'Assinafy live sandbox', :live, order: :defined do # rubocop:disa
       role_id = details.fetch('roles').first.fetch('id')
       role_signer = { role_id: role_id, id: signer_id }
       estimate = client.documents.estimate_cost_from_template(id, [{ role_id: role_id }])
-      created_document = client.documents.create_from_template(id, [role_signer])
-      document_id = created_document['id']
-      client.documents.wait_until_ready(document_id, max_wait_seconds: 60)
+      expect do
+        client.documents.create_from_template(id, [role_signer])
+      end.to raise_error(Assinafy::ApiError) { |error| expect(error.status_code).to eq(400) }
 
       aggregate_failures do
         expect(template['resource']).to eq('template')
@@ -427,13 +445,41 @@ RSpec.describe 'Assinafy live sandbox', :live, order: :defined do # rubocop:disa
         expect(client.templates.list(per_page: 5)[:data]).to be_an(Array)
         expect(client.templates.download_page(id, page_id).bytesize).to be > 0
         expect(estimate).to include('has_sufficient_resources')
-        expect(created_document['id']).to be_a(String)
+        expect(details['roles'].map { |role| role['assignment_type'] }).to eq(['Editor'])
       end
     ensure
       cleanup_resources(
-        ['template document', -> { delete_document_when_ready(client, document_id) if document_id }],
         ['template', -> { delete_template_when_ready(client, id) if id }],
         ['signer', -> { client.signers.delete(created_signer_id) if created_signer_id }]
+      )
+    end
+  end
+
+  it 'creates a document from a configured signing template' do
+    template_id = ENV.fetch('ASSINAFY_TEMPLATE_ID', nil)
+    skip 'Set ASSINAFY_TEMPLATE_ID to a sandbox template with a Signer role' if template_id.to_s.empty?
+    document_id = nil
+    created_signer_ids = []
+
+    begin
+      template = client.templates.get(template_id)
+      roles = template.fetch('roles').each_with_index.map do |role, index|
+        email = index.zero? ? primary_email : secondary_email
+        signer_id, created = find_or_create_signer(client, "SDK Template Signer #{index + 1}", email)
+        created_signer_ids << signer_id if created
+        { role_id: role.fetch('id'), id: signer_id }
+      end
+      expect(template['roles'].map { |role| role['assignment_type'] }).to include('Signer')
+      estimate = client.documents.estimate_cost_from_template(template_id, roles)
+      document = client.documents.create_from_template(template_id, roles, name: "sdk-template-#{rand(9999)}")
+      document_id = document.fetch('id')
+      ready = client.documents.wait_until_ready(document_id, max_wait_seconds: 60)
+      expect(estimate).to include('has_sufficient_resources')
+      expect(ready['id']).to eq(document_id)
+    ensure
+      cleanup_resources(
+        ['template document', -> { delete_document_when_ready(client, document_id) if document_id }],
+        *created_signer_ids.map { |signer_id| ['signer', -> { client.signers.delete(signer_id) }] }
       )
     end
   end

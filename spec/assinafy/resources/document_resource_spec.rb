@@ -496,4 +496,41 @@ RSpec.describe Assinafy::Resources::DocumentResource do
       expect(a_request(:get, "#{base_url}/documents/doc-1")).to have_been_made.once
     end
   end
+
+  describe 'workflow input validation' do
+    it 'rejects reusing a template role or signer across entries' do
+      expect do
+        resource.create_from_template('template', [{ role_id: 'a', id: 'signer' }, { role_id: 'b', id: 'signer' }])
+      end.to raise_error(Assinafy::ValidationError, /distinct id/)
+      expect do
+        resource.estimate_cost_from_template('template', [{ role_id: 'a' }, { role_id: 'a' }])
+      end.to raise_error(Assinafy::ValidationError, /distinct role_id/)
+    end
+
+    it 'rejects template signers without required role or signer IDs' do
+      expect { resource.create_from_template('template', [{ full_name: 'Example' }]) }
+        .to raise_error(Assinafy::ValidationError, /role ID/)
+      expect { resource.create_from_template('template', [{ role_id: 'role' }]) }
+        .to raise_error(Assinafy::ValidationError, /Signer ID/)
+      expect { resource.estimate_cost_from_template('template', [{ role_id: 'role', verification_method: 'SMS' }]) }
+        .to raise_error(Assinafy::ValidationError, /verification_method/)
+    end
+
+    it 'rejects invalid editor fields and template options before creating a document' do
+      expect do
+        resource.create_from_template('template', [{ role_id: 'role', id: 'signer' }],
+                                      editor_fields: [{ field_id: 'field', value: nil }])
+      end.to raise_error(Assinafy::ValidationError, /Editor field value/)
+      expect { resource.create_from_template('template', [{ role_id: 'role', id: 'signer' }], []) }
+        .to raise_error(Assinafy::ValidationError, /options/)
+    end
+
+    it 'rejects non-finite polling intervals and non-string document names' do
+      [Float::INFINITY, Float::NAN, Complex(1, 1)].each do |interval|
+        expect { resource.wait_until_ready('doc', max_wait_seconds: interval) }
+          .to raise_error(Assinafy::ValidationError, /positive numbers/)
+      end
+      expect { resource.rename('doc', 123) }.to raise_error(Assinafy::ValidationError, /String/)
+    end
+  end
 end

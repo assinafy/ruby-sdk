@@ -18,6 +18,9 @@ module Assinafy
       # @option payload [Boolean]       :is_active default `true` when omitted
       # @param account_id_override [String, nil]
       # @return [Hash] the subscription object: { events:, is_active:, url:, email:, updated_at: }
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see PUT /accounts/{account_id}/webhooks/subscriptions
       # @example Register (or replace) the subscription
       #   client.webhooks.register(
@@ -44,8 +47,8 @@ module Assinafy
       def register(payload, account_id_override = nil)
         p = require_payload(payload, 'Webhook payload').transform_keys(&:to_sym)
 
-        raise ValidationError.new('Webhook URL is required')   if p[:url].to_s.strip.empty?
-        raise ValidationError.new('Webhook email is required') if p[:email].to_s.strip.empty?
+        require_string(p[:url], 'Webhook URL')
+        Utils.require_email(p[:email])
 
         events = require_array(p[:events], 'Webhook events')
         unless events.all? { |event| event.is_a?(String) && !event.strip.empty? }
@@ -75,6 +78,9 @@ module Assinafy
       #
       # @param account_id_override [String, nil]
       # @return [Hash, nil] subscription object, or `nil` when none is configured (404)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /accounts/{account_id}/webhooks/subscriptions
       # @example Fetch the current subscription
       #   client.webhooks.get
@@ -100,6 +106,9 @@ module Assinafy
       #
       # @param account_id_override [String, nil]
       # @return [Hash] the subscription object with `is_active: false`; the event set is preserved
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see PUT /accounts/{account_id}/webhooks/inactivate
       # @example Inactivate without losing the configured events
       #   client.webhooks.inactivate
@@ -125,6 +134,9 @@ module Assinafy
       # Catalogue of supported event-type identifiers.
       #
       # @return [Array<Hash>] each entry is { id:, description: } (18 event types available)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /webhooks/event-types
       # @example List subscribable event types
       #   client.webhooks.list_event_types
@@ -153,6 +165,9 @@ module Assinafy
       # @param account_id_override [String, nil]
       # @return [Hash{Symbol=>Array,Hash}] `{ data: [dispatch, ...], meta: { current_page:, per_page:, total:,
       #   last_page: } }`
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /accounts/{account_id}/webhooks
       # @example List delivery attempts, filtered to undelivered
       #   client.webhooks.list_dispatches(delivered: false, 'per-page': 20)
@@ -190,6 +205,9 @@ module Assinafy
       # @param dispatch_id [String]
       # @param account_id_override [String, nil]
       # @return [Hash] the freshly created dispatch entry (same shape as {#list_dispatches}, plus `resource`)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see POST /accounts/{account_id}/webhooks/{dispatch_id}/retry
       # @example Force a single dispatch to be re-attempted
       #   client.webhooks.retry_dispatch('dispatch-id')

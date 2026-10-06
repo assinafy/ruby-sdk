@@ -52,7 +52,7 @@ module Assinafy
     # @see https://api.assinafy.com.br/v1/docs
     class OAuthResource < BaseResource
       # Grant types the authorization server advertises.
-      GRANT_TYPES = %w[authorization_code refresh_token].freeze
+      GRANT_TYPES = %w[authorization_code refresh_token urn:ietf:params:oauth:grant-type:token-exchange].freeze
 
       # Accepted `token_type_hint` values on {#revoke}.
       TOKEN_TYPE_HINTS = %w[access_token refresh_token].freeze
@@ -115,6 +115,7 @@ module Assinafy
       #   #   'scope'         => 'documents:read documents:write',
       #   #   'id_token'      => 'signed-jwt'                 # only with openid
       #   # }
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
       def exchange_code(code:, client_id:, code_verifier:, redirect_uri: nil,
                         client_secret: nil, resource: nil)
         token(
@@ -182,6 +183,8 @@ module Assinafy
       #   #   'refresh_token' => 'new-refresh-token',
       #   #   'scope'         => 'documents:read'
       #   # }
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       def refresh(refresh_token:, client_id:, client_secret: nil, resource: nil)
         token(
           grant_type:    'refresh_token',
@@ -194,12 +197,14 @@ module Assinafy
 
       # Call the token endpoint directly.
       #
-      # {#exchange_code} and {#refresh} cover both supported grants; reach for
-      # this only to send a parameter they do not model. The `refresh_token`
+      # {#exchange_code} and {#refresh} cover ordinary marketplace clients.
+      # RFC 8693 token exchange is reserved for Assinafy-provisioned internal
+      # confidential clients; ordinary clients receive `invalid_client`.
+      # The `refresh_token`
       # grant gets the same rotation check, and the same retry rules, as
       # {#refresh}.
       #
-      # @param grant_type [String] `"authorization_code"` or `"refresh_token"`
+      # @param grant_type [String] a value from {GRANT_TYPES}
       # @param client_id  [String] the registered client identifier
       # @param params     [Hash] additional body parameters; nil values are dropped
       # @return [Hash{String=>Object}] the flat token response
@@ -209,18 +214,37 @@ module Assinafy
       # @raise [Assinafy::ValidationError] on an unsupported `grant_type`
       #
       # @see POST /oauth/token
+      # @example Internal service-client token exchange
+      #   client.oauth.token(
+      #     grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+      #     client_id: ENV.fetch('ASSINAFY_SERVICE_CLIENT_ID'),
+      #     client_secret: ENV.fetch('ASSINAFY_SERVICE_CLIENT_SECRET'),
+      #     subject_token: 'subject-access-token-placeholder',
+      #     subject_token_type: 'urn:ietf:params:oauth:token-type:access_token',
+      #     resource: 'https://api.assinafy.com.br'
+      #   )
+      #   # Form fields are the keyword arguments above. Response (flat):
+      #   # { 'access_token' => 'exchanged-token-placeholder', 'token_type' => 'Bearer',
+      #   #   'expires_in' => 600, 'scope' => 'documents:read',
+      #   #   'issued_token_type' => 'urn:ietf:params:oauth:token-type:access_token' }
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
       def token(grant_type:, client_id:, **params)
         grant = require_string(grant_type, 'Grant type')
         unless GRANT_TYPES.include?(grant)
           raise ValidationError.new("Grant type must be one of: #{GRANT_TYPES.join(', ')}", { grant_type: grant_type })
         end
 
-        body  = body_params(params.merge(grant_type: grant, client_id: require_string(client_id, 'Client ID')))
+        body = body_params(params.merge(grant_type: grant, client_id: require_string(client_id, 'Client ID')))
+        validate_token_request!(body)
         label = 'Failed to exchange OAuth token'
 
         @logger.info("Requesting OAuth token (#{grant})")
         response = request(label) { http_post_form('oauth/token', body, workspace_auth: false) }
         tokens   = unwrap(response)
+        unless tokens.is_a?(Hash) && tokens['access_token'].is_a?(String) && !tokens['access_token'].strip.empty? &&
+               tokens['token_type'].to_s.casecmp?('Bearer')
+          raise unexpected_response(label, 'an access token and Bearer token_type', response, tokens)
+        end
         return tokens if grant != 'refresh_token' || rotated?(tokens, body['refresh_token'])
 
         raise unexpected_response(label, 'a new refresh token', response, tokens)
@@ -260,6 +284,8 @@ module Assinafy
       #   #
       #   # Response: HTTP 200, empty body
       #   # => nil
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       def revoke(token:, client_id:, token_type_hint: nil, client_secret: nil)
         if !token_type_hint.nil? && !TOKEN_TYPE_HINTS.include?(token_type_hint.to_s)
           raise ValidationError.new(
@@ -310,6 +336,8 @@ module Assinafy
       #   #   'email'          => 'user@example.com', # requires the email scope
       #   #   'email_verified' => true
       #   # }
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       def userinfo
         call('Failed to fetch OAuth userinfo') do
           http_get('oauth/userinfo')
@@ -329,6 +357,9 @@ module Assinafy
       #
       # @return [Hash{String=>Object}] the bare metadata object
       #
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /.well-known/oauth-protected-resource
       #
       # @example Discover the authorization server
@@ -376,10 +407,13 @@ module Assinafy
       #   #   'token_endpoint' => 'https://api.assinafy.com.br/v1/oauth/token',
       #   #   'revocation_endpoint' => 'https://api.assinafy.com.br/v1/oauth/revoke',
       #   #   'userinfo_endpoint' => 'https://api.assinafy.com.br/v1/oauth/userinfo',
+      #   #   'introspection_endpoint' => 'https://api.assinafy.com.br/v1/oauth/introspect',
       #   #   'jwks_uri' => 'https://auth.assinafy.com.br/.well-known/jwks.json',
-      #   #   'scopes_supported' => ['documents:read', '...', 'offline_access'],
+      #   #   'scopes_supported' => %w[documents:read documents:write templates:read templates:write
+      #   #                            account:read webhooks:write openid profile email offline_access],
       #   #   'response_types_supported' => ['code'],
-      #   #   'grant_types_supported' => ['authorization_code', 'refresh_token'],
+      #   #   'grant_types_supported' => ['authorization_code', 'refresh_token',
+      #   #                               'urn:ietf:params:oauth:grant-type:token-exchange'],
       #   #   'code_challenge_methods_supported' => ['S256'],
       #   #   'token_endpoint_auth_methods_supported' => ['client_secret_post', 'none'],
       #   #   'authorization_response_iss_parameter_supported' => true,
@@ -394,6 +428,26 @@ module Assinafy
       end
 
       private
+
+      def validate_token_request!(body)
+        case body['grant_type']
+        when 'authorization_code'
+          require_string(body['code'], 'Authorization code')
+          Assinafy::OAuth.validate_code_verifier!(body['code_verifier'])
+        when 'refresh_token'
+          require_string(body['refresh_token'], 'Refresh token')
+        else
+          %w[client_secret subject_token resource].each { |key| require_string(body[key], key) }
+          token_type = 'urn:ietf:params:oauth:token-type:access_token'
+          unless body['subject_token_type'] == token_type &&
+                 (body['requested_token_type'].nil? || body['requested_token_type'] == token_type)
+            raise ValidationError.new('Token exchange only supports access_token token types')
+          end
+        end
+        %w[redirect_uri client_secret resource scope].each do |key|
+          require_string(body[key], key) unless body[key].nil?
+        end
+      end
 
       # OAuth routes report failures as RFC 6749 error objects rather than this
       # API's envelope, so they raise {OAuthError} (an {ApiError}, so existing

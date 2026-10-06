@@ -213,4 +213,13 @@ RSpec.describe Assinafy::Resources::FieldResource do
       expect { resource.types }.to raise_error(Assinafy::Error, /Array data payload/)
     end
   end
+
+  describe 'payload validation' do
+    it 'rejects invalid scalar fields and boolean options before a request' do
+      expect { resource.create(name: 'Example', type: 123) }.to raise_error(Assinafy::ValidationError)
+      expect { resource.create(name: 'Example', type: 'text', is_required: 'yes') }
+        .to raise_error(Assinafy::ValidationError)
+      expect { resource.update('field', is_active: 'yes') }.to raise_error(Assinafy::ValidationError)
+    end
+  end
 end

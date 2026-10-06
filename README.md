@@ -83,6 +83,7 @@ A Assinafy aceita três credenciais. Escolha pela pergunta "**quem** está agind
 
 ```ruby
 require 'assinafy'
+require 'logger'
 
 client = Assinafy::Client.new(
   api_key:        ENV.fetch('ASSINAFY_API_KEY'),
@@ -127,7 +128,7 @@ O caminho mais curto do PDF até o pedido de assinatura:
 ```ruby
 resultado = client.upload_and_request_signatures(
   source:  './contrato.pdf',
-  signers: [{ full_name: 'Ana Silva', email: 'ana@exemplo.com.br' }],
+  signers: [{ full_name: 'Ana Silva', email: 'ana@example.com' }],
   message: 'Por favor, assine o contrato em anexo.'
 )
 
@@ -192,18 +193,20 @@ Erros de rede durante a espera são tolerados e reprocessados; um status termina
 ```ruby
 signatario = client.signers.create(
   full_name:             'Ana Silva',
-  email:                 'ana@exemplo.com.br',
-  whatsapp_phone_number: '+5511999999999',  # obrigatório para verificação por WhatsApp
-  government_id:         '00000000000'      # obrigatório para certificado digital
+  email:                 'ana@example.com',
+  whatsapp_phone_number: '+5500000000000'   # substitua por um número de teste válido
 )
 signatario['id'] # => "19e6b92e7895332ed9708535d8c"
+
+# Para certificado digital, cadastre o CPF/CNPJ real autorizado antes do assignment:
+client.signers.update(signatario['id'], government_id: ENV.fetch('ASSINAFY_SIGNER_GOVERNMENT_ID'))
 ```
 
 Signatários pertencem à conta e podem ser reaproveitados entre documentos:
 
 ```ruby
-existente = client.signers.find_by_email('ana@exemplo.com.br')  # paginação percorrida pelo SDK
-signatario = existente || client.signers.create(full_name: 'Ana Silva', email: 'ana@exemplo.com.br')
+existente = client.signers.find_by_email('ana@example.com')  # paginação percorrida pelo SDK
+signatario = existente || client.signers.create(full_name: 'Ana Silva', email: 'ana@example.com')
 ```
 
 ### 4.4 Estimar o custo (opcional, recomendado)
@@ -233,7 +236,7 @@ assignment = client.assignments.create(
     { id: signatario['id'], verification_method: 'Email', notification_methods: ['Email'], step: 1 }
   ],
   message:        'Por favor, assine o contrato em anexo.',
-  expires_at:     '2026-12-31T23:59:00Z',
+  expires_at:     '2099-12-31T23:59:00Z',
   copy_receivers: []                       # IDs que só recebem cópia
 )
 
@@ -241,8 +244,9 @@ assignment['signing_urls']
 # => [{ 'signer_id' => '19e6b...', 'url' => 'https://.../sign/...' }]
 ```
 
-`step` define a ordem: todos do passo 1 assinam antes do passo 2. Omita para assinatura
-simultânea.
+`step` define a ordem: todos do passo 1 assinam antes do passo 2. Se informado para um
+signatário, informe para todos, em uma sequência contínua iniciada em 1. Omita para assinatura
+simultânea. `expires_at` deve ter fuso horário e estar pelo menos uma hora no futuro.
 
 **`collect`** — campos posicionados página a página.
 
@@ -349,7 +353,7 @@ client.assignments.resend_notification(documento['id'], assignment['id'], signat
 Estender o prazo:
 
 ```ruby
-client.assignments.reset_expiration(documento['id'], assignment['id'], '2027-01-31T23:59:00Z')
+client.assignments.reset_expiration(documento['id'], assignment['id'], '2099-01-31T23:59:00Z')
 ```
 
 Para acompanhar sem polling, use [webhooks](#8-webhooks).
@@ -417,7 +421,7 @@ session[:assinafy_issuer]        = Assinafy::OAuth::AUTHORIZATION_SERVER # emiss
 
 redirect_to Assinafy::OAuth.authorization_url(
   client_id:     ENV.fetch('ASSINAFY_CLIENT_ID'),
-  redirect_uri:  'https://app.exemplo.com.br/oauth/callback',
+  redirect_uri:  'https://app.example.com/oauth/callback',
   code_verifier: verificador,
   scope:         %w[documents:read documents:write offline_access],
   state:         state
@@ -442,7 +446,7 @@ tokens = Assinafy::Client.new.oauth.exchange_code(
   code:          params.fetch(:code),
   client_id:     ENV.fetch('ASSINAFY_CLIENT_ID'),
   code_verifier: session.delete(:assinafy_code_verifier),
-  redirect_uri:  'https://app.exemplo.com.br/oauth/callback'
+  redirect_uri:  'https://app.example.com/oauth/callback'
 )
 
 tokens['access_token']   # => "..."
@@ -533,6 +537,13 @@ servidor['token_endpoint']                    # => "https://api.assinafy.com.br/
 servidor['code_challenge_methods_supported']  # => ["S256"]
 ```
 
+### Clientes internos de serviço
+
+O servidor também publica o grant RFC 8693 `urn:ietf:params:oauth:grant-type:token-exchange`.
+Ele é reservado a clientes confidenciais internos provisionados pela Assinafy; aplicativos de
+marketplace usam autorização com PKCE e renovação. O método `client.oauth.token` aceita esse grant,
+com `client_secret`, `subject_token`, `subject_token_type` e `resource`. Ele não emite refresh token.
+
 ### Erros OAuth
 
 Os endpoints OAuth respondem com o objeto plano da RFC 6749, não com o envelope da API. O SDK
@@ -572,7 +583,7 @@ Os valores aceitos estão publicados em
 valida localmente: um valor fora do enum levanta `ValidationError` **antes** de a requisição
 sair — e portanto antes de qualquer signatário ser criado para aquele assignment.
 
-Combinações permitidas: `Email` → notifica por `Email`; `Whatsapp` → notifica por `Whatsapp`;
+Informe exatamente um canal em `notification_methods`. Combinações permitidas: `Email` → notifica por `Email`; `Whatsapp` → notifica por `Whatsapp`;
 `DigitalCertificate` → notifica por `Email` **ou** `Whatsapp`.
 
 ### Certificado digital ICP-Brasil (A1/A3)
@@ -590,7 +601,7 @@ client.assignments.create(
 )
 ```
 
-Antes de abrir o assignment, o signatário precisa confirmar os dados de identidade e aceitar os
+Antes de concluir a assinatura, o signatário precisa confirmar os dados de identidade e aceitar os
 termos. O endpoint comum de assinatura **rejeita** signatários por certificado — a assinatura
 deles é produzida por um handshake de dois passos com a extensão Web PKI:
 
@@ -603,7 +614,8 @@ POST /v1/signers/certificate/complete  → data.signerName
 > Essas duas rotas são extensões que **não constam do documento OpenAPI publicado**: a
 > autenticação e os esquemas de requisição/resposta delas não são documentados. Como envolveria
 > adivinhar o payload, o SDK **não** expõe essas duas chamadas — fale com a Assinafy antes de
-> habilitar o fluxo em produção.
+> integrar essas rotas diretamente. Para A1/A3, direcione o signatário ao fluxo hospedado
+> de assinatura da Assinafy usando `assignment['signing_urls']`.
 
 Concluído o fluxo, baixar o artefato `pades` devolve a assinatura PAdES qualificada.
 
@@ -624,15 +636,19 @@ client.templates.download_page(template['id'], pagina_id)
 client.templates.delete(template['id'])
 ```
 
-Gerar um documento a partir de um template:
+Configure os papéis e campos no aplicativo Assinafy antes de gerar documentos. O upload cria
+um papel `Editor`; a geração exige pelo menos um papel `Signer`. Use um signatário já existente
+e diferente para cada papel. `role_id` vem de `template['roles']`, e `id` é o ID do signatário.
+
+Gerar um documento a partir de um template com um único papel `Signer`:
 
 ```ruby
 client.documents.estimate_cost_from_template(
-  template['id'], [{ full_name: 'Ana Silva', email: 'ana@exemplo.com.br' }]
+  template['id'], [{ role_id: 'papel-assinante-id', id: signatario['id'] }]
 )
 
 documento = client.documents.create_from_template(
-  template['id'], [{ full_name: 'Ana Silva', email: 'ana@exemplo.com.br' }]
+  template['id'], [{ role_id: 'papel-assinante-id', id: signatario['id'] }]
 )
 ```
 
@@ -641,7 +657,7 @@ documento = client.documents.create_from_template(
 Definições de campo reutilizáveis, com validação opcional por regex:
 
 ```ruby
-campo = client.fields.create(name: 'CPF', type: 'text', regex: '\A\d{11}\z')
+campo = client.fields.create(name: 'CPF', type: 'text', regex: '/^\d{11}$/')
 client.fields.types      # tipos de campo disponíveis
 client.fields.list
 client.fields.validate(campo['id'], '12345678901')
@@ -673,9 +689,9 @@ Registrar a assinatura de eventos da conta:
 client.webhooks.list_event_types  # eventos disponíveis
 
 client.webhooks.register(
-  url:       'https://app.exemplo.com.br/webhooks/assinafy',
-  email:     'ops@exemplo.com.br',   # para avisos de falha de entrega
-  events:    %w[document.completed signer.declined],
+  url:       'https://app.example.com/webhooks/assinafy',
+  email:     'ops@example.com',   # para avisos de falha de entrega
+  events:    %w[document_ready document_prepared signer_signed_document],
   is_active: true
 )
 
@@ -685,20 +701,22 @@ client.webhooks.list_dispatches
 client.webhooks.retry_dispatch(dispatch_id)
 ```
 
-Verificar a assinatura HMAC-SHA256 do payload recebido:
+A API não publica um esquema de assinatura para os webhooks enviados. O verificador HMAC-SHA256
+local é opcional: use-o quando um gateway seu assina o corpo bruto com um segredo compartilhado.
+O cabeçalho abaixo é inserido por esse gateway, e não pela Assinafy:
 
 ```ruby
 verificador = client.webhook_verifier   # usa o webhook_secret do cliente
 
 post '/webhooks/assinafy' do
   corpo      = request.body.read
-  assinatura = request.env['HTTP_X_ASSINAFY_SIGNATURE']
+  assinatura = request.env['HTTP_X_WEBHOOK_SIGNATURE']
 
   halt 401 unless verificador.verify(corpo, assinatura)
 
   evento = verificador.extract_event(corpo)
   case verificador.event_type(evento)
-  when 'document.completed' then processar(verificador.event_data(evento))
+  when 'signer_signed_document' then processar(verificador.event_object(evento))
   end
 
   200
@@ -852,6 +870,20 @@ método novo chega à gem sem uma.
 - [docs/API_REFERENCE.md](docs/API_REFERENCE.md) — referência por operação
 - [CHANGELOG.md](CHANGELOG.md) — histórico de versões
 - [Documentação da API](https://api.assinafy.com.br/v1/docs)
+
+## Desenvolvimento e testes
+
+```bash
+bundle exec rake spec
+bundle exec rubocop
+bundle exec bundler-audit check --update
+rbs -I sig validate
+ruby scripts/check_api_contract.rb
+```
+
+A [suíte sandbox](spec/integration/live_sandbox_spec.rb) fica fora da execução padrão.
+Veja os [pré-requisitos e variáveis](README.en.md#live-integration-tests), incluindo um template
+com papel `Signer` para testar a geração. Os testes enviam e-mails e removem os recursos criados.
 
 ## Licença
 

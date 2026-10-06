@@ -10,7 +10,7 @@ module Assinafy
     # See https://api.assinafy.com.br/v1/docs#signer for the full
     # documentation of these endpoints.
     class SignerResource < BaseResource
-      EMAIL_REGEX     = /\A[^\s@]+@[^\s@]+\.[^\s@]+\z/
+      EMAIL_REGEX     = Utils::EMAIL_PATTERN
       SIGNATURE_TYPES = %w[signature initial].freeze
 
       # Validate and normalize a payload accepted by {#create} without sending
@@ -42,6 +42,9 @@ module Assinafy
       # @option payload [String] :phone                 alias for :whatsapp_phone_number
       # @param account_id_override [String, nil]
       # @return [Hash] signer object (envelope `data` unwrapped)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see POST /accounts/{account_id}/signers
       # @example Create a signer
       #   signer = client.signers.create(full_name: 'Example Signer', email: 'signer@example.com')
@@ -76,6 +79,9 @@ module Assinafy
       # @param signer_id           [String]
       # @param account_id_override [String, nil]
       # @return [Hash] signer object (envelope `data` unwrapped)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /accounts/{account_id}/signers/{signer_id}
       # @example Fetch a signer by ID
       #   signer = client.signers.get('signer-id')
@@ -102,6 +108,9 @@ module Assinafy
       # @param params [Hash] query parameters (`search`, `page`, `per_page`)
       # @param account_id_override [String, nil]
       # @return [Hash{Symbol=>Array,Hash}] `{ data: [...], meta: { ... } }`
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /accounts/{account_id}/signers
       # @example List signers, page 1, 3 per page
       #   result = client.signers.list(page: 1, per_page: 3)
@@ -141,6 +150,9 @@ module Assinafy
       # @option payload [String] :government_id CPF/CNPJ; digits only on save
       # @param account_id_override [String, nil]
       # @return [Hash] updated signer object (envelope `data` unwrapped)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see PUT /accounts/{account_id}/signers/{signer_id}
       # @example Update a signer's full name and government ID
       #   signer = client.signers.update('signer-id', full_name: 'Updated Signer',
@@ -172,6 +184,9 @@ module Assinafy
       # @param signer_id           [String]
       # @param account_id_override [String, nil]
       # @return [nil] the SDK returns nil on success (response body is discarded)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see DELETE /accounts/{account_id}/signers/{signer_id}
       # @example Delete a signer
       #   client.signers.delete('signer-id')
@@ -209,8 +224,8 @@ module Assinafy
       #   #
       #   # => nil # when no returned signer matches
       def find_by_email(email, account_id_override = nil)
-        assert_email!(email.to_s)
-        target = email.to_s.downcase
+        assert_email!(email)
+        target = email.downcase
         page   = 1
 
         loop do
@@ -230,6 +245,9 @@ module Assinafy
       #
       # @param signer_access_code [String]
       # @return [Hash] signer object plus self-only fields (envelope `data` unwrapped)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /signers/self
       # @example Fetch the signer's own profile
       #   me = client.signers.self_data(signer_access_code: 'signer-access-code')
@@ -261,6 +279,9 @@ module Assinafy
       #
       # @param signer_access_code [String]
       # @return [nil] the documented success envelope has no `data` payload
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see PUT /signers/accept-terms
       # @example Accept the terms of use
       #   result = client.signers.accept_terms(signer_access_code: 'signer-access-code')
@@ -283,6 +304,9 @@ module Assinafy
       # @param verification_code  [String]
       # @param signer_access_code [String]
       # @return [nil] the documented success envelope has no `data` payload
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see POST /verify
       # @example Verify the signer's email with a one-time code
       #   result = client.signers.verify_email(
@@ -318,6 +342,9 @@ module Assinafy
       # @param payload            [Hash] `:full_name`, `:email`, `:government_id`
       # @param signer_access_code [String]
       # @return [Hash] the updated signer object (envelope `data` unwrapped)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see PUT /documents/{documentId}/signers/confirm-data
       # @example Confirm the signer's data
       #   result = client.signers.confirm_data(
@@ -354,6 +381,9 @@ module Assinafy
       #   reusable for future documents (documented `reuse` query flag)
       # @return [nil, Array] `nil` for the OpenAPI's no-data envelope; some deployed
       #   versions return `data: []`, which the SDK passes through as an empty Array
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see POST /signature
       # @example Upload a PNG signature image
       #   bytes  = File.binread('signature.png')
@@ -400,6 +430,9 @@ module Assinafy
       # @param signer_access_code [String]
       # @param type               [String] `signature` or `initial`
       # @return [String] binary image body (ASCII-8BIT), e.g. raw PNG bytes
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /signature/{type}
       # @example Download and save the signer's signature image
       #   png = client.signers.download_signature(
@@ -422,9 +455,7 @@ module Assinafy
       private
 
       def assert_email!(email)
-        unless email.is_a?(String) && EMAIL_REGEX.match?(email)
-          raise ValidationError.new('Invalid email address', { email: email })
-        end
+        Utils.require_email(email)
       end
 
       def signer_payload(payload, require_full_name:, include_government_id: false)

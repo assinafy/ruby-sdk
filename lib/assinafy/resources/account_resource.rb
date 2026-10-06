@@ -12,6 +12,9 @@ module Assinafy
       #
       # @return [Hash{Symbol=>Array,nil}] `{ data: [Account, ...], meta: nil }`
       #   (this endpoint sends no pagination headers)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /accounts
       # @example List my accounts
       #   # Request: GET /accounts
@@ -43,6 +46,9 @@ module Assinafy
       # @option payload [String] :name                    required display name
       # @option payload [String] :notification_sender_type `"User"` or `"Account"`
       # @return [Hash] the created account (envelope `data` unwrapped)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see POST /accounts
       # @example Create an account
       #   # Request: POST /accounts
@@ -59,7 +65,8 @@ module Assinafy
       #   }
       def create(payload)
         body = body_params(require_payload(payload, 'Account payload'))
-        require_present(body['name'], 'name')
+        require_string(body['name'], 'name')
+        validate_sender_type!(body)
 
         call('Failed to create account') do
           http_post('accounts', body)
@@ -70,6 +77,9 @@ module Assinafy
       #
       # @param account_id_override [String, nil]
       # @return [Hash] the account (envelope `data` unwrapped)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /accounts/{account_id}
       # @example Fetch the current account
       #   # Request: GET /accounts/{account_id}
@@ -96,6 +106,9 @@ module Assinafy
       # @param payload [Hash] `name` and/or `notification_sender_type`
       # @param account_id_override [String, nil]
       # @return [Hash] the updated account (envelope `data` unwrapped)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see PUT /accounts/{account_id}
       # @example Rename the current account
       #   # Request: PUT /accounts/{account_id}
@@ -113,6 +126,8 @@ module Assinafy
       def update(payload, account_id_override = nil)
         acc_id = account_id(account_id_override)
         body   = body_params(require_payload(payload, 'Account payload'))
+        require_string(body['name'], 'name') if body.key?('name')
+        validate_sender_type!(body)
 
         call('Failed to update account') do
           http_put("accounts/#{acc_id}", body)
@@ -127,6 +142,9 @@ module Assinafy
       #   deletion (default false); it does not bypass pending-document checks
       # @param account_id_override [String, nil]
       # @return [nil] the API returns `data: []`; the SDK normalizes this to `nil`
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see DELETE /accounts/{account_id}
       # @example Force-delete a throwaway account
       #   # Request: DELETE /accounts/{account_id}
@@ -146,6 +164,9 @@ module Assinafy
       #
       # @param account_id_override [String, nil]
       # @return [Hash] `{ 'account_name' =>, 'primary_color' =>, 'secondary_color' =>, 'logo' => }`
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /accounts/{account_id}/theme
       # @example Fetch the account theme
       #   # Request: GET /accounts/{account_id}/theme
@@ -174,6 +195,9 @@ module Assinafy
       # @param month       [String, nil] e.g. `"2026-06"`
       # @param account_id_override [String, nil]
       # @return [Array<Hash>] one KPI entry per period
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /accounts/{account_id}/stats
       # @example Fetch monthly KPIs
       #   # Request: GET /accounts/{account_id}/stats?granularity=monthly&month=2026-06
@@ -216,6 +240,8 @@ module Assinafy
       #   # Request: GET /accounts/{account_id}/logo
       #   bytes = client.accounts.download_logo
       #   File.binwrite('logo.png', bytes)
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       def download_logo(account_id_override = nil)
         acc_id = account_id(account_id_override)
 
@@ -231,6 +257,9 @@ module Assinafy
       # @param account_id_override [String, nil]
       # @return [nil, Hash] `nil` for the OpenAPI's no-data envelope; the deployed
       #   API returns `{ 'mime_type' =>, 'version' =>, 'updated_at' => }`
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see POST /accounts/{account_id}/logo
       # @example Upload a PNG logo
       #   # Request: POST /accounts/{account_id}/logo (multipart/form-data)
@@ -257,6 +286,9 @@ module Assinafy
       #
       # @param account_id_override [String, nil]
       # @return [nil] the documented success envelope has no `data` payload
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
       # @see DELETE /accounts/{account_id}/logo
       # @example Delete the logo
       #   # Request: DELETE /accounts/{account_id}/logo
@@ -268,6 +300,15 @@ module Assinafy
         call_void('Failed to delete account logo') do
           http_delete("accounts/#{acc_id}/logo")
         end
+      end
+
+      private
+
+      def validate_sender_type!(body)
+        return unless body.key?('notification_sender_type')
+        return if %w[User Account].include?(body['notification_sender_type'])
+
+        raise ValidationError.new('notification_sender_type must be User or Account')
       end
     end
   end

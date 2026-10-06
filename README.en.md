@@ -57,6 +57,7 @@ client = Assinafy::Client.new(
 )
 
 document = client.documents.upload({ file_path: './contract.pdf' })
+document = client.documents.wait_until_ready(document.fetch('id'))
 signer   = client.signers.create(full_name: 'Alice Silva', email: 'alice@example.com')
 
 assignment = client.assignments.create(
@@ -72,6 +73,7 @@ puts assignment['id']
 ## Configuration
 
 ```ruby
+require 'logger'
 client = Assinafy::Client.new(
   api_key:        'your-api-key',
   token:          nil,
@@ -270,6 +272,11 @@ client.oauth.authorization_server_metadata['code_challenge_methods_supported']
 `authorization_server_metadata` reaches a different host, so — like `/oauth/token` and `/oauth/revoke` — the SDK
 sends it with no workspace credentials attached.
 
+**Internal service clients.** The advertised RFC 8693 token-exchange grant is restricted to
+Assinafy-provisioned confidential service clients. Marketplace apps use PKCE authorization code
+and refresh. `client.oauth.token` accepts token exchange with `client_secret`, `subject_token`,
+`subject_token_type`, and `resource`; it issues no refresh token.
+
 **Errors.** OAuth routes answer with the flat RFC 6749 object rather than this API's envelope, so the SDK raises
 `Assinafy::OAuthError` (a subclass of `Assinafy::ApiError`):
 
@@ -343,11 +350,11 @@ client.documents.append_tags('document-id', ['tag-id-3'])
 # The deployed sandbox also accepts existing tag names in these arrays.
 client.documents.detach_tag('document-id', 'tag-id')
 
-# Template-driven creation
+# Template-driven creation (a template with one configured Signer role)
 client.documents.create_from_template(
   'template-id',
   [{ role_id: 'role', id: 'signer-id', verification_method: 'Email', notification_methods: ['Email'] }],
-  { name: 'Contract', message: 'Please sign', expires_at: '2026-12-31T23:59:00Z' }
+  { name: 'Contract', message: 'Please sign', expires_at: '2099-12-31T23:59:00Z' }
 )
 client.documents.estimate_cost_from_template(
   'template-id',
@@ -401,7 +408,7 @@ client.assignments.create(
   method:         'virtual',
   signers:        [{ id: 'signer-1', verification_method: 'Email', notification_methods: ['Email'], step: 1 }],
   message:        'Please sign',
-  expires_at:     '2026-12-31T23:59:00Z',
+  expires_at:     '2099-12-31T23:59:00Z',
   copy_receivers: ['cc-signer-id']
 )
 
@@ -417,7 +424,7 @@ client.assignments.create(
 
 client.assignments.list                                       # GET /assignments (scoped to the account)
 client.assignments.estimate_cost('document-id', signers: [{ verification_method: 'Whatsapp' }])
-client.assignments.reset_expiration('document-id', 'assignment-id', '2026-12-31T23:59:00Z')
+client.assignments.reset_expiration('document-id', 'assignment-id', '2099-12-31T23:59:00Z')
 client.assignments.reset_expiration('document-id', 'assignment-id', nil) # clears the expiry
 client.assignments.resend_notification('document-id', 'assignment-id', 'signer-id')
 client.assignments.estimate_resend_cost('document-id', 'assignment-id', 'signer-id')
@@ -435,6 +442,11 @@ client.assignments.decline('document-id', 'assignment-id', decline_reason: 'Clau
 ```
 
 > The `sign` request body is the API's camelCase body-key exception. This SDK accepts the snake_case keys (`item_id`, `field_id`, `page_id`, `value`) shown above and maps them to `itemId/fieldId/pageId/value` automatically. CamelCase input is also passed through unchanged. Assignment listing separately uses the live-required `accountId` query parameter.
+
+Use exactly one notification channel per signer: `Email` verification pairs with `Email`,
+`Whatsapp` pairs with `Whatsapp`, and `DigitalCertificate` permits either. If any signer has a
+`step`, all must have one, with contiguous steps starting at 1. A certificate signer must be alone
+in its step. Deadlines require a timezone and must be at least one hour in the future.
 
 ### Signer documents (multi-document workflows)
 
@@ -459,7 +471,12 @@ client.templates.delete('template-id')
 client.templates.download_page('template-id', 'page-id')   # binary image bytes
 ```
 
-> Template endpoints (`get`/`create`/`update`/`delete`/`download_page`) are live-verified against the sandbox but are not part of the current OpenAPI document. `create` requires a source file (`multipart/form-data`); the template name defaults to the uploaded file's name.
+> Template endpoints (`get`/`create`/`update`/`delete`/`download_page`) are supported by the deployed API but are not part of the current OpenAPI document. `create` requires a source file (`multipart/form-data`); the template name defaults to the uploaded file's name.
+
+A template upload initially contains an `Editor` role. Configure at least one `Signer` role and its
+fields in the Assinafy application before generating a document. Supply one entry per role, each with
+a distinct existing signer ID; `role_id` comes from the template's `roles` array. Cost estimation
+requires `role_id` but can omit the signer ID.
 
 ### Tags
 
@@ -639,16 +656,18 @@ assignment = client.assignments.create(
   method:     'virtual',
   signers:    [signer_request],
   message:    'Please review and sign.',
-  expires_at: '2026-12-31T23:59:00Z'
+  expires_at: '2099-12-31T23:59:00Z'
 )
 # => Assignment, including signing_urls
 ```
 
-The template alternative binds a signer to a template role and creates the document and assignment together:
+For a template configured with exactly one `Signer` role, the alternative binds the existing signer
+to that role and creates the document and assignment together. Templates with more roles require
+a distinct signer entry for each role:
 
 ```ruby
 role_signer = {
-  role_id:              template.fetch('roles').first.fetch('id'),
+  role_id:              template.fetch('roles').find { |role| role['assignment_type'] == 'Signer' }.fetch('id'),
   id:                   signer.fetch('id'),
   verification_method:  'Email',
   notification_methods: ['Email']
@@ -721,7 +740,8 @@ signer is created.
 Requesting the method is fully supported. Completing the signature is not: the two-step handshake
 (`/signers/certificate/start`, `/signers/certificate/complete`) is absent from the API v1 machine contract — its
 authentication and request/response schemas are not published — so the SDK does not expose those completion
-calls rather than guess at their payloads. Contact Assinafy before enabling a digital-certificate signing flow.
+calls. Direct A1/A3 signers to Assinafy's hosted signing flow using the returned `signing_urls`;
+contact Assinafy for a published contract before integrating the handshake directly.
 Once it completes, the `pades` artifact returns the qualified signature.
 
 ### 7. Inspect, tag, download, and verify
@@ -734,7 +754,8 @@ tags = client.documents.append_tags(document_id, ['tag-id']) # => Array<Tag>
 client.documents.replace_tags(document_id, tags.map { |tag| tag.fetch('id') })
 
 original_pdf = client.documents.download(document_id, 'original')
-signed_pdf = client.documents.download(document_id, 'pades')
+signed_pdf = client.documents.download(document_id, 'certificated')
+# For documents completed with ICP-Brasil certificates: download(document_id, 'pades')
 certificate_pdf = client.documents.download(document_id, 'certificated')
 
 verification = client.documents.verify('signature-hash-from-assinafy')
@@ -787,10 +808,10 @@ result = client.upload_and_request_signatures(
   source:  { file_path: './contract.pdf' },
   signers: [
     { full_name: 'Alice Silva', email: 'alice@example.com' },
-    { full_name: 'Bob Costa',   whatsapp_phone_number: '+5548999990000' }
+    { full_name: 'Bob Costa',   email: 'bob@example.com' }
   ],
   message:    'Please sign.',
-  expires_at: '2026-12-31T23:59:00Z'
+  expires_at: '2099-12-31T23:59:00Z'
 )
 
 puts result[:document]['id']
@@ -841,9 +862,15 @@ ASSINAFY_API_KEY=... \
 ASSINAFY_ACCOUNT_ID=... \
 ASSINAFY_TEST_EMAIL=recipient1@example.com \
 ASSINAFY_TEST_EMAIL2=recipient2@example.com \
+ASSINAFY_TEMPLATE_ID=configured-template-id \
 ASSINAFY_BASE_URL=https://sandbox.assinafy.com.br/v1 \
 bundle exec rspec spec/integration
 ```
+
+`ASSINAFY_TEMPLATE_ID` must identify a sandbox template with a `Signer` role configured in the
+application. Without it, the positive template-generation example is skipped. Supply different test
+recipients for its roles. OAuth browser consent is tested separately with a registered app, an HTTPS
+callback, and the matching authorization server; sandbox keys are not production OAuth credentials.
 
 > These tests create and clean up real resources and, for the assignment flow, send real signature-request emails to the addresses in `ASSINAFY_TEST_EMAIL` / `ASSINAFY_TEST_EMAIL2`.
 
