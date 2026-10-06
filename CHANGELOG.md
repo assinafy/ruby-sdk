@@ -2,6 +2,10 @@
 
 All notable changes to the `assinafy` Ruby gem are documented here.
 
+## 1.10.1
+
+- Update the pinned Ruby setup action to support Ruby 4.0.7 in CI and release workflows.
+
 ## 1.10.0
 
 - Support the RFC 8693 token-exchange grant for Assinafy-provisioned internal service clients.
