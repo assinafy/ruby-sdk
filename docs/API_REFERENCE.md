@@ -1,7 +1,7 @@
 # Assinafy Ruby SDK API Reference
 
-> Contract source: Assinafy API v1 OpenAPI 3.0.0, retrieved 2026-10-05 from
-> `https://api.assinafy.com.br/v1/docs/openapi.json` (71 paths, 93 operations, 41 schemas).
+> Contract source: Assinafy API v1 OpenAPI 3.1.0, retrieved 2026-10-07 from
+> `https://api.assinafy.com.br/v1/docs/openapi.json` (81 paths, 106 operations, 44 schemas).
 > `scripts/check_api_contract.rb` validates contract compatibility weekly.
 
 This is the SDK-facing contract reference. Paths below are wire paths; Ruby methods return the unwrapped
@@ -28,6 +28,12 @@ Required parameters and object properties are marked with `*`.
   the callback before anything else, including an `error=` return, and keep refresh tokens out of logs.
 - Signer-facing operations use the one-time `signer-access-code` query parameter where shown. Never log, commit,
   or place API keys, bearer tokens, signer codes, or real recipient addresses in examples or fixtures.
+- `POST /v1/login` answers with an `mfa_token` challenge instead of an access token when the user has two-factor
+  authentication enabled. `AuthResource#verify_mfa` exchanges it, without workspace credentials; the challenge is
+  single-use and expires 5 minutes after login.
+- Webhook endpoint signing secrets (`whsec_...`) are readable and rotatable only with an API key or a user session
+  token, never by OAuth applications. Treat them like API keys. Verify every delivery with
+  `WebhookVerifier#verify_delivery` against the raw request body.
 - HTTP connections require TLS 1.2 or newer and use Ruby/Faraday TLS verification and the host system trust store;
   the SDK does not pin the upstream TLS certificate.
 - `DocumentResource#verify` reports Assinafy upstream verification data. It does not independently validate a PDF
@@ -62,7 +68,7 @@ Required parameters and object properties are marked with `*`.
 | POST | `/v1/accounts/{accountId}/logo` | `AccountResource#upload_logo` | Bearer token or `X-Api-Key` | path `accountId*`: string | required; `multipart/form-data` object { `file*`: string (binary) } | `200` `application/json` [`Envelope`](#envelope) |
 | DELETE | `/v1/accounts/{accountId}/logo` | `AccountResource#delete_logo` | Bearer token or `X-Api-Key` | path `accountId*`: string | None | `200` `application/json` [`Envelope`](#envelope) |
 | GET | `/v1/accounts/{accountId}/signers` | `SignerResource#list` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>query `search`: string<br>query `page`: integer<br>query `per-page`: integer | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`Signer`](#signer)> } |
-| POST | `/v1/accounts/{accountId}/signers` | `SignerResource#create` | Bearer token or `X-Api-Key` | path `accountId*`: string | required; `application/json` object { `full_name*`: string; `email`: string (email); `whatsapp_phone_number`: string } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Signer`](#signer) } |
+| POST | `/v1/accounts/{accountId}/signers` | `SignerResource#create` | Bearer token or `X-Api-Key` | path `accountId*`: string | required; `application/json` object { `full_name*`: string; `email`: string (email); `whatsapp_phone_number`: string; `government_id`: string (CPF or CNPJ; required for `DigitalCertificate` signers) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Signer`](#signer) } |
 | GET | `/v1/accounts/{accountId}/signers/{signerId}` | `SignerResource#get` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `signerId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Signer`](#signer) } |
 | PUT | `/v1/accounts/{accountId}/signers/{signerId}` | `SignerResource#update` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `signerId*`: string | required; `application/json` object { `full_name`: string; `email`: string (email); `whatsapp_phone_number`: string; `government_id`: string } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Signer`](#signer) } |
 | DELETE | `/v1/accounts/{accountId}/signers/{signerId}` | `SignerResource#delete` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `signerId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<any> } |
@@ -75,14 +81,22 @@ Required parameters and object properties are marked with `*`.
 | POST | `/v1/accounts/{accountId}/templates/{templateId}/documents` | `DocumentResource#create_from_template` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `templateId*`: string | required; `application/json` object { `signers*`: Array<object { `role_id*`: string; `id*`: string; `verification_method`: string; `notification_methods`: Array<string>; `step`: integer }>; `editor_fields`: Array<object { `field_id*`: string; `value*`: string }>; `name`: string; `message`: string; `expires_at`: string (date-time); `tags`: Array<string> } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Document`](#document) } |
 | POST | `/v1/accounts/{accountId}/templates/{templateId}/documents/estimate-cost` | `DocumentResource#estimate_cost_from_template` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `templateId*`: string | required; `application/json` object { `signers*`: Array<object { `role_id*`: string; `verification_method`: string; `notification_methods`: Array<string> }> } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`CostEstimate`](#costestimate) } |
 | GET | `/v1/accounts/{accountId}/theme` | `AccountResource#theme` | Bearer token or `X-Api-Key` | path `accountId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`AccountTheme`](#accounttheme) } |
-| GET | `/v1/accounts/{accountId}/webhooks` | `WebhookResource#list_dispatches` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>query `event`: string<br>query `delivered`: string<br>query `from`: integer<br>query `to`: integer<br>query `page`: integer<br>query `per-page`: integer | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`WebhookDispatch`](#webhookdispatch)> } |
-| PUT | `/v1/accounts/{accountId}/webhooks/inactivate` | `WebhookResource#inactivate` | Bearer token or `X-Api-Key` | path `accountId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`WebhookSubscription`](#webhooksubscription) } |
-| GET | `/v1/accounts/{accountId}/webhooks/subscriptions` | `WebhookResource#get` | Bearer token or `X-Api-Key` | path `accountId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`WebhookSubscription`](#webhooksubscription) } |
-| PUT | `/v1/accounts/{accountId}/webhooks/subscriptions` | `WebhookResource#register` | Bearer token or `X-Api-Key` | path `accountId*`: string | required; `application/json` object { `events*`: Array<string>; `is_active*`: boolean; `url*`: string (uri); `email*`: string (email) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`WebhookSubscription`](#webhooksubscription) } |
+| GET | `/v1/accounts/{accountId}/webhooks` | `WebhookResource#list_dispatches` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>query `endpoint_id`: string<br>query `event`: string<br>query `delivered`: string<br>query `from`: integer<br>query `to`: integer<br>query `page`: integer<br>query `per-page`: integer | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`WebhookDispatch`](#webhookdispatch)> } |
+| GET | `/v1/accounts/{accountId}/webhooks/endpoints` | `WebhookResource#list_endpoints` | Bearer token or `X-Api-Key`; OAuth `account:read` | path `accountId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`WebhookEndpoint`](#webhookendpoint)> } |
+| POST | `/v1/accounts/{accountId}/webhooks/endpoints` | `WebhookResource#create_endpoint` | Bearer token or `X-Api-Key`; OAuth `webhooks:write` | path `accountId*`: string | required; `application/json` object { `url*`: string (uri); `email*`: string (email); `events*`: Array<string>; `name`: string; `is_active`: boolean; `signing_enabled`: boolean }; unknown keys raise `ValidationError` locally | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`WebhookEndpoint`](#webhookendpoint) }; `400` duplicate URL, `403` past the plan limit (1 endpoint, 3 on paid plans) |
+| GET | `/v1/accounts/{accountId}/webhooks/endpoints/{endpointId}` | `WebhookResource#get_endpoint` | Bearer token or `X-Api-Key`; OAuth `account:read` | path `accountId*`: string<br>path `endpointId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`WebhookEndpoint`](#webhookendpoint) } |
+| PUT | `/v1/accounts/{accountId}/webhooks/endpoints/{endpointId}` | `WebhookResource#update_endpoint` | Bearer token or `X-Api-Key`; OAuth `webhooks:write` | path `accountId*`: string<br>path `endpointId*`: string | required; `application/json` object { `url`: string (uri); `email`: string (email); `events`: Array<string>; `name`: string; `is_active`: boolean; `signing_enabled`: boolean } — partial; at least one field | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`WebhookEndpoint`](#webhookendpoint) } |
+| DELETE | `/v1/accounts/{accountId}/webhooks/endpoints/{endpointId}` | `WebhookResource#delete_endpoint` | Bearer token or `X-Api-Key`; OAuth `webhooks:write` | path `accountId*`: string<br>path `endpointId*`: string | None | `200` `application/json` [`Envelope`](#envelope); SDK returns `nil` |
+| GET | `/v1/accounts/{accountId}/webhooks/endpoints/{endpointId}/secret` | `WebhookResource#endpoint_secret` | Bearer token or `X-Api-Key`; not available to OAuth applications | path `accountId*`: string<br>path `endpointId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`WebhookEndpointSecret`](#webhookendpointsecret) }; `400` when signing is disabled |
+| POST | `/v1/accounts/{accountId}/webhooks/endpoints/{endpointId}/secret/rotate` | `WebhookResource#rotate_endpoint_secret` | Bearer token or `X-Api-Key`; not available to OAuth applications | path `accountId*`: string<br>path `endpointId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`WebhookEndpointSecret`](#webhookendpointsecret) } (the new secret; the old one stops working immediately) |
+| PUT | `/v1/accounts/{accountId}/webhooks/inactivate` | `WebhookResource#inactivate` | Bearer token or `X-Api-Key` | path `accountId*`: string | None; acts on the account's oldest endpoint | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`WebhookSubscription`](#webhooksubscription) } |
+| GET | `/v1/accounts/{accountId}/webhooks/subscriptions` | `WebhookResource#get` | Bearer token or `X-Api-Key` | path `accountId*`: string | None; reads the account's oldest endpoint; SDK returns `nil` on `404` | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`WebhookSubscription`](#webhooksubscription) } |
+| PUT | `/v1/accounts/{accountId}/webhooks/subscriptions` | `WebhookResource#register` | Bearer token or `X-Api-Key` | path `accountId*`: string | required; `application/json` object { `events*`: Array<string>; `is_active*`: boolean; `url*`: string (uri); `email*`: string (email) } — creates or replaces the account's oldest endpoint; the SDK defaults `is_active` to `true` and rejects other keys | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`WebhookSubscription`](#webhooksubscription) } |
 | POST | `/v1/accounts/{accountId}/webhooks/{historyId}/retry` | `WebhookResource#retry_dispatch` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `historyId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`WebhookDispatch`](#webhookdispatch) } |
 | GET | `/v1/assignments` | `AssignmentResource#list` | Bearer token or `X-Api-Key` | query `page`: integer<br>query `per-page`: integer | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`Assignment`](#assignment)> } |
 | POST | `/v1/auth/link-social-login` | `AuthResource#link_social_login` | Bearer token or `X-Api-Key` | None | required; `application/json` object { `provider*`: string; `token*`: string } | `200` `application/json` [`Envelope`](#envelope) |
 | PUT | `/v1/authentication/change-password` | `AuthResource#change_password` | Bearer token or `X-Api-Key` | None | required; `application/json` object { `email*`: string (email); `password*`: string (password); `new_password*`: string (password) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `email`: string (email) } } |
+| POST | `/v1/authentication/mfa/verify` | `AuthResource#verify_mfa` | Public | None | required; `application/json` object { `mfa_token*`: string; `code*`: string (6-digit authenticator code or recovery code) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`AuthSession`](#authsession) }; `400` invalid code, `401` expired, used, or over-attempted challenge |
 | PUT | `/v1/authentication/request-password-reset` | `AuthResource#request_password_reset` | Public | None | required; `application/json` object { `email*`: string (email) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `email`: string (email) } } |
 | PUT | `/v1/authentication/reset-password` | `AuthResource#reset_password` | Public | None | required; `application/json` object { `email*`: string (email); `token`: string; `new_password*`: string (password) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `email`: string (email) } } |
 | POST | `/v1/authentication/social-login` | `AuthResource#social_login` | Public | None | required; `application/json` object { `provider*`: string; `token*`: string; `has_accepted_terms*`: boolean } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`AuthSession`](#authsession) } |
@@ -105,7 +119,7 @@ Required parameters and object properties are marked with `*`.
 | GET | `/v1/documents/{documentId}/thumbnail` | `DocumentResource#thumbnail` | Bearer token or `X-Api-Key` | path `documentId*`: string | None | `200` `image/*` string (binary) |
 | GET | `/v1/documents/{documentSignatureHash}/verify` | `DocumentResource#verify` | Public | path `documentSignatureHash*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`DocumentVerification`](#documentverification) } |
 | GET | `/v1/field-types` | `FieldResource#types` | Bearer token or `X-Api-Key` | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`FieldType`](#fieldtype)> } |
-| POST | `/v1/login` | `AuthResource#login` | Public | None | required; `application/json` object { `email*`: string (email); `password*`: string (password) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`AuthSession`](#authsession) } |
+| POST | `/v1/login` | `AuthResource#login` | Public | None | required; `application/json` object { `email*`: string (email); `password*`: string (password) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`AuthSession`](#authsession) }, or object { `mfa_token`: string } when two-factor authentication is enabled — complete it with `POST /v1/authentication/mfa/verify` |
 | POST | `/v1/oauth/token` | `OAuthResource#token`, `#exchange_code`, `#refresh` | Public (client authenticates with `client_id` in the body) | None | required; `application/x-www-form-urlencoded` (RFC 6749; also accepts `application/json`) object { `grant_type*`: string enum `authorization_code`, `refresh_token`, `urn:ietf:params:oauth:grant-type:token-exchange`; `client_id*`: string; `code`: string; `redirect_uri`: string (uri); `code_verifier`: string; `refresh_token`: string; `client_secret`: string; `resource`: string (uri); `subject_token`: string; `subject_token_type`: string; `requested_token_type`: string } | `200` `application/json` **flat** object { `access_token`: string; `token_type`: string; `expires_in`: integer; `refresh_token`: string (nullable); `scope`: string; `id_token`: string (nullable); `issued_token_type`: string (token exchange only) } — not enveloped |
 | POST | `/v1/oauth/revoke` | `OAuthResource#revoke` | Public (client authenticates with `client_id` in the body) | None | required; `application/x-www-form-urlencoded` (RFC 7009; also accepts `application/json`) object { `token*`: string; `client_id*`: string; `token_type_hint`: string enum `access_token`, `refresh_token`; `client_secret`: string } | `200` empty body — every token outcome reports success |
 | GET | `/v1/oauth/userinfo` | `OAuthResource#userinfo` | Bearer token or `X-Api-Key`; requires the `openid` scope | None | None | `200` `application/json` **flat** object { `sub`: string; `name`: string (nullable); `email`: string (email, nullable); `email_verified`: boolean (nullable) } — not enveloped |
@@ -126,6 +140,11 @@ Required parameters and object properties are marked with `*`.
 | POST | `/v1/users/api-keys` | `AuthResource#create_api_key` | Bearer token or `X-Api-Key` | None | required; `application/json` object { `password*`: string (password) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`ApiKey`](#apikey) } |
 | DELETE | `/v1/users/api-keys` | `AuthResource#delete_api_key` | Bearer token or `X-Api-Key` | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<any> } |
 | GET | `/v1/users/self` | `UserResource#me` | Bearer token or `X-Api-Key` | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`AuthUser`](#authuser) } |
+| GET | `/v1/users/self/mfa` | `AuthResource#mfa_methods` | Bearer token or `X-Api-Key` | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `methods`: Array<object { `id`: string; `type`: string; `label`: string; `confirmed_at`: string (date-time); `last_used_at`: string (date-time) }>; `recovery_codes_remaining`: integer } } |
+| POST | `/v1/users/self/mfa/totp` | `AuthResource#start_totp_enrollment` | Bearer token or `X-Api-Key` | None | optional; `application/json` object { `label`: string } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `id`: string; `secret`: string (returned only here); `provisioning_uri`: string } } |
+| PUT | `/v1/users/self/mfa/totp/confirm` | `AuthResource#confirm_totp_enrollment` | Bearer token or `X-Api-Key` | None | required; `application/json` object { `id*`: string (SDK `method_id:`); `code*`: string; `password`: string (password); `reauth_code`: string } — `password` or `reauth_code` only when replacing a confirmed method | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `recovery_codes`: Array<string> (shown once) } } |
+| POST | `/v1/users/self/mfa/recovery-codes` | `AuthResource#regenerate_recovery_codes` | Bearer token or `X-Api-Key` | None | required; `application/json` object { `password`: string (password); `code`: string } — one of the two is required (checked locally) | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `recovery_codes`: Array<string> } } |
+| DELETE | `/v1/users/self/mfa/{customId}` | `AuthResource#delete_mfa_method` | Bearer token or `X-Api-Key` | path `customId*`: string | required; `application/json` object { `password`: string (password); `code`: string } — one of the two is required (checked locally) | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `is_mfa_enabled`: boolean } } |
 | GET | `/v1/users/self/notification-preferences` | `UserResource#notification_preferences` | Bearer token or `X-Api-Key` | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`NotificationPreferences`](#notificationpreferences) } |
 | PUT | `/v1/users/self/notification-preferences` | `UserResource#update_notification_preferences` | Bearer token or `X-Api-Key` | None | required; `application/json` [`NotificationPreferences`](#notificationpreferences) | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`NotificationPreferences`](#notificationpreferences) } |
 | GET | `/v1/users/self/stats` | `UserResource#stats` | Bearer token or `X-Api-Key` | query `granularity`: string<br>query `month`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`DocumentStatsRow`](#documentstatsrow)> } |
@@ -194,9 +213,8 @@ environment before making these operations part of a critical workflow.
 
 ### Assignment listing
 
-`GET /v1/assignments` needs an account context that the machine contract does not list. The SDK supplies it as
-the camelCase `accountId` query parameter (`AssignmentResource#list`), taken from the client default or the
-per-call override.
+`GET /v1/assignments` is scoped by the camelCase `accountId` query parameter. `AssignmentResource#list` supplies
+it from the client default or the per-call override.
 
 ### Assignment optional fields
 
@@ -208,11 +226,23 @@ fails before it uploads a document or creates signers.
 
 `base_url` must be an absolute `http`/`https` URL with a host. Other schemes, scheme-less hosts, and relative
 paths raise `Assinafy::ValidationError` at construction rather than sending credentials to them.
+`Configuration#base_url=` and `#timeout=` apply the same validation. The `User-Agent` header is set on every
+request.
 
-### Document tags
+### Document upload and tags
 
-`DocumentResource#replace_tags` and `#append_tags` accept arrays of tag IDs. The deployed sandbox also accepts
-existing tag names; IDs are the portable form. Use a tag ID with `DocumentResource#detach_tag`.
+`DocumentResource#upload` sends only the multipart `file` part; the API names the document after the uploaded
+file name. Rename it with `DocumentResource#rename`. Documents and templates are limited to 25 MB, checked
+locally together with the `.pdf` extension and `%PDF-` header.
+
+`DocumentResource#list` accepts `tags` as a comma-separated String or an Array of tag IDs, which the SDK joins
+with commas; matching documents carry every listed tag. `DocumentResource#replace_tags` and `#append_tags` accept
+arrays of tag IDs. Use a tag ID with `DocumentResource#detach_tag`.
+
+### KPI statistics
+
+`UserResource#stats` and `AccountResource#stats` validate `granularity` (`monthly` or `daily`) and `month`
+(`YYYY-MM`) locally before sending.
 
 ### OAuth response shapes
 
@@ -224,7 +254,8 @@ metadata for the same reason. `OAuthResource` returns all four bodies unchanged.
 `/v1/oauth/token` and `/v1/oauth/revoke` are unauthenticated routes that identify the client
 through `client_id` in the body, so the SDK strips `X-Api-Key`/`Authorization` from them.
 `OAuthResource#authorization_server_metadata` reaches a different host
-(`auth.assinafy.com.br`) and is stripped for the same reason.
+(`auth.assinafy.com.br`) and is stripped for the same reason. A URL override must be an absolute HTTPS URL
+without userinfo or fragment; anything else raises `Assinafy::ValidationError`.
 
 `/.well-known/oauth-protected-resource` is served from the host root, outside the `/v1` prefix
 that `base_url` carries.
@@ -255,22 +286,48 @@ When a user disconnects, revoke the refresh token in storage at that moment with
 then delete the stored tokens. Revoking a rotated token also answers `200`, so revoking a stale copy can
 look successful while the connection stays active.
 
+### Verification and notification methods
+
+Verification and notification methods are coupled per signer: the omitted side is inferred from the other, and
+when both are omitted both are `Email`. Exactly one notification method is allowed. Allowed pairs: `Email` with
+`Email`, `Whatsapp` with `Whatsapp`, and `DigitalCertificate` with either. `Email` costs 0 credits; `Whatsapp`
+costs 0.45 credits (its WhatsApp notification, paid plans only); `DigitalCertificate` costs 0.5 credits per signer
+on top of its notification, shown in cost estimates under the breakdown code `SignatureDigitalCertificate`.
+
 ### Digital-certificate signing
 
-`DigitalCertificate` is one of the three assignment verification methods published in
-`AssignmentResource::VERIFICATION_METHODS`, alongside `Email` and `Whatsapp` one-time codes. It has the signer
-sign with their own ICP-Brasil certificate (A1 or A3) through the Web PKI browser extension, producing a
-qualified PAdES signature. It requires the Digital Certificate account feature, a CPF or CNPJ in the signer's
-`government_id`, and that the signer is alone in its signing step; it is charged 2 credits per signer. A CPF
-requires that person's certificate (an e-CPF, or an e-CNPJ naming them as legal representative); a CNPJ requires
-an e-CNPJ for that company, from any of its representatives.
+`DigitalCertificate` has the signer sign with their own ICP-Brasil certificate (A1 or A3) through the Web PKI
+browser extension, producing a qualified PAdES signature. It requires the Digital Certificate account feature, a
+CPF or CNPJ in the signer's `government_id` (accepted by both `SignerResource#create` and `#update`), and that the
+signer is alone in its signing step. A CPF requires that person's certificate (an e-CPF, or an e-CNPJ naming them
+as legal representative); a CNPJ requires an e-CNPJ for that company, from any of its representatives.
 
-Requesting the method is fully supported. **Completing** the signature is not: the two-step handshake
-(`/signers/certificate/start`, `/signers/certificate/complete`) is absent from the API v1 machine contract, which
-publishes none of its authentication, request, or response schemas. Wrapping it would mean guessing the payload,
-so the SDK deliberately does not expose certificate-completion methods. Contact Assinafy for the supported
-provider contract before enabling this flow. Once the flow completes, the `pades` artifact returns the qualified
-signature.
+Certificate signers complete the signature in Assinafy's hosted signing flow, reached through the assignment's
+`signing_urls`. The SDK does not wrap the two-step Web PKI handshake (`/signers/certificate/start`,
+`/signers/certificate/complete`), whose authentication and request/response schemas are not part of the OpenAPI
+contract. Once the flow completes, the `pades` artifact returns the qualified signature.
+
+### Webhook endpoints and deliveries
+
+An account can have 1 webhook endpoint, or up to 3 on paid plans; each has a distinct URL, its own events, and its
+own signing setting, and every active endpoint subscribed to an event receives it. `WebhookResource#create_endpoint`
+and `#update_endpoint` accept only `url`, `email`, `events`, `name`, `is_active`, and `signing_enabled`.
+`#register`, `#get`, and `#inactivate` (`/webhooks/subscriptions`, `/webhooks/inactivate`) act on the account's
+oldest endpoint; `#register` accepts only `url`, `email`, `events`, and `is_active`.
+
+Each delivery is a JSON `POST` carrying `webhook-id` (stable across attempts of one event to one endpoint; use it to
+deduplicate), `webhook-timestamp` (Unix seconds), and, when signing is enabled, `webhook-signature`. Any `2xx` is
+success. An event gets up to 2 attempts, 3 seconds apart; after 10 consecutive failed events, delivery to that
+endpoint pauses and only a sample of events is probed until one succeeds. `WebhookResource#retry_dispatch` forces a
+redelivery, and `#list_dispatches` filters by `endpoint_id`. The body is a [`WebhookEvent`](#webhookevent).
+
+Signatures follow the [Standard Webhooks](https://www.standardwebhooks.com) specification: `webhook-signature`
+holds space-separated `v1,<base64 HMAC-SHA256>` entries over `{webhook-id}.{webhook-timestamp}.{raw body}`, keyed
+with the base64-decoded part of the secret after `whsec_`. `WebhookVerifier#verify_delivery(raw_body, headers,
+tolerance: 300, now: Time.now.to_i)` checks them in constant time and rejects timestamps more than `tolerance`
+seconds from `now`. It accepts Rails `request.headers`, a Rack env (`HTTP_WEBHOOK_ID`), or a plain Hash, and
+returns `false` rather than raising. `WebhookVerifier#verify(raw_body, hex_signature)` remains for receivers whose
+own gateway signs bodies with a hex HMAC-SHA256.
 
 ## SDK-only helpers and aliases
 
@@ -287,7 +344,7 @@ return-value, and usage details.
 | `Client#auth`, `#oauth`, `#accounts`, `#users`, `#documents`, `#signers`, `#signer_documents`, `#assignments`, `#webhooks`, `#templates`, `#fields`, `#tags`, `#webhook_verifier` | Return the client's resource and helper instances. | [`client.rb`](../lib/assinafy/client.rb) |
 | `Assinafy::Configuration.new`, `.from_hash` | Build configuration directly or from string/symbol keys. | [`configuration.rb`](../lib/assinafy/configuration.rb) |
 | `Configuration#auth_headers` | Return the selected API-key, bearer, or empty authentication header set. | [`configuration.rb`](../lib/assinafy/configuration.rb) |
-| Configuration readers/writers: `api_key`, `token`, `account_id`, `base_url`, `webhook_secret`, `timeout`, `logger` | Read or update configuration values; construct a new client to apply changes. | [`configuration.rb`](../lib/assinafy/configuration.rb) |
+| Configuration readers/writers: `api_key`, `token`, `account_id`, `base_url`, `webhook_secret`, `timeout`, `logger` | Read or update configuration values; `base_url=` and `timeout=` validate like the constructor. Construct a new client to apply changes. | [`configuration.rb`](../lib/assinafy/configuration.rb) |
 | `DocumentResource#get` | Alias for `#details`. | [`document_resource.rb`](../lib/assinafy/resources/document_resource.rb) |
 | `DocumentResource#wait_until_ready` | Poll document details until processing succeeds, fails, or times out. | [`document_resource.rb`](../lib/assinafy/resources/document_resource.rb) |
 | `DocumentResource#fully_signed?`, `#signing_progress` | Derive completion state from document assignment data. | [`document_resource.rb`](../lib/assinafy/resources/document_resource.rb) |
@@ -295,9 +352,11 @@ return-value, and usage details.
 | `SignerResource#find_by_email` | Page through a successful search and return a case-insensitive match or `nil`. | [`signer_resource.rb`](../lib/assinafy/resources/signer_resource.rb) |
 | `SignerDocumentResource#document` | Alias for `#current`. | [`signer_document_resource.rb`](../lib/assinafy/resources/signer_document_resource.rb) |
 | `AuthResource#api_key` | Alias for `#get_api_key`. | [`auth_resource.rb`](../lib/assinafy/resources/auth_resource.rb) |
-| `WebhookResource#update` | Alias for `#register`. | [`webhook_resource.rb`](../lib/assinafy/resources/webhook_resource.rb) |
+| `WebhookResource#update` | Alias for `#register` (acts on the oldest endpoint). | [`webhook_resource.rb`](../lib/assinafy/resources/webhook_resource.rb) |
 | `AssignmentResource.build_payload` | Validate and normalize virtual or collect assignment bodies locally. | [`assignment_resource.rb`](../lib/assinafy/resources/assignment_resource.rb) |
-| `WebhookVerifier.new`, `#verify` | Configure and verify the optional gateway HMAC-SHA256 signature. | [`webhook_verifier.rb`](../lib/assinafy/support/webhook_verifier.rb) |
+| `WebhookVerifier.new`, `#verify_delivery` | Verify a Standard Webhooks delivery (`webhook-id`, `webhook-timestamp`, `webhook-signature`) with the endpoint's `whsec_` secret, rejecting timestamps outside the tolerance (default 300 seconds). |
+| `WebhookVerifier#verify` | Verify a hex HMAC-SHA256 signature added by the receiver's own gateway. |
+| `WebhookVerifier::SECRET_PREFIX`, `::DEFAULT_TOLERANCE` | The `whsec_` secret prefix and the default 300-second timestamp tolerance. | [`webhook_verifier.rb`](../lib/assinafy/support/webhook_verifier.rb) |
 | `WebhookVerifier#extract_event`, `#event_type`, `#event_payload`, `#event_object`, `#event_subject`, `#event_data` | Parse and access webhook envelope fields; `event_data` is retained as a compatibility helper. | [`webhook_verifier.rb`](../lib/assinafy/support/webhook_verifier.rb) |
 | `Assinafy::Error.new`, `#context` | Construct/read the SDK base error and its structured context. | [`errors.rb`](../lib/assinafy/errors.rb) |
 | `Assinafy::ApiError.new`, `.from_response`, `#status_code`, `#response_data`, `#error_name`, `#error_code` | Construct/read an API response error. | [`errors.rb`](../lib/assinafy/errors.rb) |
@@ -834,6 +893,7 @@ A single webhook delivery-history entry.
 | `id` | string | No | No | Dispatch entry ID. |
 | `event` | string | No | No | Event type that triggered the dispatch. |
 | `activity_id` | integer | No | No | Internal activity ID associated with the dispatch. |
+| `endpoint_id` | string | No | Yes | ID of the webhook endpoint the delivery was sent to (`null` once that endpoint is deleted). |
 | `endpoint` | string | No | Yes | URL that received the request. |
 | `payload` | object | No | Yes | JSON payload sent to the endpoint. |
 | `delivered` | boolean | No | No | Whether delivery succeeded. |
@@ -842,6 +902,50 @@ A single webhook delivery-history entry.
 | `error` | string | No | Yes | Delivery error message, if any. |
 | `created_at` | string (date-time) | No | No | — |
 | `updated_at` | string (date-time) | No | No | — |
+
+### WebhookEndpoint
+
+A URL that receives the account's webhook events. Every active endpoint subscribed to an event receives it.
+
+| Property | Type | Required | Nullable | Constraints / description |
+| --- | --- | --- | --- | --- |
+| `id` | string | No | No | Endpoint ID. |
+| `name` | string | No | Yes | Label to tell endpoints apart. |
+| `url` | string (uri) | No | No | URL that receives the events (http or https). |
+| `email` | string (email) | No | No | Contact email for delivery-failure notices. |
+| `events` | Array<string> | No | No | Event types delivered to this endpoint. |
+| `is_active` | boolean | No | No | Whether events are delivered to this endpoint. |
+| `signing_enabled` | boolean | No | No | Whether deliveries carry a `webhook-signature` header. |
+| `created_at` | string (date-time) | No | No | — |
+| `updated_at` | string (date-time) | No | No | — |
+
+### WebhookEndpointSecret
+
+An endpoint's signing secret.
+
+| Property | Type | Required | Nullable | Constraints / description |
+| --- | --- | --- | --- | --- |
+| `secret` | string | No | No | Standard Webhooks secret: `whsec_` followed by the base64-encoded key. |
+
+### WebhookEvent
+
+Body of every webhook delivery. Timestamps in the body (`created_at`, and the `*_at` fields of `subject`/`object`)
+are Unix timestamps in seconds. `subject` and `object` are serialized from their current state when the delivery
+is sent.
+
+| Property | Type | Required | Nullable | Constraints / description |
+| --- | --- | --- | --- | --- |
+| `id` | integer | Yes | No | ID of the activity that produced the event. Deduplicate on the `webhook-id` header instead. |
+| `event` | string | Yes | No | Event type. See `GET /v1/webhooks/event-types`. |
+| `message` | string | No | Yes | Reserved; currently always `null`. |
+| `payload` | object | No | Yes | Event-specific parameters; keys vary per event. |
+| `origin` | object | No | Yes | Where the action came from, when triggered by a request. |
+| `origin.ip` | string | No | No | — |
+| `origin.user-agent` | string | No | No | — |
+| `created_at` | integer | Yes | No | When the event was recorded (Unix timestamp, seconds). |
+| `subject` | object | Yes | No | Who performed the action: a `User`, `Signer`, or `Account`, plus a `type` property naming it. |
+| `object` | object | Yes | No | What the action was performed on: a `Document`, `Signer`, or `Template` with its relations expanded, plus a `type` property naming it. |
+| `account_id` | string | Yes | No | ID of the account that owns the event. |
 
 ### WebhookEventType
 
@@ -854,7 +958,7 @@ A subscribable webhook event type.
 
 ### WebhookSubscription
 
-An account's webhook subscription configuration.
+An account's webhook subscription configuration: the account's oldest webhook endpoint.
 
 | Property | Type | Required | Nullable | Constraints / description |
 | --- | --- | --- | --- | --- |

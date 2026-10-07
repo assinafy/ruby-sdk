@@ -28,7 +28,7 @@ module Assinafy
       #
       #   # => {
       #   #   "resource"       => "field_definition",
-      #   #   "id"             => "1032009e858cc1f859ccf3a61229",
+      #   #   "id"             => "field-id",
       #   #   "name"           => "customer-reference",
       #   #   "type"           => "text",
       #   #   "regex"          => nil,
@@ -58,7 +58,7 @@ module Assinafy
       #
       # @param params [Hash] `include_inactive`, `include_standard`
       # @param account_id_override [String, nil]
-      # @return [Hash{Symbol=>Array,nil}] `{ data: [...], meta: nil }`
+      # @return [Hash{Symbol=>Array,nil}] `{ data: [...] }` (`meta` is omitted: no pagination headers)
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure
       # @raise [Assinafy::ValidationError] on invalid required input
@@ -82,7 +82,6 @@ module Assinafy
       #   #     }
       #   #     # ... (one Hash per field definition)
       #   #   ],
-      #   #   meta: nil # this endpoint sends no pagination headers
       #   # }
       def list(params = {}, account_id_override = nil)
         acc_id = account_id(account_id_override)
@@ -102,11 +101,11 @@ module Assinafy
       # @raise [Assinafy::ValidationError] on invalid required input
       # @see GET /accounts/{accountId}/fields/{field_id}
       # @example Fetch one field definition
-      #   field = client.fields.get('1032009e858cc1f859ccf3a61229')
+      #   field = client.fields.get('field-id')
       #
       #   # => {
       #   #   "resource"       => "field_definition",
-      #   #   "id"             => "1032009e858cc1f859ccf3a61229",
+      #   #   "id"             => "field-id",
       #   #   "name"           => "customer-reference",
       #   #   "type"           => "text",
       #   #   "regex"          => nil,
@@ -142,14 +141,14 @@ module Assinafy
       # @raise [Assinafy::ValidationError] on invalid required input
       # @see PUT /accounts/{account_id}/fields/{field_id}
       # @example Rename a field definition
-      #   field = client.fields.update('1032009e858cc1f859ccf3a61229', name: 'New Field Name')
+      #   field = client.fields.update('field-id', name: 'New Field Name')
       #
       #   # Request body the SDK sends:
       #   #   { "name": "New Field Name" }
       #
       #   # => {
       #   #   "resource"       => "field_definition",
-      #   #   "id"             => "1032009e858cc1f859ccf3a61229",
+      #   #   "id"             => "field-id",
       #   #   "name"           => "New Field Name",
       #   #   "type"           => "text",
       #   #   "regex"          => nil,
@@ -185,7 +184,7 @@ module Assinafy
       # @raise [Assinafy::ValidationError] on invalid required input
       # @see DELETE /accounts/{account_id}/fields/{field_id}
       # @example Delete a field definition
-      #   client.fields.delete('1032009e858cc1f859ccf3a61229')
+      #   client.fields.delete('field-id')
       #   # => nil
       def delete(field_id, account_id_override = nil)
         acc_id = account_id(account_id_override)
@@ -212,7 +211,7 @@ module Assinafy
       # @raise [Assinafy::ValidationError] on invalid required input
       # @see POST /accounts/{accountId}/fields/{field_id}/validate
       # @example Validate a value (workspace auth)
-      #   result = client.fields.validate('1032009e858cc1f859ccf3a61229', 'Some text')
+      #   result = client.fields.validate('field-id', 'Some text')
       #
       #   # Request body the SDK sends:
       #   #   { "value": "Some text" }
@@ -250,20 +249,20 @@ module Assinafy
       # @see POST /accounts/{accountId}/fields/validate-multiple
       # @example Validate several values at once
       #   results = client.fields.validate_multiple([
-      #     { field_id: '63488ffb7adf435aba319787', value: '1111111111111' },
-      #     { field_id: '63488ffb0461cebb70775497', value: 'user@example.com' }
+      #     { field_id: 'field-id-1', value: '1111111111111' },
+      #     { field_id: 'field-id-2', value: 'user@example.com' }
       #   ])
       #
       #   # Request body the SDK sends (an array, not an object):
       #   #   [
-      #   #     { "field_id": "63488ffb7adf435aba319787", "value": "1111111111111" },
-      #   #     { "field_id": "63488ffb0461cebb70775497", "value": "user@example.com" }
+      #   #     { "field_id": "field-id-1", "value": "1111111111111" },
+      #   #     { "field_id": "field-id-2", "value": "user@example.com" }
       #   #   ]
       #
       #   # => [
-      #   #   { "field_id" => "63488ffb7adf435aba319787", "type" => "cpf",
+      #   #   { "field_id" => "field-id-1", "type" => "cpf",
       #   #     "success" => false, "error_message" => "Invalid CPF." },
-      #   #   { "field_id" => "63488ffb0461cebb70775497", "type" => "email",
+      #   #   { "field_id" => "field-id-2", "type" => "email",
       #   #     "success" => true, "error_message" => "" }
       #   # ]
       def validate_multiple(values, account_id_override = nil, signer_access_code: nil)

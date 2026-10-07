@@ -491,4 +491,11 @@ RSpec.describe Assinafy::Resources::OAuthResource do
       end.to raise_error(Assinafy::ValidationError, /access_token token types/)
     end
   end
+
+  describe '#authorization_server_metadata URL' do
+    it 'refuses a non-HTTPS override before the network' do
+      expect { described_class.new(build_test_connection).authorization_server_metadata('http://auth.example.com/x') }
+        .to raise_error(Assinafy::ValidationError, /HTTPS/)
+    end
+  end
 end

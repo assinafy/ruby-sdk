@@ -161,6 +161,7 @@ module Assinafy
       #     client_id:     'client-id',
       #     redirect_uri:  'https://app.example.com/oauth/callback',
       #     code_verifier: verifier,
+      #     state:         state, # Assinafy::OAuth.generate_state; store it and compare on the callback
       #     scope:         'documents:read'
       #   )
       def authorization_url(client_id:, redirect_uri:, code_verifier: nil, code_challenge: nil,
@@ -235,6 +236,21 @@ module Assinafy
         )
       end
 
+      # Parse an absolute HTTPS URL without userinfo or fragment.
+      #
+      # @param value [String]
+      # @param name  [String] used in the error message
+      # @return [URI::HTTPS]
+      # @raise [ValidationError] for anything else
+      def https_uri!(value, name)
+        uri = URI.parse(require_value!(value, name))
+        return uri if uri.is_a?(URI::HTTPS) && !uri.host.to_s.empty? && uri.userinfo.nil? && uri.fragment.nil?
+
+        raise ValidationError.new("#{name} must be an absolute HTTPS URL without userinfo or fragment")
+      rescue URI::InvalidURIError
+        raise ValidationError.new("#{name} must be a valid HTTPS URL")
+      end
+
       private
 
       def resolve_code_challenge(verifier, challenge)
@@ -252,15 +268,6 @@ module Assinafy
         return value if value.is_a?(String) && !value.strip.empty?
 
         raise ValidationError.new("#{name} is required")
-      end
-
-      def https_uri!(value, name)
-        uri = URI.parse(require_value!(value, name))
-        return uri if uri.is_a?(URI::HTTPS) && !uri.host.to_s.empty? && uri.userinfo.nil? && uri.fragment.nil?
-
-        raise ValidationError.new("#{name} must be an absolute HTTPS URL without userinfo or fragment")
-      rescue URI::InvalidURIError
-        raise ValidationError.new("#{name} must be a valid HTTPS URL")
       end
     end
   end

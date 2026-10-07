@@ -132,8 +132,7 @@ module Assinafy
       #   #       "is_closed" => false, "signing_url" => "https://...", "tags" => []
       #   #       # ... search returns the lightweight document shape (no embedded assignment)
       #   #     }
-      #   #   ],
-      #   #   meta: nil
+      #   #   ]
       #   # }
       def search(signer_id, query, params = {}, signer_access_code: nil)
         sid                  = require_id(signer_id, 'Signer ID')

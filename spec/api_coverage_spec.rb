@@ -28,6 +28,18 @@ RSpec.describe Assinafy::Client, type: :coverage_matrix do
        'AuthResource#reset_password'],
       ['POST',   '/auth/link-social-login',
        'AuthResource#link_social_login'],
+      ['POST',   '/authentication/mfa/verify',
+       'AuthResource#verify_mfa'],
+      ['GET',    '/users/self/mfa',
+       'AuthResource#mfa_methods'],
+      ['POST',   '/users/self/mfa/totp',
+       'AuthResource#start_totp_enrollment'],
+      ['PUT',    '/users/self/mfa/totp/confirm',
+       'AuthResource#confirm_totp_enrollment'],
+      ['POST',   '/users/self/mfa/recovery-codes',
+       'AuthResource#regenerate_recovery_codes'],
+      ['DELETE', '/users/self/mfa/{method_id}',
+       'AuthResource#delete_mfa_method'],
 
       # OAuth 2.1 / OpenID Connect
       ['POST',   '/oauth/token',
@@ -231,7 +243,21 @@ RSpec.describe Assinafy::Client, type: :coverage_matrix do
       ['GET',    '/accounts/{account_id}/webhooks',
        'WebhookResource#list_dispatches'],
       ['POST',   '/accounts/{account_id}/webhooks/{dispatch_id}/retry',
-       'WebhookResource#retry_dispatch']
+       'WebhookResource#retry_dispatch'],
+      ['GET',    '/accounts/{account_id}/webhooks/endpoints',
+       'WebhookResource#list_endpoints'],
+      ['POST',   '/accounts/{account_id}/webhooks/endpoints',
+       'WebhookResource#create_endpoint'],
+      ['GET',    '/accounts/{account_id}/webhooks/endpoints/{endpoint_id}',
+       'WebhookResource#get_endpoint'],
+      ['PUT',    '/accounts/{account_id}/webhooks/endpoints/{endpoint_id}',
+       'WebhookResource#update_endpoint'],
+      ['DELETE', '/accounts/{account_id}/webhooks/endpoints/{endpoint_id}',
+       'WebhookResource#delete_endpoint'],
+      ['GET',    '/accounts/{account_id}/webhooks/endpoints/{endpoint_id}/secret',
+       'WebhookResource#endpoint_secret'],
+      ['POST',   '/accounts/{account_id}/webhooks/endpoints/{endpoint_id}/secret/rotate',
+       'WebhookResource#rotate_endpoint_secret']
     ]
   end
 

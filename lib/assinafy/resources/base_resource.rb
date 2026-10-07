@@ -8,6 +8,8 @@ module Assinafy
     # wraps Faraday and Assinafy errors into the SDK's own error hierarchy.
     class BaseResource
       PATH_SEGMENT = /\A[A-Za-z0-9._~-]+\z/
+      MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+      STATS_GRANULARITIES = %w[monthly daily].freeze
       AUTH_HEADERS = %w[X-Api-Key Authorization].freeze
       PAGINATION_HEADERS = {
         current_page: 'x-pagination-current-page',
@@ -84,6 +86,17 @@ module Assinafy
         Utils.query_params(params)
       end
 
+      def stats_params(granularity, month)
+        unless granularity.nil? || STATS_GRANULARITIES.include?(granularity)
+          raise ValidationError.new('granularity must be monthly or daily')
+        end
+        unless month.nil? || (month.is_a?(String) && month.match?(/\A\d{4}-(0[1-9]|1[0-2])\z/))
+          raise ValidationError.new('month must be YYYY-MM')
+        end
+
+        query_params(granularity: granularity, month: month)
+      end
+
       def body_params(params)
         Utils.body_params(params)
       end
@@ -145,7 +158,7 @@ module Assinafy
 
         if max_bytes && buffer.bytesize > max_bytes
           raise ValidationError.new(
-            'File size exceeds maximum allowed (25MB)',
+            "File size exceeds maximum allowed (#{max_bytes / (1024 * 1024)}MB)",
             { file_size: buffer.bytesize, max_size: max_bytes }
           )
         end
@@ -213,6 +226,7 @@ module Assinafy
       end
 
       def prepare_request(request, params, workspace_auth:)
+        request.headers['User-Agent'] = USER_AGENT
         request.params.update(query_params(params))
         AUTH_HEADERS.each { |header| request.headers.delete(header) } unless workspace_auth
       end
@@ -268,7 +282,6 @@ module Assinafy
       private
 
       def request(label)
-        @connection.headers['User-Agent'] = USER_AGENT
         response = yield
         check_status!(response, label)
         response

@@ -173,7 +173,7 @@ module Assinafy
     #   # POST /documents/{document_id}/assignments (nil optional fields are dropped):
     #   #   {
     #   #     "method": "virtual",
-    #   #     "signers": [{ "id": "19e6b92e7895332ed9708535d8c" }],
+    #   #     "signers": [{ "id": "signer-id" }],
     #   #     "message": "Please review and sign"
     #   #   }
     #
@@ -181,7 +181,7 @@ module Assinafy
     #   result
     #   #=> {
     #   #     document: {
-    #   #       "resource" => "document", "id" => "1032009d72b364f377ff270405cc",
+    #   #       "resource" => "document", "id" => "document-id",
     #   #       "account_id" => "account_example", "name" => "contract.pdf",
     #   #       "status" => "metadata_ready",
     #   #       "artifacts" => { "original" => "https://.../download/original", "thumbnail" => "https://..." },
@@ -189,17 +189,17 @@ module Assinafy
     #   #       # ... (see docs for full shape)
     #   #     },
     #   #     assignment: {
-    #   #       "resource" => "assignment", "id" => "19e99aa0633e32ac13f845c08db",
+    #   #       "resource" => "assignment", "id" => "assignment-id",
     #   #       "sender_email" => "sender@example.com", "method" => "virtual",
     #   #       "expires_at" => nil, "message" => "Please review and sign",
-    #   #       "signers" => [{ "id" => "19e6b92e7895332ed9708535d8c", "full_name" => "Example Signer",
+    #   #       "signers" => [{ "id" => "signer-id", "full_name" => "Example Signer",
     #   #                       "email" => "signer@example.com", "completed" => false, "step" => 1 }],
-    #   #       "copy_receivers" => [], "items" => [{ "id" => "103200a43e372db16f48a6f0f2d4", "completed" => false }],
+    #   #       "copy_receivers" => [], "items" => [{ "id" => "item-id", "completed" => false }],
     #   #       "summary" => { "signer_count" => 1, "completed_count" => 0 },
-    #   #       "signing_urls" => [{ "signer_id" => "19e6b92e7895332ed9708535d8c", "url" => "https://.../sign/..." }]
+    #   #       "signing_urls" => [{ "signer_id" => "signer-id", "url" => "https://.../sign/..." }]
     #   #       # ... (see docs for full shape)
     #   #     },
-    #   #     signer_ids: ["19e6b92e7895332ed9708535d8c"]
+    #   #     signer_ids: ["signer-id"]
     #   #   }
     def upload_and_request_signatures(source:, signers:, message: nil,
                                       wait_for_ready: true, expires_at: nil,

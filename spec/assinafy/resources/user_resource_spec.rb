@@ -88,4 +88,13 @@ RSpec.describe Assinafy::Resources::UserResource do
       end.to raise_error(Assinafy::ValidationError)
     end
   end
+
+  describe '#stats parameter validation' do
+    it 'rejects unknown granularity and malformed months before the network' do
+      resource = described_class.new(build_test_connection)
+
+      expect { resource.stats(granularity: 'weekly') }.to raise_error(Assinafy::ValidationError, /granularity/)
+      expect { resource.stats(month: '2026-13') }.to raise_error(Assinafy::ValidationError, /YYYY-MM/)
+    end
+  end
 end

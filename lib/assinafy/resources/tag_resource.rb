@@ -27,7 +27,7 @@ module Assinafy
       #   {
       #     data: [
       #       {
-      #         'id' => '1031f6544019bafc410c6c5317f4',
+      #         'id' => 'tag-id-4',
       #         'name' => 'customer-agreement',
       #         'color' => nil,
       #         'created_at' => '2026-06-05T16:33:35Z',
@@ -65,7 +65,7 @@ module Assinafy
       #   # Response (unwrapped data payload):
       #   {
       #     'resource' => 'tag',
-      #     'id' => '1032009e69e366ca5adc879ef26c',
+      #     'id' => 'tag-id',
       #     'name' => 'Contracts',
       #     'color' => 'ff8800',
       #     'created_at' => '2026-06-05T21:21:19Z',
@@ -101,13 +101,13 @@ module Assinafy
       # @example Rename a tag and recolor it
       #   # Request: PUT /accounts/{account_id}/tags/{tag_id}
       #   # Body: { "name": "Sales Contracts", "color": "112233" }
-      #   client.tags.update('1032009e69e366ca5adc879ef26c',
+      #   client.tags.update('tag-id',
       #                      name: 'Sales Contracts', color: '112233')
       #
       #   # Response (unwrapped data payload):
       #   {
       #     'resource' => 'tag',
-      #     'id' => '1032009e69e366ca5adc879ef26c',
+      #     'id' => 'tag-id',
       #     'name' => 'Sales Contracts',
       #     'color' => '112233',
       #     'created_at' => '2026-06-05T21:21:19Z',
@@ -116,8 +116,8 @@ module Assinafy
       # @example Clear a tag's color (pass nil explicitly)
       #   # Request: PUT /accounts/{account_id}/tags/{tag_id}
       #   # Body: { "color": null }
-      #   client.tags.update('1032009e69e366ca5adc879ef26c', color: nil)
-      #   #=> { 'resource' => 'tag', 'id' => '1032009e69e366ca5adc879ef26c', 'color' => nil, ... }
+      #   client.tags.update('tag-id', color: nil)
+      #   #=> { 'resource' => 'tag', 'id' => 'tag-id', 'color' => nil, ... }
       # @raise [Assinafy::NetworkError] on transport or TLS failure
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       def update(tag_id, payload, account_id_override = nil)
@@ -145,7 +145,7 @@ module Assinafy
       # @see DELETE /accounts/{account_id}/tags/{tag_id}
       # @example Delete a tag, detaching it from documents and templates first
       #   # Request: DELETE /accounts/{account_id}/tags/{tag_id}?force=true
-      #   client.tags.delete('1032009e69e366ca5adc879ef26c', force: true)
+      #   client.tags.delete('tag-id', force: true)
       #
       #   # Response (unwrapped data payload):
       #   { 'deleted' => true }

@@ -83,7 +83,8 @@ module Assinafy
     attr_accessor account_id: String?
     attr_accessor base_url: String
     attr_accessor webhook_secret: String?
-    attr_accessor timeout: Integer
+    attr_reader timeout: Integer
+    def timeout=: (Integer | String value) -> (Integer | String)
     attr_accessor logger: _Logger?
 
     def initialize: (
@@ -128,6 +129,7 @@ module Assinafy
     def self.generate_state: () -> String
     def self.normalize_scope: (Array[String] | String | nil scope) -> String?
     def self.validate_code_verifier!: (String code_verifier) -> String
+    def self.https_uri!: (String value, String name) -> untyped
     def self.authorization_url: (
       client_id: String,
       redirect_uri: String,
@@ -144,6 +146,8 @@ module Assinafy
   module Resources
     class BaseResource
       PATH_SEGMENT: Regexp
+      MAX_UPLOAD_BYTES: Integer
+      STATS_GRANULARITIES: Array[String]
       AUTH_HEADERS: Array[String]
       PAGINATION_HEADERS: Hash[Symbol, String]
 
@@ -161,6 +165,17 @@ module Assinafy
       def change_password: (email: String, password: String, new_password: String) -> api_object
       def request_password_reset: (email: String) -> api_object
       def reset_password: (email: String, new_password: String, ?token: String?) -> api_object
+      def verify_mfa: (mfa_token: String, code: String) -> api_object
+      def mfa_methods: () -> api_object
+      def start_totp_enrollment: (?label: String?) -> api_object
+      def confirm_totp_enrollment: (
+        method_id: String,
+        code: String,
+        ?password: String?,
+        ?reauth_code: String?
+      ) -> api_object
+      def regenerate_recovery_codes: (?password: String?, ?code: String?) -> api_object
+      def delete_mfa_method: (String method_id, ?password: String?, ?code: String?) -> api_object
     end
 
     class OAuthResource < BaseResource
@@ -217,7 +232,6 @@ module Assinafy
     end
 
     class DocumentResource < BaseResource
-      MAX_UPLOAD_BYTES: Integer
       READY_STATUSES: Array[String]
       FAILED_STATUSES: Array[String]
       ARTIFACT_TYPES: Array[String]
@@ -231,8 +245,8 @@ module Assinafy
       def rename: (String document_id, String name) -> api_object
       def wait_until_ready: (
         String document_id,
-        ?max_wait_seconds: Integer,
-        ?poll_interval_seconds: Integer
+        ?max_wait_seconds: Numeric,
+        ?poll_interval_seconds: Numeric
       ) -> api_object
       def download: (String document_id, ?String artifact_name) -> String
       def thumbnail: (String document_id) -> String
@@ -343,6 +357,13 @@ module Assinafy
       def list_event_types: () -> Array[api_object]
       def list_dispatches: (?params params, ?String? account_id_override) -> list_result
       def retry_dispatch: (String dispatch_id, ?String? account_id_override) -> api_object
+      def list_endpoints: (?String? account_id_override) -> Array[api_object]
+      def create_endpoint: (params payload, ?String? account_id_override) -> api_object
+      def get_endpoint: (String endpoint_id, ?String? account_id_override) -> api_object
+      def update_endpoint: (String endpoint_id, params payload, ?String? account_id_override) -> api_object
+      def delete_endpoint: (String endpoint_id, ?String? account_id_override) -> nil
+      def endpoint_secret: (String endpoint_id, ?String? account_id_override) -> api_object
+      def rotate_endpoint_secret: (String endpoint_id, ?String? account_id_override) -> api_object
     end
 
     class TemplateResource < BaseResource
@@ -385,6 +406,10 @@ module Assinafy
   module Support
     class WebhookVerifier
       def initialize: (?String? webhook_secret) -> void
+      SECRET_PREFIX: String
+      DEFAULT_TOLERANCE: Integer
+
+      def verify_delivery: (String payload, _Each[[untyped, untyped]] headers, ?tolerance: Integer, ?now: Integer) -> bool
       def verify: (String payload, String? signature) -> bool
       def extract_event: (String payload) -> api_object?
       def event_type: (api_object? event) -> String?

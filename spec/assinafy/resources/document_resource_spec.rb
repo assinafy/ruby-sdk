@@ -307,7 +307,7 @@ RSpec.describe Assinafy::Resources::DocumentResource do
 
     it 'rejects non-String tags before making a request' do
       expect { resource.append_tags('doc-1', ['tag-1', 2]) }
-        .to raise_error(Assinafy::ValidationError, /Strings/)
+        .to raise_error(Assinafy::ValidationError, /must be a String/)
       expect(a_request(:post, "#{base_url}/accounts/acc/documents/doc-1/tags")).not_to have_been_made
     end
   end
@@ -531,6 +531,15 @@ RSpec.describe Assinafy::Resources::DocumentResource do
           .to raise_error(Assinafy::ValidationError, /positive numbers/)
       end
       expect { resource.rename('doc', 123) }.to raise_error(Assinafy::ValidationError, /String/)
+    end
+  end
+
+  describe '#list tags filter' do
+    it 'sends an Array of tag IDs comma-separated' do
+      stub_request(:get, "#{base_url}/accounts/acc/documents").with(query: { 'tags' => 't1,t2' })
+                                                              .to_return(api_envelope([]))
+
+      expect(described_class.new(connection, 'acc').list(tags: %w[t1 t2])).to eq(data: [])
     end
   end
 end

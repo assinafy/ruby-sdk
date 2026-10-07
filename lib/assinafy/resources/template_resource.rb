@@ -23,14 +23,14 @@ module Assinafy
       #   # {
       #   #   data: [
       #   #     {
-      #   #       "id" => "fa7f3e524f3a2cc00a5ea4325e2",
+      #   #       "id" => "template-id",
       #   #       "name" => "sample-contract-one-page.pdf",
       #   #       "document_name" => "sample-contract-one-page.pdf",
       #   #       "message" => nil,
       #   #       "status" => "Ready",
-      #   #       "pages" => [{ "id" => "fa7f3e528d77f2b3ed786df2ce0", "number" => 1, "fields" => [] }],
-      #   #       "roles" => [{ "id" => "fa7f3e525bfefc71df3701eac6f", "name" => "TemplateEditor" }],
-      #   #       "tags" => [{ "id" => "fa8c09f3e709a8a1c82d69b1454", "name" => "HR" }],
+      #   #       "pages" => [{ "id" => "template-page-id", "number" => 1, "fields" => [] }],
+      #   #       "roles" => [{ "id" => "role-id", "name" => "TemplateEditor" }],
+      #   #       "tags" => [{ "id" => "tag-id-3", "name" => "HR" }],
       #   #       "created_at" => "2024-07-19T15:23:03Z",
       #   #       "updated_at" => "2024-07-19T15:23:03Z"
       #   #     }
@@ -57,24 +57,24 @@ module Assinafy
       # @see GET /accounts/{account_id}/templates/{template_id}
       #
       # @example Fetch a single template (includes default_document_tags, omitted from #list)
-      #   client.templates.get('fa7f3e524f3a2cc00a5ea4325e2')
+      #   client.templates.get('template-id')
       #   # Returns the unwrapped Template Object:
       #   # {
       #   #   "resource" => "template",
-      #   #   "id" => "fa7f3e524f3a2cc00a5ea4325e2",
+      #   #   "id" => "template-id",
       #   #   "name" => "sample-contract-one-page.pdf",
       #   #   "document_name" => "sample-contract-one-page.pdf",
       #   #   "message" => nil,
       #   #   "status" => "Ready",
       #   #   "pages" => [
       #   #     {
-      #   #       "id" => "fa7f3e528d77f2b3ed786df2ce0", "number" => 1, "height" => 2100, "width" => 1275,
+      #   #       "id" => "template-page-id", "number" => 1, "height" => 2100, "width" => 1275,
       #   #       "download_url" => "https://api.assinafy.com.br/v1/accounts/1a/templates/.../pages/.../download",
       #   #       "fields" => []
       #   #     }
       #   #   ],
       #   #   "roles" => [{ "id" => "fa7f3e525bfe", "name" => "TemplateEditor", "assignment_type" => "Editor" }],
-      #   #   "tags" => [{ "id" => "fa8c09f3e709a8a1c82d69b1454", "name" => "HR" }],
+      #   #   "tags" => [{ "id" => "tag-id-3", "name" => "HR" }],
       #   #   "default_document_tags" => [],
       #   #   "created_at" => "2024-07-19T15:23:03Z",
       #   #   "updated_at" => "2024-07-19T15:23:03Z"
@@ -110,13 +110,13 @@ module Assinafy
       #   # Returns the unwrapped Template Object:
       #   # {
       #   #   "resource" => "template",
-      #   #   "id" => "103b0275c2bb53a437c761ec3462",
+      #   #   "id" => "template-id-2",
       #   #   "name" => "contract.pdf",
       #   #   "document_name" => "contract.pdf",
       #   #   "message" => nil,
       #   #   "status" => "Uploaded",
       #   #   "pages" => [],
-      #   #   "roles" => [{ "id" => "103b0275db76f02f0531db15b62a", "name" => "TemplateEditor",
+      #   #   "roles" => [{ "id" => "role-id-2", "name" => "TemplateEditor",
       #   #                 "assignment_type" => "Editor", "created_at" => "2026-07-20T15:57:19Z",
       #   #                 "updated_at" => "2026-07-20T15:57:19Z" }],
       #   #   "tags" => [],
@@ -126,8 +126,8 @@ module Assinafy
       def create(source, options = {}, account_id_override = nil)
         acc_id            = account_id(account_id_override)
         options           = require_payload(options, 'Template options')
-        buffer, file_name = read_source(source)
-        validate_pdf_source!(buffer, file_name)
+        buffer, file_name = read_source(source, max_bytes: MAX_UPLOAD_BYTES)
+        validate_pdf_source!(buffer, file_name, max_bytes: MAX_UPLOAD_BYTES)
 
         # @type var payload: Hash[String | Symbol, untyped]
         payload = { file: file_part(buffer, file_name) }
@@ -150,12 +150,12 @@ module Assinafy
       # @see PUT /accounts/{account_id}/templates/{template_id}
       #
       # @example Rename a template and set its default invitation message
-      #   client.templates.update('fa7f3e524f3a2cc00a5ea4325e2', name: 'Renamed', message: 'Please sign')
+      #   client.templates.update('template-id', name: 'Renamed', message: 'Please sign')
       #   # JSON body sent: { "name": "Renamed", "message": "Please sign" }
       #   # Returns the unwrapped Template Object:
       #   # {
       #   #   "resource" => "template",
-      #   #   "id" => "fa7f3e524f3a2cc00a5ea4325e2",
+      #   #   "id" => "template-id",
       #   #   "name" => "Renamed",
       #   #   "document_name" => "sample-contract-one-page.pdf",
       #   #   "message" => "Please sign",
@@ -183,7 +183,7 @@ module Assinafy
       # @see DELETE /accounts/{account_id}/templates/{template_id}
       #
       # @example Delete a template
-      #   client.templates.delete('fa7f3e524f3a2cc00a5ea4325e2')
+      #   client.templates.delete('template-id')
       #   # => nil
       #
       # @example Deleting an unknown template raises
@@ -211,7 +211,7 @@ module Assinafy
       # @see GET /accounts/{account_id}/templates/{template_id}/pages/{page_id}/download
       #
       # @example Download a page image and write it to disk
-      #   bytes = client.templates.download_page('fa7f3e524f3a2cc00a5ea4325e2', 'fa7f3e528d77f2b3ed786df2ce0')
+      #   bytes = client.templates.download_page('template-id', 'template-page-id')
       #   # => "\x89PNG\r\n\x1A\n..." (raw binary String, encoding ASCII-8BIT)
       #   File.binwrite('page-1.png', bytes)
       #

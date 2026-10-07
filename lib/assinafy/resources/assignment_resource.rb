@@ -13,7 +13,8 @@ module Assinafy
       METHODS           = %w[virtual collect].freeze
 
       # How a signer's identity is verified before they may sign, set per signer
-      # on the assignment. Omit to default to `Email`.
+      # on the assignment. When omitted it is inferred from
+      # `notification_methods`; when both are omitted, both default to `Email`.
       #
       # - `Email` — one-time code sent to the signer's email. Free.
       # - `Whatsapp` — one-time code over WhatsApp. The verification itself is
@@ -23,7 +24,8 @@ module Assinafy
       #   certificate (A1 or A3), producing a qualified PAdES signature.
       #   Requires the Digital Certificate feature, a CPF or CNPJ in the
       #   signer's `government_id`, and that the signer is alone in its signing
-      #   step. Charged 2 credits per signer. A CPF requires that person's
+      #   step. Charged 0.5 credits per signer on top of its notification
+      #   (breakdown code `SignatureDigitalCertificate`). A CPF requires that person's
       #   certificate (an e-CPF, or an e-CNPJ naming them as legal
       #   representative); a CNPJ requires an e-CNPJ for that company, from any
       #   of its representatives.
@@ -31,7 +33,8 @@ module Assinafy
 
       # Channels used to notify a signer of the request. Exactly one per signer;
       # WhatsApp incurs an additional cost and is available only on paid
-      # subscriptions. Omit to default to `["Email"]`.
+      # subscriptions. When omitted it is inferred from `verification_method`
+      # (`Whatsapp` → `["Whatsapp"]`); when both are omitted it is `["Email"]`.
       NOTIFICATION_METHODS = %w[Email Whatsapp].freeze
 
       SIGN_ITEM_KEY_MAP = {
@@ -291,8 +294,7 @@ module Assinafy
       #         ]
       #         # ... (see docs for the full assignment shape)
       #       }
-      #     ],
-      #     meta: nil
+      #     ]
       #   }
       def list(params = {}, account_id_override = nil)
         acc_id = account_id(account_id_override)

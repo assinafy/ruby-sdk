@@ -459,4 +459,14 @@ RSpec.describe Assinafy::Resources::SignerResource do
       ).not_to have_been_made
     end
   end
+
+  describe '#create government_id' do
+    it 'sends government_id so certificate signers need no follow-up update' do
+      stub_request(:post, "#{base_url}/accounts/test-account/signers")
+        .with(body: { 'full_name' => 'Signer', 'government_id' => '52998224725' })
+        .to_return(api_envelope({ 'id' => 'signer-1' }))
+
+      expect(resource.create(full_name: 'Signer', government_id: '52998224725')).to eq('id' => 'signer-1')
+    end
+  end
 end

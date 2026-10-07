@@ -196,4 +196,74 @@ RSpec.describe Assinafy::Resources::WebhookResource do
         .to raise_error(Assinafy::ValidationError)
     end
   end
+
+  describe 'webhook endpoints' do
+    let(:resource) { described_class.new(connection, 'acc') }
+    let(:endpoints_url) { "#{base_url}/accounts/acc/webhooks/endpoints" }
+    let(:endpoint) { { 'id' => 'ep1', 'url' => 'https://example.com/hook', 'signing_enabled' => true } }
+
+    it 'lists endpoints as an Array' do
+      stub_request(:get, endpoints_url).to_return(api_envelope([endpoint]))
+
+      expect(resource.list_endpoints).to eq([endpoint])
+    end
+
+    it 'creates an endpoint with exactly the fields given' do
+      stub_request(:post, endpoints_url)
+        .with(body: {
+          'url'             => 'https://example.com/hook',
+          'email'           => 'ops@example.com',
+          'events'          => ['document_ready'],
+          'name'            => 'ERP',
+          'signing_enabled' => true
+        })
+        .to_return(api_envelope(endpoint))
+
+      result = resource.create_endpoint(url: 'https://example.com/hook', email: 'ops@example.com',
+                                        events: ['document_ready'], name: 'ERP', signing_enabled: true)
+      expect(result).to eq(endpoint)
+    end
+
+    it 'rejects missing, unknown, and mistyped fields before the network' do
+      base = { url: 'https://example.com/hook', email: 'ops@example.com', events: ['document_ready'] }
+
+      expect { resource.create_endpoint(base.except(:events)) }.to raise_error(Assinafy::ValidationError, /events/)
+      expect do
+        resource.create_endpoint(base.merge(signing: true))
+      end.to raise_error(Assinafy::ValidationError, /signing/)
+      expect { resource.create_endpoint(base.merge(signing_enabled: 'yes')) }.to raise_error(Assinafy::ValidationError)
+      expect { resource.register(base.merge(signing_enabled: true)) }.to raise_error(Assinafy::ValidationError)
+    end
+
+    it 'gets, updates, and deletes one endpoint' do
+      stub_request(:get, "#{endpoints_url}/ep1").to_return(api_envelope(endpoint))
+      stub_request(:put, "#{endpoints_url}/ep1").with(body: { 'is_active' => false })
+                                                .to_return(api_envelope(endpoint.merge('is_active' => false)))
+      stub_request(:delete, "#{endpoints_url}/ep1").to_return(api_envelope([]))
+
+      expect(resource.get_endpoint('ep1')).to eq(endpoint)
+      expect(resource.update_endpoint('ep1', is_active: false)).to include('is_active' => false)
+      expect(resource.delete_endpoint('ep1')).to be_nil
+    end
+
+    it 'rejects an empty update and an unsafe endpoint ID' do
+      expect { resource.update_endpoint('ep1', {}) }.to raise_error(Assinafy::ValidationError)
+      expect { resource.get_endpoint('../ep1') }.to raise_error(Assinafy::ValidationError)
+    end
+
+    it 'reads and rotates the signing secret' do
+      stub_request(:get, "#{endpoints_url}/ep1/secret").to_return(api_envelope({ 'secret' => 'whsec_old' }))
+      stub_request(:post, "#{endpoints_url}/ep1/secret/rotate").to_return(api_envelope({ 'secret' => 'whsec_new' }))
+
+      expect(resource.endpoint_secret('ep1')).to eq('secret' => 'whsec_old')
+      expect(resource.rotate_endpoint_secret('ep1')).to eq('secret' => 'whsec_new')
+    end
+
+    it 'filters deliveries by endpoint' do
+      stub_request(:get, "#{base_url}/accounts/acc/webhooks").with(query: { 'endpoint_id' => 'ep1' })
+                                                             .to_return(api_envelope([]))
+
+      expect(resource.list_dispatches(endpoint_id: 'ep1')).to eq(data: [])
+    end
+  end
 end

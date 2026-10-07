@@ -159,4 +159,69 @@ RSpec.describe Assinafy::Resources::AuthResource do
         .to raise_error(Assinafy::ValidationError)
     end
   end
+
+  describe 'two-factor authentication' do
+    let(:base_url) { 'https://api.assinafy.com.br/v1' }
+    let(:resource) { described_class.new(build_test_connection(base_url)) }
+
+    it 'completes a two-factor login without workspace credentials' do
+      stub_request(:post, "#{base_url}/authentication/mfa/verify")
+        .with(body: { 'mfa_token' => 'mfa-token', 'code' => '123456' })
+        .with { |request| !request.headers.key?('X-Api-Key') && !request.headers.key?('Authorization') }
+        .to_return(api_envelope({ 'access_token' => 'token' }))
+
+      expect(resource.verify_mfa(mfa_token: 'mfa-token', code: '123456')).to eq('access_token' => 'token')
+    end
+
+    it 'rejects a blank two-factor code before the network' do
+      expect { resource.verify_mfa(mfa_token: 'mfa-token', code: ' ') }.to raise_error(Assinafy::ValidationError)
+    end
+
+    it 'lists enrolled methods with workspace credentials' do
+      stub_request(:get, "#{base_url}/users/self/mfa")
+        .with(headers: { 'X-Api-Key' => 'test-key' })
+        .to_return(api_envelope({ 'methods' => [], 'recovery_codes_remaining' => 0 }))
+
+      expect(resource.mfa_methods).to eq('methods' => [], 'recovery_codes_remaining' => 0)
+    end
+
+    it 'starts enrollment with an optional label' do
+      stub_request(:post, "#{base_url}/users/self/mfa/totp")
+        .with(body: { 'label' => 'My phone' })
+        .to_return(api_envelope({ 'id' => 'mfa-id', 'secret' => 'SECRET' }))
+
+      expect(resource.start_totp_enrollment(label: 'My phone')).to include('id' => 'mfa-id')
+    end
+
+    it 'confirms enrollment, sending the method ID as id' do
+      stub_request(:put, "#{base_url}/users/self/mfa/totp/confirm")
+        .with(body: { 'id' => 'mfa-id', 'code' => '123456', 'reauth_code' => '654321' })
+        .to_return(api_envelope({ 'recovery_codes' => ['ABCD-EFGH-JKMN'] }))
+
+      result = resource.confirm_totp_enrollment(method_id: 'mfa-id', code: '123456', reauth_code: '654321')
+      expect(result).to eq('recovery_codes' => ['ABCD-EFGH-JKMN'])
+    end
+
+    it 'regenerates recovery codes with a password' do
+      stub_request(:post, "#{base_url}/users/self/mfa/recovery-codes")
+        .with(body: { 'password' => 'secret' })
+        .to_return(api_envelope({ 'recovery_codes' => [] }))
+
+      expect(resource.regenerate_recovery_codes(password: 'secret')).to eq('recovery_codes' => [])
+    end
+
+    it 'removes a method with a two-factor code in the DELETE body' do
+      stub_request(:delete, "#{base_url}/users/self/mfa/mfa-id")
+        .with(body: { 'code' => '123456' })
+        .to_return(api_envelope({ 'is_mfa_enabled' => false }))
+
+      expect(resource.delete_mfa_method('mfa-id', code: '123456')).to eq('is_mfa_enabled' => false)
+    end
+
+    it 'requires re-authentication before regenerating or removing' do
+      expect { resource.regenerate_recovery_codes }.to raise_error(Assinafy::ValidationError, /password or/)
+      expect { resource.delete_mfa_method('mfa-id') }.to raise_error(Assinafy::ValidationError, /password or/)
+      expect { resource.delete_mfa_method('../x', password: 'p') }.to raise_error(Assinafy::ValidationError)
+    end
+  end
 end

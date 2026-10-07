@@ -2,14 +2,25 @@
 
 module Assinafy
   module Resources
-    # Webhook subscription, event-type catalog, delivery history, and retries.
+    # Webhook endpoints, signing secrets, the legacy single subscription,
+    # event-type catalog, delivery history, and retries.
+    #
+    # An account can register 1 endpoint, or up to 3 on paid plans. Every active
+    # endpoint subscribed to an event receives it. The `subscriptions` methods
+    # ({#register}, {#get}, {#inactivate}) act on the account's oldest endpoint.
     #
     # See https://api.assinafy.com.br/v1/docs#webhooks for the full
     # documentation of these endpoints.
     class WebhookResource < BaseResource
-      # Create or replace the account's webhook subscription. The API uses
-      # `PUT subscriptions` for both create and update semantics, hence the
-      # name `register` (with an `update` alias).
+      ENDPOINT_FIELDS     = %i[url email events name is_active signing_enabled].freeze
+      SUBSCRIPTION_FIELDS = %i[url email events is_active].freeze
+      REQUIRED_FIELDS     = %i[url email events].freeze
+
+      # Create or replace the account's oldest webhook endpoint (creating it
+      # when the account has none). The API uses `PUT subscriptions` for both
+      # create and update semantics, hence the name `register` (with an
+      # `update` alias). Accounts with several endpoints should use
+      # {#create_endpoint} / {#update_endpoint}.
       #
       # @param payload [Hash]
       # @option payload [String]        :url       endpoint that will receive events
@@ -45,24 +56,8 @@ module Assinafy
       #   #   updated_at: "2026-06-05T21:13:24Z"
       #   # }
       def register(payload, account_id_override = nil)
-        p = require_payload(payload, 'Webhook payload').transform_keys(&:to_sym)
-
-        require_string(p[:url], 'Webhook URL')
-        Utils.require_email(p[:email])
-
-        events = require_array(p[:events], 'Webhook events')
-        unless events.all? { |event| event.is_a?(String) && !event.strip.empty? }
-          raise ValidationError.new('Webhook events must be non-empty Strings')
-        end
-
+        body   = { is_active: true }.merge(webhook_body(payload, SUBSCRIPTION_FIELDS, REQUIRED_FIELDS))
         acc_id = account_id(account_id_override)
-
-        body = {
-          url:       p[:url],
-          email:     p[:email],
-          events:    events,
-          is_active: p.key?(:is_active) ? require_boolean(p[:is_active], 'is_active') : true
-        }
 
         @logger.info('Registering webhook subscription')
 
@@ -73,8 +68,8 @@ module Assinafy
 
       alias update register
 
-      # Fetch the current webhook subscription. Returns `nil` on 404
-      # (no subscription configured yet).
+      # Fetch the account's oldest webhook endpoint. Returns `nil` on 404
+      # (no endpoint configured yet).
       #
       # @param account_id_override [String, nil]
       # @return [Hash, nil] subscription object, or `nil` when none is configured (404)
@@ -101,8 +96,9 @@ module Assinafy
         end
       end
 
-      # Inactivate (but keep) the account's webhook subscription. Stops
-      # deliveries without losing the configured event set.
+      # Inactivate (but keep) the account's oldest webhook endpoint. Stops
+      # deliveries to it without losing the configured event set; other
+      # endpoints are unaffected.
       #
       # @param account_id_override [String, nil]
       # @return [Hash] the subscription object with `is_active: false`; the event set is preserved
@@ -161,7 +157,7 @@ module Assinafy
 
       # List webhook delivery attempts (dispatches) with pagination metadata.
       #
-      # @param params [Hash] `event`, `delivered`, `from`, `to`, `page`, `per-page`
+      # @param params [Hash] `endpoint_id`, `event`, `delivered`, `from`, `to`, `page`, `per_page`
       # @param account_id_override [String, nil]
       # @return [Hash{Symbol=>Array,Hash}] `{ data: [dispatch, ...], meta: { current_page:, per_page:, total:,
       #   last_page: } }`
@@ -234,6 +230,239 @@ module Assinafy
         call('Failed to retry webhook dispatch') do
           http_post("accounts/#{acc_id}/webhooks/#{did}/retry")
         end
+      end
+
+      # List the account's webhook endpoints, oldest first.
+      #
+      # @param account_id_override [String, nil]
+      # @return [Array<Hash>] webhook endpoint objects
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
+      # @see GET /accounts/{account_id}/webhooks/endpoints
+      # @example List endpoints
+      #   client.webhooks.list_endpoints
+      #   # GET /accounts/{account_id}/webhooks/endpoints
+      #   # => unwrapped data payload returned:
+      #   # [
+      #   #   {
+      #   #     id:              "webhook-endpoint-id",
+      #   #     name:            "ERP",
+      #   #     url:             "https://example.com/webhooks/assinafy",
+      #   #     email:           "ops@example.com",
+      #   #     events:          ["document_ready", "signer_signed_document"],
+      #   #     is_active:       true,
+      #   #     signing_enabled: true,
+      #   #     created_at:      "2026-10-01T12:00:00Z",
+      #   #     updated_at:      "2026-10-01T12:00:00Z"
+      #   #   }
+      #   # ]
+      def list_endpoints(account_id_override = nil)
+        acc_id = account_id(account_id_override)
+
+        call_array('Failed to list webhook endpoints') do
+          http_get("accounts/#{acc_id}/webhooks/endpoints")
+        end
+      end
+
+      # Register a new webhook endpoint. Each endpoint of an account needs a
+      # distinct `url`. Creating one past the plan's limit (1, or 3 on paid
+      # plans) answers `403`. With `signing_enabled: true` a signing secret is
+      # generated; read it with {#endpoint_secret}.
+      #
+      # @param payload [Hash]
+      # @option payload [String]        :url             http(s) URL that receives the events (required)
+      # @option payload [String]        :email           contact email for delivery-failure notices (required)
+      # @option payload [Array<String>] :events          event-type IDs (see {#list_event_types}) (required)
+      # @option payload [String]        :name            label to tell endpoints apart
+      # @option payload [Boolean]       :is_active       API default `true`
+      # @option payload [Boolean]       :signing_enabled API default `false`
+      # @param account_id_override [String, nil]
+      # @return [Hash] the created endpoint
+      # @raise [Assinafy::ApiError] `400` on a duplicate URL or invalid body; `403` past the plan limit
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid or unknown input
+      # @see POST /accounts/{account_id}/webhooks/endpoints
+      # @example Create a signed endpoint
+      #   client.webhooks.create_endpoint(
+      #     url:             'https://example.com/webhooks/assinafy',
+      #     email:           'ops@example.com',
+      #     events:          %w[document_ready signer_signed_document],
+      #     name:            'ERP',
+      #     signing_enabled: true
+      #   )
+      #   # POST /accounts/{account_id}/webhooks/endpoints
+      #   # request body sent by the SDK:
+      #   # {
+      #   #   "url":             "https://example.com/webhooks/assinafy",
+      #   #   "email":           "ops@example.com",
+      #   #   "events":          ["document_ready", "signer_signed_document"],
+      #   #   "name":            "ERP",
+      #   #   "signing_enabled": true
+      #   # }
+      #   # => unwrapped data payload returned (same shape as {#list_endpoints} entries):
+      #   # { id: "webhook-endpoint-id", name: "ERP", url: "https://example.com/webhooks/assinafy",
+      #   #   email: "ops@example.com", events: [...], is_active: true, signing_enabled: true,
+      #   #   created_at: "2026-10-01T12:00:00Z", updated_at: "2026-10-01T12:00:00Z" }
+      def create_endpoint(payload, account_id_override = nil)
+        body   = webhook_body(payload, ENDPOINT_FIELDS, REQUIRED_FIELDS)
+        acc_id = account_id(account_id_override)
+
+        @logger.info('Creating webhook endpoint')
+
+        call('Failed to create webhook endpoint') do
+          http_post("accounts/#{acc_id}/webhooks/endpoints", body_params(body))
+        end
+      end
+
+      # Fetch one webhook endpoint.
+      #
+      # @param endpoint_id [String]
+      # @param account_id_override [String, nil]
+      # @return [Hash] the endpoint (same shape as {#list_endpoints} entries)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response; `404` on an unknown ID
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
+      # @see GET /accounts/{account_id}/webhooks/endpoints/{endpoint_id}
+      # @example Fetch an endpoint
+      #   client.webhooks.get_endpoint('webhook-endpoint-id')
+      #   # GET /accounts/{account_id}/webhooks/endpoints/webhook-endpoint-id
+      #   # => { id: "webhook-endpoint-id", name: "ERP", url: "https://example.com/webhooks/assinafy", ... }
+      def get_endpoint(endpoint_id, account_id_override = nil)
+        call('Failed to fetch webhook endpoint') do
+          http_get(endpoint_path(endpoint_id, account_id_override))
+        end
+      end
+
+      # Change a webhook endpoint. Only the fields sent are updated.
+      # `signing_enabled: true` generates a secret when the endpoint has none
+      # and keeps the current one otherwise; `false` discards the secret.
+      #
+      # @param endpoint_id [String]
+      # @param payload [Hash] any of `url`, `email`, `events`, `name`, `is_active`, `signing_enabled`
+      # @param account_id_override [String, nil]
+      # @return [Hash] the updated endpoint
+      # @raise [Assinafy::ApiError] `400` when `url` is used by another endpoint; `404` on an unknown ID
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on an empty, invalid, or unknown payload
+      # @see PUT /accounts/{account_id}/webhooks/endpoints/{endpoint_id}
+      # @example Pause an endpoint
+      #   client.webhooks.update_endpoint('webhook-endpoint-id', is_active: false)
+      #   # PUT /accounts/{account_id}/webhooks/endpoints/webhook-endpoint-id
+      #   # request body sent by the SDK:
+      #   # { "is_active": false }
+      #   # => { id: "webhook-endpoint-id", is_active: false, ... }
+      def update_endpoint(endpoint_id, payload, account_id_override = nil)
+        body = webhook_body(payload, ENDPOINT_FIELDS, [])
+        raise ValidationError.new('Webhook endpoint update must change at least one field') if body.empty?
+
+        path = endpoint_path(endpoint_id, account_id_override)
+
+        call('Failed to update webhook endpoint') do
+          http_put(path, body_params(body))
+        end
+      end
+
+      # Delete a webhook endpoint and free its slot.
+      #
+      # @param endpoint_id [String]
+      # @param account_id_override [String, nil]
+      # @return [nil]
+      # @raise [Assinafy::ApiError] on an unsuccessful API response; `404` on an unknown ID
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
+      # @see DELETE /accounts/{account_id}/webhooks/endpoints/{endpoint_id}
+      # @example Delete an endpoint
+      #   client.webhooks.delete_endpoint('webhook-endpoint-id')
+      #   # DELETE /accounts/{account_id}/webhooks/endpoints/webhook-endpoint-id  (no request body)
+      #   # => nil
+      def delete_endpoint(endpoint_id, account_id_override = nil)
+        path = endpoint_path(endpoint_id, account_id_override)
+
+        @logger.info('Deleting webhook endpoint')
+
+        call_void('Failed to delete webhook endpoint') do
+          http_delete(path)
+        end
+      end
+
+      # Read the Standard Webhooks secret that signs deliveries to an endpoint.
+      # Pass it to {Assinafy::Support::WebhookVerifier}. Not available to OAuth
+      # applications; use an API key or a user access token.
+      #
+      # @param endpoint_id [String]
+      # @param account_id_override [String, nil]
+      # @return [Hash] `{ secret: "whsec_..." }`
+      # @raise [Assinafy::ApiError] `400` when signing is disabled; `404` on an unknown ID
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
+      # @see GET /accounts/{account_id}/webhooks/endpoints/{endpoint_id}/secret
+      # @example Read the signing secret
+      #   client.webhooks.endpoint_secret('webhook-endpoint-id')
+      #   # GET /accounts/{account_id}/webhooks/endpoints/webhook-endpoint-id/secret
+      #   # => { secret: "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw" }
+      def endpoint_secret(endpoint_id, account_id_override = nil)
+        call('Failed to fetch webhook endpoint secret') do
+          http_get("#{endpoint_path(endpoint_id, account_id_override)}/secret")
+        end
+      end
+
+      # Replace an endpoint's signing secret. The old secret stops working
+      # immediately, so update the receiver right away. Not available to OAuth
+      # applications.
+      #
+      # @param endpoint_id [String]
+      # @param account_id_override [String, nil]
+      # @return [Hash] `{ secret: "whsec_..." }` (the new secret)
+      # @raise [Assinafy::ApiError] `400` when signing is disabled; `404` on an unknown ID
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid required input
+      # @see POST /accounts/{account_id}/webhooks/endpoints/{endpoint_id}/secret/rotate
+      # @example Rotate the signing secret
+      #   client.webhooks.rotate_endpoint_secret('webhook-endpoint-id')
+      #   # POST /accounts/{account_id}/webhooks/endpoints/webhook-endpoint-id/secret/rotate  (no request body)
+      #   # => { secret: "whsec_new-secret-placeholder" }
+      def rotate_endpoint_secret(endpoint_id, account_id_override = nil)
+        path = endpoint_path(endpoint_id, account_id_override)
+
+        @logger.info('Rotating webhook endpoint secret')
+
+        call('Failed to rotate webhook endpoint secret') do
+          http_post("#{path}/secret/rotate")
+        end
+      end
+
+      private
+
+      def endpoint_path(endpoint_id, account_id_override)
+        eid = require_id(endpoint_id, 'Webhook endpoint ID')
+        "accounts/#{account_id(account_id_override)}/webhooks/endpoints/#{eid}"
+      end
+
+      def webhook_body(payload, allowed, required)
+        body = require_payload(payload, 'Webhook payload').transform_keys(&:to_sym)
+
+        unknown = body.keys - allowed
+        raise ValidationError.new("Unknown webhook fields: #{unknown.join(', ')}") unless unknown.empty?
+
+        missing = required - body.keys
+        raise ValidationError.new("Missing webhook fields: #{missing.join(', ')}") unless missing.empty?
+
+        validate_webhook_fields!(body)
+        body
+      end
+
+      def validate_webhook_fields!(body)
+        require_string(body[:url], 'Webhook URL') if body.key?(:url)
+        Utils.require_email(body[:email]) if body.key?(:email)
+        require_string(body[:name], 'Webhook name') if body.key?(:name)
+        %i[is_active signing_enabled].each { |key| require_boolean(body[key], key.to_s) if body.key?(key) }
+        return unless body.key?(:events)
+
+        events = require_array(body[:events], 'Webhook events')
+        return if events.all? { |event| event.is_a?(String) && !event.strip.empty? }
+
+        raise ValidationError.new('Webhook events must be non-empty Strings')
       end
     end
   end

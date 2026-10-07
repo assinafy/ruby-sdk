@@ -420,7 +420,7 @@ module Assinafy
       #   #   'client_id_metadata_document_supported' => true
       #   # }
       def authorization_server_metadata(url = Assinafy::OAuth::AUTHORIZATION_SERVER_METADATA_URL)
-        absolute = require_string(url, 'Authorization server metadata URL')
+        absolute = Assinafy::OAuth.https_uri!(url, 'Authorization server metadata URL').to_s
 
         call('Failed to fetch authorization server metadata') do
           http_get(absolute, {}, workspace_auth: false)

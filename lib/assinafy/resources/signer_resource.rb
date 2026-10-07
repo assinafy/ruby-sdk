@@ -22,13 +22,14 @@ module Assinafy
       # @option payload [String] :email                 optional, validated when present
       # @option payload [String] :whatsapp_phone_number optional
       # @option payload [String] :phone                 alias for :whatsapp_phone_number
+      # @option payload [String] :government_id         CPF/CNPJ; required for DigitalCertificate signers
       # @return [Hash] normalized request body
       # @raise [ValidationError] when the payload is malformed
       # @example Preflight a signer without making an API request
       #   body = client.signers.validate_create!(
-      #     full_name: 'Example Signer', email: 'signer@example.test'
+      #     full_name: 'Example Signer', email: 'signer@example.com'
       #   )
-      #   # => { "full_name" => "Example Signer", "email" => "signer@example.test" }
+      #   # => { "full_name" => "Example Signer", "email" => "signer@example.com" }
       def validate_create!(payload)
         signer_payload(payload, require_full_name: true)
       end
@@ -40,6 +41,7 @@ module Assinafy
       # @option payload [String] :email                 optional, validated when present
       # @option payload [String] :whatsapp_phone_number optional
       # @option payload [String] :phone                 alias for :whatsapp_phone_number
+      # @option payload [String] :government_id         CPF/CNPJ; required for DigitalCertificate signers
       # @param account_id_override [String, nil]
       # @return [Hash] signer object (envelope `data` unwrapped)
       # @raise [Assinafy::ApiError] on an unsuccessful API response
@@ -172,7 +174,7 @@ module Assinafy
       def update(signer_id, payload, account_id_override = nil)
         acc_id = account_id(account_id_override)
         sid    = require_id(signer_id, 'Signer ID')
-        body   = signer_payload(payload, require_full_name: false, include_government_id: true)
+        body   = signer_payload(payload, require_full_name: false)
 
         call('Failed to update signer') do
           http_put("accounts/#{acc_id}/signers/#{sid}", body)
@@ -458,7 +460,7 @@ module Assinafy
         Utils.require_email(email)
       end
 
-      def signer_payload(payload, require_full_name:, include_government_id: false)
+      def signer_payload(payload, require_full_name:)
         raw = require_payload(payload, 'Signer payload')
         p   = raw.transform_keys(&:to_s)
 
@@ -474,7 +476,7 @@ module Assinafy
           email:                 email,
           whatsapp_phone_number: phone
         )
-        government_id = signer_government_id(p, include_government_id)
+        government_id = signer_government_id(p)
         body['government_id'] = government_id unless government_id.nil?
         body
       end
@@ -494,8 +496,8 @@ module Assinafy
         raise ValidationError.new('whatsapp_phone_number must be a String')
       end
 
-      def signer_government_id(payload, include_government_id)
-        government_id = payload['government_id'] if include_government_id
+      def signer_government_id(payload)
+        government_id = payload['government_id']
         return government_id if government_id.nil? || government_id.is_a?(String)
 
         raise ValidationError.new('government_id must be a String')

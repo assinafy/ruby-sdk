@@ -10,8 +10,8 @@ module Assinafy
     class AccountResource < BaseResource
       # List the accounts (workspaces) the authenticated user can access.
       #
-      # @return [Hash{Symbol=>Array,nil}] `{ data: [Account, ...], meta: nil }`
-      #   (this endpoint sends no pagination headers)
+      # @return [Hash{Symbol=>Array,nil}] `{ data: [Account, ...] }`
+      #   (`meta` is omitted: this endpoint sends no pagination headers)
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure
       # @raise [Assinafy::ValidationError] on invalid required input
@@ -31,8 +31,7 @@ module Assinafy
       #         'created_at' => '2026-05-12T18:05:11Z'
       #       }
       #       # ... (one Hash per accessible account)
-      #     ],
-      #     meta: nil
+      #     ]
       #   }
       def list
         call_list('Failed to list accounts') do
@@ -224,9 +223,10 @@ module Assinafy
       #   ]
       def stats(granularity: nil, month: nil, account_id_override: nil)
         acc_id = account_id(account_id_override)
+        query  = stats_params(granularity, month)
 
         call_array('Failed to fetch account stats') do
-          http_get("accounts/#{acc_id}/stats", query_params(granularity: granularity, month: month))
+          http_get("accounts/#{acc_id}/stats", query)
         end
       end
 

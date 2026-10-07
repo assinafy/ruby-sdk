@@ -2,6 +2,43 @@
 
 All notable changes to the `assinafy` Ruby gem are documented here.
 
+## 1.11.0
+
+### Added
+
+- Webhook endpoints: `WebhookResource#list_endpoints`, `#create_endpoint`, `#get_endpoint`, `#update_endpoint`,
+  `#delete_endpoint`, `#endpoint_secret`, and `#rotate_endpoint_secret`. An account can have 1 endpoint, or up to 3
+  on paid plans, each with its own URL, events, and signing setting. Secrets cannot be read or rotated by OAuth
+  applications.
+- `WebhookResource#list_dispatches` accepts an `endpoint_id` filter.
+- `Assinafy::Support::WebhookVerifier#verify_delivery` verifies Assinafy's Standard Webhooks signatures
+  (`webhook-id`, `webhook-timestamp`, `webhook-signature`) with the endpoint's `whsec_` secret and rejects
+  timestamps more than 5 minutes off. It accepts Rails `request.headers`, a Rack env, or a plain Hash.
+- Two-factor authentication: `AuthResource#verify_mfa` completes a login that answered with an `mfa_token`, and
+  `#mfa_methods`, `#start_totp_enrollment`, `#confirm_totp_enrollment`, `#regenerate_recovery_codes`, and
+  `#delete_mfa_method` manage authenticator methods and recovery codes.
+- `SignerResource#create`, `#validate_create!`, and `Client#upload_and_request_signatures` send `government_id`,
+  so a `DigitalCertificate` signer can be created in one call.
+
+### Changed
+
+- `WebhookResource#register`, `#get`, and `#inactivate` act on the account's oldest webhook endpoint, and
+  `#register` rejects keys other than `url`, `email`, `events`, and `is_active`.
+- `WebhookVerifier#verify` remains for receivers whose own gateway signs bodies with a hex HMAC-SHA256.
+- `DocumentResource#upload` no longer takes a `name` option; the document is named after the uploaded file. Use
+  `#rename` to change it.
+- `DocumentResource#list` joins an Array `tags` filter into comma-separated tag IDs.
+- `TemplateResource#create` enforces the 25 MB upload limit.
+- `UserResource#stats` and `AccountResource#stats` validate `granularity` (`monthly` or `daily`) and `month`
+  (`YYYY-MM`) before sending.
+- `OAuthResource#authorization_server_metadata` accepts only absolute HTTPS URL overrides.
+- `Configuration#base_url=` and `#timeout=` validate their values like the constructor. The `User-Agent` header
+  is set on each request.
+- `DigitalCertificate` is documented at 0.5 credits per signer on top of its notification (breakdown code
+  `SignatureDigitalCertificate`), with verification and notification methods inferred from each other.
+- The guides cover the complete flow in order, including the two-factor login, OAuth refresh under a
+  per-connection lock, and a webhook receiver for Rails and Rack.
+
 ## 1.10.1
 
 - Update the pinned Ruby setup action to support Ruby 4.0.7 in CI and release workflows.
@@ -89,8 +126,7 @@ All notable changes to the `assinafy` Ruby gem are documented here.
   value as a `422` only after the request has been sent — and after any signers created for that
   assignment already exist.
 
-- `spec/fixtures/api_contract.json` tracks the current upstream contract (93 operations, 39
-  schemas), including the four OAuth operations.
+- `spec/fixtures/api_contract.json` tracks the upstream contract, including the four OAuth operations.
 
 ### Removed
 
@@ -176,8 +212,7 @@ All notable changes to the `assinafy` Ruby gem are documented here.
 
 - `SignerResource#accept_terms` and `#verify_email` now send `signer-access-code` as
   the documented query parameter (the `signerAccessCode` security scheme is `in: query`),
-  consistent with every other signer-authenticated endpoint. Previously it was sent
-  only in the request body.
+  consistent with every other signer-authenticated endpoint.
 - `TemplateResource#create` now performs the required `multipart/form-data` file
   upload. The previous JSON body was rejected by the API (HTTP 400) and never worked.
   Its signature is now `create(source, options = {}, account_id_override = nil)`.
@@ -219,8 +254,8 @@ documentation at <https://api.assinafy.com.br/v1/docs>.
   method, sourced from the live API and the docs.
 - Behavioral coverage: `spec/api_coverage_spec.rb` now also fails CI when a public
   endpoint wrapper is missing a matrix row, and asserts documented aliases still
-  resolve to their canonical methods. Behavioral WebMock specs were added for the
-  previously untested methods and for `Client#upload_and_request_signatures`.
+  resolve to their canonical methods. Behavioral WebMock specs cover the remaining
+  methods and `Client#upload_and_request_signatures`.
 
 ### Fixed
 

@@ -43,8 +43,9 @@ module Assinafy
     # @!attribute [rw] timeout
     #   @return [Integer] Faraday timeout in seconds
     # @!attribute [rw] logger
-    #   @return [Logger, nil]
-    attr_accessor :api_key, :token, :account_id, :base_url, :webhook_secret, :timeout, :logger
+    #   @return [Logger, nil] receives SDK lifecycle messages
+    attr_accessor :api_key, :token, :account_id, :webhook_secret, :logger
+    attr_reader :base_url, :timeout
 
     # Build a configuration directly from keyword arguments. Prefer passing
     # `api_key` (the documented `X-Api-Key` mechanism); `token` is the legacy
@@ -56,7 +57,7 @@ module Assinafy
     # @param base_url [String] API base URL (trailing slash is stripped)
     # @param webhook_secret [String, nil] secret for {Support::WebhookVerifier}
     # @param timeout [Integer] Faraday open/read timeout in seconds
-    # @param logger [Logger, nil] optional logger for Faraday
+    # @param logger [Logger, nil] receives SDK lifecycle messages (never request bodies or credentials)
     #
     # @example Construct with an API key (omits the default base_url)
     #   config = Assinafy::Configuration.new(
@@ -119,6 +120,16 @@ module Assinafy
         timeout:        h.key?('timeout') ? h['timeout'] : DEFAULT_TIMEOUT,
         logger:         h['logger']
       )
+    end
+
+    # @param value [String] absolute http(s) URL; validated like the constructor argument
+    def base_url=(value)
+      @base_url = normalize_base_url(value)
+    end
+
+    # @param value [Integer, String] positive number of seconds
+    def timeout=(value)
+      @timeout = normalize_timeout(value)
     end
 
     # Return the HTTP headers used to authenticate requests, preferring

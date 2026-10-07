@@ -33,7 +33,7 @@ module Assinafy
       #   # Request: GET /users/self
       #   client.users.me
       #
-      #   # Current OpenAPI response (unwrapped data payload):
+      #   # Current OpenAPI response (unwrapped data payload; the deployed API also adds is_password_set):
       #   {
       #     'id' => 'user-id',
       #     'name' => 'Example User',
@@ -113,7 +113,7 @@ module Assinafy
       #   ]
       def stats(granularity: nil, month: nil)
         call_array('Failed to fetch user stats') do
-          http_get('users/self/stats', query_params(granularity: granularity, month: month))
+          http_get('users/self/stats', stats_params(granularity, month))
         end
       end
 
