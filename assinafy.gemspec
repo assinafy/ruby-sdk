@@ -12,7 +12,7 @@ Gem::Specification.new do |spec|
   spec.description = 'Ruby SDK for Assinafy. Covers the documented authentication, OAuth 2.1, account, ' \
                      'user, document, signer, assignment, webhook, template, tag, and field APIs, plus the ' \
                      'high-level upload_and_request_signatures helper.'
-  spec.homepage    = 'https://github.com/assinafy/ruby-sdk'
+  spec.homepage    = 'https://www.assinafy.com.br'
   spec.license     = 'MIT'
 
   spec.required_ruby_version = '>= 3.2'
