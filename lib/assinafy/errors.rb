@@ -52,6 +52,32 @@ module Assinafy
       @error_code = response_data['code']
     end
 
+    # Rate-limit window reported by the `X-Rate-Limit-Limit`, `X-Rate-Limit-Remaining` and
+    # `X-Rate-Limit-Reset` response headers. Only the headers present are included.
+    #
+    # @return [Hash{Symbol=>Integer}, nil] `{ limit:, remaining:, reset: }` (reset in seconds), or nil
+    # @example
+    #   e.rate_limit # => { limit: 60, remaining: 0, reset: 42 }
+    def rate_limit
+      context[:rate_limit]
+    end
+
+    # Seconds to wait before retrying, from the `Retry-After` header of a `429 Too Many Requests`.
+    #
+    # @return [Integer, nil]
+    # @example Back off on a rate-limited request
+    #   begin
+    #     client.documents.list
+    #   rescue Assinafy::ApiError => e
+    #     raise unless e.status_code == 429
+    #
+    #     sleep(e.retry_after || 1)
+    #     retry
+    #   end
+    def retry_after
+      context[:retry_after]
+    end
+
     # Build an {ApiError} from an HTTP status and parsed body. Reads the human
     # message from `message`, `error`, or `name` (in that order).
     #

@@ -52,12 +52,14 @@ module Assinafy
         # - `signers: [{ id:, verification_method:, notification_methods:, step: }]`
         # - Legacy `signer_ids:`/`signerIds:` arrays of IDs
         #
-        # @note Both methods require top-level `signers`; `collect` additionally
-        #   requires positioned `entries`.
+        # @note Creation requires top-level `signers` for both methods, and `collect` additionally
+        #   requires positioned `entries`; both are optional in estimate-cost payloads.
         # @param payload [Hash]
         # @param options [Hash]
         # @option options [Boolean] :allow_signers_without_id allow estimate-cost
         #   payloads where method-only signer descriptors carry no id
+        # @option options [Boolean] :require_signers (true) false for estimate-cost payloads, where
+        #   `signers` and `entries` are optional; an empty `signers` list is then omitted
         # @return [Hash] string-keyed body suitable for {#create} / {#estimate_cost}
         # @raise [Assinafy::ValidationError] on missing required fields
         # @example Bare signer IDs are normalised into { id: } hashes (virtual method)
@@ -114,12 +116,13 @@ module Assinafy
           entries = p[:entries]
           method  = (p[:method] || 'virtual').to_s
 
-          validate_method!(method, signers, entries, p)
+          validate_method!(method, signers, entries, p, options.fetch(:require_signers, true))
           validate_optional_fields!(p)
 
           result = { method: method }
-          result[:signers] = signers.map { |ref| normalise_signer_ref(ref, options) }
-          validate_signing_steps!(result[:signers])
+          normalised = signers.map { |ref| normalise_signer_ref(ref, options) }
+          validate_signing_steps!(normalised)
+          result[:signers] = normalised unless normalised.empty?
           OPTIONAL_FIELDS.each { |key| result[key] = p[key] if p[key] }
           result[:entries] = entries if entries
           Utils.body_params(result)
@@ -127,13 +130,13 @@ module Assinafy
 
         private
 
-        def validate_method!(method, signers, entries, payload)
+        def validate_method!(method, signers, entries, payload, require_signers)
           unless METHODS.include?(method)
             raise ValidationError.new("Assignment method must be one of: #{METHODS.join(', ')}")
           end
+          return unless require_signers
 
-          # `signers` is required for both methods: creation needs to know who signs, and the
-          # estimate is priced per signer. Positioned fields do not replace this list.
+          # Creation needs `signers` for both methods; positioned fields do not replace this list.
           if signers.empty?
             raise ValidationError.new(
               'At least one signer is required',
@@ -356,7 +359,7 @@ module Assinafy
       # `id`. An empty descriptor (`{}`) defaults both methods to `Email`.
       #
       # @param document_id [String]
-      # @param payload     [Hash]
+      # @param payload     [Hash] `method`, and optional `signers` (method-only descriptors) and `entries`
       # @return [Hash] cost breakdown (documents, credits, needs_extra_document, extra_document_cost,
       #   total_credits, breakdown[], document_balance, credit_balance, has_sufficient_resources,
       #   blocking_reason, message)
@@ -379,7 +382,7 @@ module Assinafy
       #   # }
       def estimate_cost(document_id, payload)
         doc_id = require_id(document_id, 'Document ID')
-        body   = self.class.build_payload(payload, allow_signers_without_id: true)
+        body   = self.class.build_payload(payload, allow_signers_without_id: true, require_signers: false)
 
         call('Failed to estimate assignment cost') do
           http_post("documents/#{doc_id}/assignments/estimate-cost", body)

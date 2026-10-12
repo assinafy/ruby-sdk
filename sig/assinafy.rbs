@@ -50,6 +50,8 @@ module Assinafy
 
     def initialize: (String message, Integer status_code, ?untyped response_data) -> void
     def self.from_response: (Integer status_code, untyped response_data) -> ApiError
+    def rate_limit: () -> Hash[Symbol, Integer]?
+    def retry_after: () -> Integer?
   end
 
   class ValidationError < Error
@@ -150,6 +152,7 @@ module Assinafy
       STATS_GRANULARITIES: Array[String]
       AUTH_HEADERS: Array[String]
       PAGINATION_HEADERS: Hash[Symbol, String]
+      RATE_LIMIT_HEADERS: Hash[Symbol, String]
 
       def initialize: (untyped connection, ?String? default_account_id, ?_Logger? logger) -> void
     end
@@ -238,7 +241,7 @@ module Assinafy
 
       def upload: (upload_source source, ?params options) -> api_object
       def list: (?params params, ?String? account_id_override) -> list_result
-      def search: (String query, ?params params, ?String? account_id_override) -> list_result
+      def search: (?String? query, ?params params, ?String? account_id_override) -> list_result
       def statuses: () -> Array[api_object]
       def details: (String document_id) -> api_object
       def get: (String document_id) -> api_object
@@ -269,9 +272,9 @@ module Assinafy
       def send_token: (
         String document_id,
         ?recipient: String?,
-        ?channel: String?,
+        ?channel: String,
         ?email: String?
-      ) -> api_object?
+      ) -> api_object
       def list_tags: (String document_id, ?String? account_id_override) -> Array[api_object]
       def replace_tags: (String document_id, Array[String] tags, ?String? account_id_override) -> Array[api_object]
       def append_tags: (String document_id, Array[String] tags, ?String? account_id_override) -> Array[api_object]
@@ -309,7 +312,9 @@ module Assinafy
       def current: (String signer_id, signer_access_code: String) -> api_object
       def document: (String signer_id, signer_access_code: String) -> api_object
       def list: (String signer_id, ?params params, ?signer_access_code: String?) -> list_result
-      def search: (String signer_id, String query, ?params params, ?signer_access_code: String?) -> list_result
+      def list_as_workspace: (String signer_id, ?params params) -> list_result
+      def search: (String signer_id, ?String? query, ?params params, ?signer_access_code: String?) -> list_result
+      def search_as_workspace: (String signer_id, ?String? query, ?params params) -> list_result
       def sign_multiple: (Array[String] document_ids, signer_access_code: String) -> Array[api_object]
       def decline_multiple: (
         Array[String] document_ids,
@@ -385,12 +390,12 @@ module Assinafy
         String field_id,
         untyped value,
         ?String? account_id_override,
-        ?signer_access_code: String?
+        ?signer_access_code: String
       ) -> api_object
       def validate_multiple: (
         Array[params] values,
         ?String? account_id_override,
-        ?signer_access_code: String?
+        ?signer_access_code: String
       ) -> Array[api_object]
       def types: () -> Array[api_object]
     end

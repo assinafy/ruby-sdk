@@ -121,6 +121,26 @@ RSpec.describe Assinafy::Resources::BaseResource do
       )
     end
 
+    it 'exposes the rate-limit headers and Retry-After of a 429' do
+      headers = { 'X-Rate-Limit-Limit' => '60', 'X-Rate-Limit-Remaining' => '0',
+                  'X-Rate-Limit-Reset' => '42', 'Retry-After' => '42' }
+      stub_request(:get, "#{base_url}/items")
+        .to_return(json_response({ 'status' => 429, 'message' => 'Too Many Requests' }, status: 429, headers: headers))
+
+      expect { resource.list }.to raise_error(Assinafy::ApiError) { |error|
+        expect(error).to have_attributes(status_code: 429, retry_after: 42,
+                                         rate_limit: { limit: 60, remaining: 0, reset: 42 })
+      }
+    end
+
+    it 'leaves the rate-limit readers nil when the headers are absent' do
+      stub_request(:get, "#{base_url}/items").to_return(json_response({ 'status' => 500 }, status: 500))
+
+      expect { resource.list }.to raise_error(
+        an_instance_of(Assinafy::ApiError).and(having_attributes(rate_limit: nil, retry_after: nil))
+      )
+    end
+
     # The API refuses TLS 1.0/1.1 during the handshake, before any HTTP status.
     it 'reports a TLS handshake failure as a NetworkError, not an API error' do
       stub_request(:get, "#{base_url}/items").to_raise(OpenSSL::SSL::SSLError.new('unsupported protocol'))

@@ -17,6 +17,11 @@ module Assinafy
         total:        'x-pagination-total-count',
         last_page:    'x-pagination-page-count'
       }.freeze
+      RATE_LIMIT_HEADERS = {
+        limit:     'x-rate-limit-limit',
+        remaining: 'x-rate-limit-remaining',
+        reset:     'x-rate-limit-reset'
+      }.freeze
 
       # @param connection         [Faraday::Connection]
       # @param default_account_id [String, nil] used by `account_id` when no override is passed
@@ -297,23 +302,32 @@ module Assinafy
 
       # On a `403` the `WWW-Authenticate` challenge names the scope an OAuth
       # token is missing, which tells "reconnect with more scope" apart from
-      # "wrong workspace or role", so it travels with the error.
+      # "wrong workspace or role", so it travels with the error, as do the
+      # rate-limit headers a `429` needs for backing off.
       def check_status!(response, _label)
         return if (200..299).cover?(response.status)
 
-        raise with_challenge(error_class.from_response(response.status, response.body), response)
+        raise with_response_headers(error_class.from_response(response.status, response.body), response)
       end
 
-      # A 2xx envelope can still carry an error status, with the same challenge.
+      # A 2xx envelope can still carry an error status, with the same headers.
       def unwrap(response)
         Utils.handle_assinafy_response(response.body)
       rescue ApiError => e
-        raise with_challenge(e, response)
+        raise with_response_headers(e, response)
       end
 
-      def with_challenge(error, response)
-        challenge = response.headers&.[]('www-authenticate')
+      def with_response_headers(error, response)
+        headers = response.headers || {}
+        challenge = headers['www-authenticate']
         error.context[:www_authenticate] = challenge if challenge
+        rate_limit = RATE_LIMIT_HEADERS.filter_map do |key, header|
+          value = to_int(headers[header])
+          [key, value] if value
+        end.to_h
+        error.context[:rate_limit] = rate_limit unless rate_limit.empty?
+        retry_after = to_int(headers['retry-after'])
+        error.context[:retry_after] = retry_after if retry_after
         error
       end
 

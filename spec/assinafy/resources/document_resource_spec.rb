@@ -26,7 +26,20 @@ RSpec.describe Assinafy::Resources::DocumentResource do
     end
   end
 
+  describe '#search without a term' do
+    it 'omits the optional search parameter' do
+      stub_request(:get, "#{base_url}/accounts/acc/documents/search").with(query: {}).to_return(api_envelope([]))
+
+      expect(resource.search).to eq(data: [])
+    end
+  end
+
   describe '#rename' do
+    it 'rejects names longer than 255 characters without a request' do
+      expect { resource.rename('doc-1', 'a' * 256) }.to raise_error(Assinafy::ValidationError, /255/)
+      expect(a_request(:patch, "#{base_url}/documents/doc-1")).not_to have_been_made
+    end
+
     it 'PATCHes /documents/{id} with the new name' do
       stub_request(:patch, "#{base_url}/documents/doc-1")
         .with(body: hash_including('name' => 'renamed.pdf'))
@@ -381,58 +394,37 @@ RSpec.describe Assinafy::Resources::DocumentResource do
   end
 
   describe '#send_token' do
-    it 'supports the current OpenAPI request without a body' do
-      path = "#{base_url}/public/documents/doc-1/send-token"
-      stub_request(:put, path).with(body: nil) { |request| without_workspace_auth?(request) }
-                              .to_return(json_response({ 'status' => 200, 'message' => 'Token sent' }))
+    let(:path) { "#{base_url}/public/documents/doc-1/send-token" }
+    let(:body) { { 'channel' => 'email', 'recipient' => 'signer@example.com' } }
 
-      expect(resource.send_token('doc-1')).to be_nil
-      expect(a_request(:put, path).with(body: nil)).to have_been_made
-    end
-
-    it 'supports the current OpenAPI email body' do
-      path = "#{base_url}/public/documents/doc-1/send-token"
+    it 'puts the email channel and recipient without workspace credentials' do
       stub_request(:put, path)
-        .with(body: { 'email' => 'recipient@example.com' }) { |request| without_workspace_auth?(request) }
-        .to_return(json_response({ 'status' => 200, 'message' => 'Token sent' }))
+        .with(body: body) { |request| without_workspace_auth?(request) }
+        .to_return(api_envelope({ 'document' => { 'id' => 'doc-1' } }.merge(body)))
 
-      expect(resource.send_token('doc-1', email: 'recipient@example.com')).to be_nil
-      expect(a_request(:put, path).with(body: { 'email' => 'recipient@example.com' })).to have_been_made
+      result = resource.send_token('doc-1', recipient: 'signer@example.com')
+
+      expect(result).to include('channel' => 'email', 'recipient' => 'signer@example.com')
     end
 
-    it 'puts the recipient and channel to the send-token endpoint' do
-      path = "#{base_url}/public/documents/doc-1/send-token"
-      stub_request(:put, path)
-        .with { |request| without_workspace_auth?(request) }
-        .to_return(api_envelope({ 'channel' => 'email' }))
+    it 'sends the earlier email: keyword as the recipient' do
+      stub_request(:put, path).with(body: body).to_return(api_envelope(body))
 
-      result = resource.send_token('doc-1', recipient: 'recipient@example.com', channel: 'email')
-
-      expect(result['channel']).to eq('email')
-      expect(
-        a_request(:put, path).with(body: { 'recipient' => 'recipient@example.com', 'channel' => 'email' })
-      ).to have_been_made
+      expect(resource.send_token('doc-1', email: 'signer@example.com')).to eq(body)
     end
 
-    it 'raises and makes no request when recipient is blank' do
-      expect do
-        resource.send_token('doc-1', recipient: '', channel: 'email')
-      end.to raise_error(Assinafy::ValidationError)
-      expect(a_request(:put, %r{/send-token})).not_to have_been_made
-    end
-
-    it 'raises and makes no request when channel is blank' do
-      expect do
-        resource.send_token('doc-1', recipient: 'recipient@example.com', channel: '')
-      end.to raise_error(Assinafy::ValidationError)
-      expect(a_request(:put, %r{/send-token})).not_to have_been_made
-    end
-
-    it 'rejects mixing the OpenAPI and deployed request shapes' do
-      expect do
-        resource.send_token('doc-1', email: 'recipient@example.com',
-                                      recipient: 'recipient@example.com', channel: 'email')
-      end.to raise_error(Assinafy::ValidationError)
+    [
+      [{}, 'a missing recipient'],
+      [{ recipient: '' }, 'a blank recipient'],
+      [{ recipient: '+5511999999999' }, 'a phone number'],
+      [{ recipient: 'signer@example.com', channel: 'whatsapp' }, 'the whatsapp channel'],
+      [{ recipient: 'signer@example.com', channel: nil }, 'a nil channel'],
+      [{ recipient: 'signer@example.com', email: 'signer@example.com' }, 'both recipient and email']
+    ].each do |options, label|
+      it "rejects #{label} without a request" do
+        expect { resource.send_token('doc-1', **options) }.to raise_error(Assinafy::ValidationError)
+        expect(a_request(:put, path)).not_to have_been_made
+      end
     end
   end
 

@@ -313,6 +313,16 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
   end
 
   describe '#estimate_cost' do
+    it 'sends only the method when signers and entries are omitted' do
+      stub_request(:post, "#{base_url}/documents/doc-1/assignments/estimate-cost")
+        .with(body: { 'method' => 'collect' })
+        .to_return(api_envelope({ 'total_credits' => 0 }))
+
+      result = described_class.new(connection, 'acc').estimate_cost('doc-1', { method: 'collect' })
+
+      expect(result['total_credits']).to eq(0)
+    end
+
     it 'accepts signer descriptors without ids and sends correct body' do
       stub_request(:post, "#{base_url}/documents/doc-1/assignments/estimate-cost")
         .to_return(api_envelope({ 'total_credits' => 0.45 }))

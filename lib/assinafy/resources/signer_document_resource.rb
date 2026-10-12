@@ -8,8 +8,9 @@ module Assinafy
     #
     # - {#current}/{#document}, {#sign_multiple}, {#decline_multiple} require the
     #   `signer-access-code` URL parameter.
-    # - {#list} accepts EITHER the workspace `X-Api-Key` header OR the access
-    #   code; pass `signer_access_code:` only when authenticating as the signer.
+    # - {#list} and {#search} authenticate as the signer: they require the access
+    #   code and never send workspace credentials. The same routes also accept
+    #   workspace credentials; use {#list_as_workspace} / {#search_as_workspace} for that.
     # - {#download} only needs the document/artifact IDs.
     #
     # See https://api.assinafy.com.br/v1/docs#signer for the full
@@ -61,18 +62,16 @@ module Assinafy
 
       alias document current
 
-      # List all documents the signer has access to, with pagination metadata.
-      # This endpoint accepts either the workspace `X-Api-Key` header or the
-      # signer access code, so `signer_access_code:` is optional here; when nil
-      # it is omitted from the query and the header auth is used.
+      # List all documents the signer has access to, with pagination metadata,
+      # authenticated with the signer access code only (no workspace credentials).
       #
       # @param signer_id          [String]
       # @param params             [Hash] documented `page` and `per_page` query parameters
-      # @param signer_access_code [String, nil]
+      # @param signer_access_code [String] required; may also be given as `params[:signer_access_code]`
       # @return [Hash{Symbol=>Array,Hash}] `{ data: [...], meta: { current_page:, per_page:, total:, last_page: } }`
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure
-      # @raise [Assinafy::ValidationError] on invalid required input
+      # @raise [Assinafy::ValidationError] on invalid required input, including a nil or blank access code
       # @see GET /signers/{signer_id}/documents
       # @example List the signer's documents with pagination
       #   page = client.signer_documents.list('signer-id',
@@ -103,27 +102,49 @@ module Assinafy
 
         call_list('Failed to list signer documents') do
           http_get("signers/#{sid}/documents", query.merge(signer_access_code: access_code),
-                   workspace_auth: access_code.nil?)
+                   workspace_auth: false)
         end
       end
 
-      # Lightweight search over the signer's documents. Like {#list}, this
-      # accepts either the workspace `X-Api-Key` header or the signer access
-      # code, so `signer_access_code:` is optional.
+      # List a signer's documents with the workspace credentials (API key or Bearer token)
+      # instead of the signer access code. Same response as {#list}.
+      #
+      # @param signer_id [String]
+      # @param params    [Hash] documented `page` and `per_page` query parameters
+      # @return [Hash{Symbol=>Array,Hash}] `{ data: [...], meta: { current_page:, per_page:, total:, last_page: } }`
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid input, or when `params` carries a signer access code
+      # @see GET /signers/{signer_id}/documents
+      # @example
+      #   client.signer_documents.list_as_workspace('signer-id', { page: 1, per_page: 15 })
+      #   # Request: GET /signers/{signer_id}/documents?page=1&per-page=15 (X-Api-Key header)
+      #   # => { data: [{ "id" => "document-id", "name" => "contract.pdf", ... }],
+      #   #      meta: { current_page: 1, per_page: 15, total: 1, last_page: 1 } }
+      def list_as_workspace(signer_id, params = {})
+        sid = require_id(signer_id, 'Signer ID')
+
+        call_list('Failed to list signer documents') do
+          http_get("signers/#{sid}/documents", workspace_query(params))
+        end
+      end
+
+      # Lightweight search over the signer's documents, authenticated with the
+      # signer access code only (no workspace credentials).
       #
       # @param signer_id          [String]
-      # @param query              [String] free-text search term
+      # @param query              [String, nil] optional free-text search term; nil omits `search`
       # @param params             [Hash] optional deployment-specific query parameters
-      # @param signer_access_code [String, nil]
+      # @param signer_access_code [String] required; may also be given as `params[:signer_access_code]`
       # @return [Hash{Symbol=>Array,Hash}] `{ data: [...], meta: {..} | nil }`
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure
-      # @raise [Assinafy::ValidationError] on invalid required input
+      # @raise [Assinafy::ValidationError] on invalid required input, including a nil or blank access code
       # @see GET /signers/{signer_id}/documents/search
       # @example Search the signer's documents
-      #   page = client.signer_documents.search('signer-id', 'contract')
+      #   page = client.signer_documents.search('signer-id', 'contract', signer_access_code: 'signer-access-code')
       #
-      #   # Request: GET /signers/{signer_id}/documents/search?search=contract
+      #   # Request: GET /signers/{signer_id}/documents/search?search=contract&signer-access-code=...
       #   # => {
       #   #   data: [
       #   #     { "id" => "document-id", "account_id" => "account-id", "name" => "contract.pdf",
@@ -134,15 +155,39 @@ module Assinafy
       #   #     }
       #   #   ]
       #   # }
-      def search(signer_id, query, params = {}, signer_access_code: nil)
+      def search(signer_id, query = nil, params = {}, signer_access_code: nil)
         sid                  = require_id(signer_id, 'Signer ID')
         filters, access_code = signer_query(params, signer_access_code)
-        require_string(query, 'Search query')
+        require_string(query, 'Search query') unless query.nil?
 
         call_list('Failed to search signer documents') do
           http_get("signers/#{sid}/documents/search",
                    filters.merge(search: query, signer_access_code: access_code),
-                   workspace_auth: access_code.nil?)
+                   workspace_auth: false)
+        end
+      end
+
+      # Search a signer's documents with the workspace credentials instead of the
+      # signer access code. Same response as {#search}.
+      #
+      # @param signer_id [String]
+      # @param query     [String, nil] optional free-text search term; nil omits `search`
+      # @param params    [Hash] optional deployment-specific query parameters
+      # @return [Hash{Symbol=>Array,Hash}] `{ data: [...], meta: {..} | nil }`
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid input, or when `params` carries a signer access code
+      # @see GET /signers/{signer_id}/documents/search
+      # @example
+      #   client.signer_documents.search_as_workspace('signer-id', 'contract')
+      #   # Request: GET /signers/{signer_id}/documents/search?search=contract (X-Api-Key header)
+      #   # => { data: [{ "id" => "document-id", "name" => "contract.pdf", ... }] }
+      def search_as_workspace(signer_id, query = nil, params = {})
+        sid = require_id(signer_id, 'Signer ID')
+        require_string(query, 'Search query') unless query.nil?
+
+        call_list('Failed to search signer documents') do
+          http_get("signers/#{sid}/documents/search", workspace_query(params).merge(search: query))
         end
       end
 
@@ -256,7 +301,16 @@ module Assinafy
         ].compact
         raw_code = explicit_code.nil? ? embedded_codes.first : explicit_code
 
-        [query, raw_code.nil? ? nil : require_signer_access_code(raw_code)]
+        [query, require_signer_access_code(raw_code)]
+      end
+
+      def workspace_query(params)
+        query = require_payload(params, 'Signer document query parameters')
+        if query.keys.any? { |key| %w[signer_access_code signer-access-code].include?(key.to_s) }
+          raise ValidationError.new('Workspace requests must not carry a signer access code')
+        end
+
+        query
       end
     end
   end

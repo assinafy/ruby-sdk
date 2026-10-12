@@ -267,7 +267,8 @@ RSpec.describe Assinafy::Client, type: :coverage_matrix do
     {
       'DocumentResource'       => %i[get fully_signed? signing_progress wait_until_ready],
       'SignerResource'         => %i[find_by_email validate_create!],
-      'SignerDocumentResource' => %i[document],
+      # Workspace-credential variants of the signer document list/search routes.
+      'SignerDocumentResource' => %i[document list_as_workspace search_as_workspace],
       'AuthResource'           => %i[api_key],
       'WebhookResource'        => %i[update],
       # exchange_code/refresh are the two grants of POST /oauth/token;

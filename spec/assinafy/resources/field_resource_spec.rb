@@ -22,6 +22,14 @@ RSpec.describe Assinafy::Resources::FieldResource do
           .with(body: hash_including('type' => 'text', 'name' => 'Field Name'))
       ).to have_been_made
     end
+
+    it 'sends an explicit nil regex as JSON null' do
+      stub_request(:post, "#{base_url}/accounts/acc/fields")
+        .with(body: { 'type' => 'text', 'name' => 'Field Name', 'regex' => nil })
+        .to_return(api_envelope({ 'id' => 'field-1' }))
+
+      expect(resource.create(type: 'text', name: 'Field Name', regex: nil)['id']).to eq('field-1')
+    end
   end
 
   describe '#list' do
@@ -117,8 +125,12 @@ RSpec.describe Assinafy::Resources::FieldResource do
         .with(query: hash_including('signer-access-code' => 'code'))).to have_been_made
     end
 
-    it 'rejects a blank signer access code before making a request' do
+    it 'rejects a blank or explicitly nil signer access code before making a request' do
       expect { resource.validate('field-1', 'value', signer_access_code: ' ') }
+        .to raise_error(Assinafy::ValidationError, /Signer access code/)
+      expect { resource.validate('field-1', 'value', signer_access_code: nil) }
+        .to raise_error(Assinafy::ValidationError, /Signer access code/)
+      expect { resource.validate_multiple([{ field_id: 'f', value: 'v' }], signer_access_code: nil) }
         .to raise_error(Assinafy::ValidationError, /Signer access code/)
       expect(a_request(:post, "#{base_url}/accounts/acc/fields/field-1/validate")).not_to have_been_made
     end

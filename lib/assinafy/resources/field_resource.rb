@@ -7,12 +7,17 @@ module Assinafy
     # See https://api.assinafy.com.br/v1/docs#field-definition for the
     # documentation of these endpoints.
     class FieldResource < BaseResource
+      # Default for `signer_access_code:`, telling an omitted keyword (workspace credentials)
+      # apart from an explicit nil (rejected).
+      WORKSPACE = Object.new.freeze
+      private_constant :WORKSPACE
+
       # Create a field definition.
       #
       # @param payload [Hash]
       # @option payload [String]  :type        required — e.g. `text`, `cpf`, `email` — see {#types}
       # @option payload [String]  :name        required — display label
-      # @option payload [String]  :regex       optional validation regex (text fields)
+      # @option payload [String, nil] :regex   optional validation regex (text fields); nil is sent as null
       # @option payload [Boolean] :is_required default `true`
       # @param account_id_override [String, nil]
       # @return [Hash] the created field definition (envelope `data` unwrapped)
@@ -41,7 +46,8 @@ module Assinafy
       #   # }
       def create(payload, account_id_override = nil)
         acc_id = account_id(account_id_override)
-        body   = body_params(require_payload(payload))
+        raw    = require_payload(payload)
+        body   = with_explicit_regex(raw, body_params(raw))
         require_string(body['name'], 'Field name')
         require_string(body['type'], 'Field type')
         require_boolean(body['is_required'], 'is_required') if body.key?('is_required')
@@ -163,9 +169,7 @@ module Assinafy
         acc_id = account_id(account_id_override)
         fid    = require_id(field_id, 'Field ID')
         raw    = require_payload(payload)
-        body   = body_params(raw)
-        body['regex'] = nil if (raw.key?(:regex) && raw[:regex].nil?) ||
-                               (raw.key?('regex') && raw['regex'].nil?)
+        body   = with_explicit_regex(raw, body_params(raw))
         require_string(body['name'], 'Field name') if body.key?('name')
         require_boolean(body['is_active'], 'is_active') if body.key?('is_active')
 
@@ -197,14 +201,15 @@ module Assinafy
 
       # Validate a single value against a field definition.
       #
-      # The OpenAPI declares workspace Authorization. The deployed API also
-      # accepts signer-access-code authentication; pass `signer_access_code:`
-      # to use that compatibility path without sending workspace credentials.
+      # The OpenAPI declares workspace Authorization, which is used when
+      # `signer_access_code:` is omitted. The deployed API also accepts the signer
+      # access code: when the keyword is given it must be a non-blank code, and
+      # only the code is sent (never the workspace credentials).
       #
       # @param field_id             [String]
       # @param value                [Object]
       # @param account_id_override  [String, nil]
-      # @param signer_access_code   [String, nil]
+      # @param signer_access_code   [String] optional keyword; nil or blank raises
       # @return [Hash{String=>Object}] `{ "type" =>, "success" =>, "error_message" => }`
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure
@@ -221,12 +226,12 @@ module Assinafy
       # @example Validate as a signer (signer-access-code auth, sent as a query param)
       #   client.fields.validate('field-id', 'Some text', signer_access_code: 'signer-access-code')
       #   # => { "type" => "text", "success" => true, "error_message" => "" }
-      def validate(field_id, value, account_id_override = nil, signer_access_code: nil)
+      def validate(field_id, value, account_id_override = nil, signer_access_code: WORKSPACE)
         acc_id      = account_id(account_id_override)
         fid         = require_id(field_id, 'Field ID')
         raise ValidationError.new('Field value is required') if value.nil?
 
-        access_code = signer_access_code.nil? ? nil : require_signer_access_code(signer_access_code)
+        access_code = field_access_code(signer_access_code)
 
         call('Failed to validate field value') do
           http_post("accounts/#{acc_id}/fields/#{fid}/validate", body_params(value: value),
@@ -236,12 +241,12 @@ module Assinafy
 
       # Validate many `{ field_id:, value: }` pairs in a single call.
       #
-      # As with {#validate}, signer-access-code support is a deployed-API
-      # compatibility extension beyond the current OpenAPI security declaration.
+      # As with {#validate}, omitting `signer_access_code:` uses the workspace
+      # credentials; giving it requires a non-blank code and sends only the code.
       #
       # @param values               [Array<Hash>]
       # @param account_id_override  [String, nil]
-      # @param signer_access_code   [String, nil]
+      # @param signer_access_code   [String] optional keyword; nil or blank raises
       # @return [Array<Hash>] one validation Hash per input, each carrying its `field_id`
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure
@@ -265,10 +270,10 @@ module Assinafy
       #   #   { "field_id" => "field-id-2", "type" => "email",
       #   #     "success" => true, "error_message" => "" }
       #   # ]
-      def validate_multiple(values, account_id_override = nil, signer_access_code: nil)
+      def validate_multiple(values, account_id_override = nil, signer_access_code: WORKSPACE)
         acc_id      = account_id(account_id_override)
         list        = require_array(values, 'Field values')
-        access_code = signer_access_code.nil? ? nil : require_signer_access_code(signer_access_code)
+        access_code = field_access_code(signer_access_code)
 
         call_array('Failed to validate field values') do
           http_post("accounts/#{acc_id}/fields/validate-multiple",
@@ -307,6 +312,16 @@ module Assinafy
       end
 
       private
+
+      def field_access_code(signer_access_code)
+        signer_access_code.equal?(WORKSPACE) ? nil : require_signer_access_code(signer_access_code)
+      end
+
+      # `regex` is nullable: an explicit nil is sent as JSON null to clear it.
+      def with_explicit_regex(raw, body)
+        body['regex'] = nil if [:regex, 'regex'].any? { |key| raw.key?(key) && raw[key].nil? }
+        body
+      end
 
       def field_value_payload(item)
         payload = require_payload(item, 'Field value')

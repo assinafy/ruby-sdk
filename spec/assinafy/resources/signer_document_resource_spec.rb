@@ -10,16 +10,18 @@ RSpec.describe Assinafy::Resources::SignerDocumentResource do
   end
 
   describe '#search' do
-    it 'GETs the signer documents/search endpoint with the documented search param' do
-      stub_request(:get, "#{base_url}/signers/signer-1/documents/search")
-        .with(
-          query:   hash_including('search' => 'audit'),
-          headers: { 'X-Api-Key' => 'test-key' }
-        )
-        .to_return(api_envelope([{ 'id' => 'doc-1', 'status' => 'pending_signature' }]))
+    it 'rejects a missing or nil access code instead of falling back to workspace credentials' do
+      expect { resource.search('signer-1', 'contract') }.to raise_error(Assinafy::ValidationError, /Signer access code/)
+      expect { resource.search('signer-1', 'contract', {}, signer_access_code: nil) }
+        .to raise_error(Assinafy::ValidationError, /Signer access code/)
+      expect(a_request(:get, %r{/signers/signer-1/documents/search})).not_to have_been_made
+    end
 
-      result = resource.search('signer-1', 'audit')
-      expect(result[:data].first['id']).to eq('doc-1')
+    it 'omits the optional search term when nil' do
+      stub_request(:get, "#{base_url}/signers/signer-1/documents/search")
+        .with(query: { 'signer-access-code' => 'code' }).to_return(api_envelope([]))
+
+      expect(resource.search('signer-1', nil, {}, signer_access_code: 'code')).to eq(data: [])
     end
 
     it 'passes the signer-access-code as a query param when given' do
@@ -61,6 +63,32 @@ RSpec.describe Assinafy::Resources::SignerDocumentResource do
     end
   end
 
+  describe 'workspace-credential variants' do
+    it 'lists with the workspace API key and no access code' do
+      stub_request(:get, "#{base_url}/signers/signer-1/documents")
+        .with(query: { 'page' => '1', 'per-page' => '15' }, headers: { 'X-Api-Key' => 'test-key' })
+        .to_return(api_envelope([{ 'id' => 'doc-1' }]))
+
+      expect(resource.list_as_workspace('signer-1', { page: 1, per_page: 15 })[:data].first['id']).to eq('doc-1')
+    end
+
+    it 'searches with the workspace API key and no access code' do
+      stub_request(:get, "#{base_url}/signers/signer-1/documents/search")
+        .with(query: { 'search' => 'contract' }, headers: { 'X-Api-Key' => 'test-key' })
+        .to_return(api_envelope([]))
+
+      expect(resource.search_as_workspace('signer-1', 'contract')).to eq(data: [])
+    end
+
+    it 'refuses an access code mixed into workspace params' do
+      expect { resource.list_as_workspace('signer-1', { signer_access_code: 'code' }) }
+        .to raise_error(Assinafy::ValidationError)
+      expect { resource.search_as_workspace('signer-1', nil, { 'signer-access-code' => 'code' }) }
+        .to raise_error(Assinafy::ValidationError)
+      expect(a_request(:get, %r{/signers/signer-1/documents})).not_to have_been_made
+    end
+  end
+
   describe '#current' do
     it 'calls the current signer document endpoint' do
       stub_request(:get, "#{base_url}/signers/signer-1/document")
@@ -99,20 +127,11 @@ RSpec.describe Assinafy::Resources::SignerDocumentResource do
       ).to have_been_made
     end
 
-    it 'omits the access code from the query when authenticating via header' do
-      stub_request(:get, "#{base_url}/signers/signer-1/documents")
-        .with(
-          query:   hash_including('status' => 'pending_signature'),
-          headers: { 'X-Api-Key' => 'test-key' }
-        )
-        .to_return(api_envelope([]))
-
-      resource.list('signer-1', { status: 'pending_signature' })
-
-      expect(
-        a_request(:get, "#{base_url}/signers/signer-1/documents")
-          .with(query: hash_excluding('signer-access-code'))
-      ).to have_been_made
+    it 'rejects a missing or nil access code instead of falling back to workspace credentials' do
+      expect { resource.list('signer-1') }.to raise_error(Assinafy::ValidationError, /Signer access code/)
+      expect { resource.list('signer-1', {}, signer_access_code: nil) }
+        .to raise_error(Assinafy::ValidationError, /Signer access code/)
+      expect(a_request(:get, %r{/signers/signer-1/documents})).not_to have_been_made
     end
 
     it 'rejects blank access codes and non-Hash params before making a request' do

@@ -2,6 +2,32 @@
 
 All notable changes to the `assinafy` Ruby gem are documented here.
 
+## [1.11.1] - 2026-10-12
+
+### Added
+
+- `Assinafy::ApiError#rate_limit` returns `{ limit:, remaining:, reset: }` from the `X-Rate-Limit-*` headers, and
+  `#retry_after` returns the `Retry-After` seconds of a `429 Too Many Requests`.
+- `SignerDocumentResource#list_as_workspace` and `#search_as_workspace` list and search a signer's documents with
+  the workspace API key or token.
+
+### Changed
+
+- `DocumentResource#send_token` always sends `{ "channel": "email", "recipient": "<signer email>" }`, as the API
+  requires, and returns `{ document, channel, recipient }`. `recipient:` (or the earlier `email:`) must be an email
+  address; calls without a recipient, with a `whatsapp` channel, or with a phone number now raise
+  `ValidationError`.
+- `SignerDocumentResource#list` and `#search` require the signer access code and never send workspace
+  credentials. Calls that relied on omitting the code to use the API key now raise `ValidationError`; switch them
+  to `#list_as_workspace` / `#search_as_workspace`.
+- `FieldResource#validate` and `#validate_multiple` raise `ValidationError` for an explicit `signer_access_code:
+  nil` instead of falling back to workspace credentials. Omitting the keyword still uses workspace credentials.
+- `AssignmentResource#estimate_cost` accepts payloads without `signers` or `entries`, which the API treats as
+  optional.
+- `DocumentResource#search` and `SignerDocumentResource#search` accept a `nil` search term and omit `search`.
+- `FieldResource#create` sends an explicit `regex: nil` as JSON `null`.
+- `DocumentResource#rename` rejects names longer than 255 characters before sending.
+
 ## 1.11.0
 
 ### Added

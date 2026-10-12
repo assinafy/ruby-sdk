@@ -633,6 +633,7 @@ rescue Assinafy::ValidationError => e
   warn e.errors.inspect
 rescue Assinafy::ApiError => e
   warn "Assinafy returned #{e.status_code}: #{e.message}"
+  sleep(e.retry_after) if e.status_code == 429 && e.retry_after # also e.rate_limit => { limit:, remaining:, reset: }
 rescue Assinafy::NetworkError => e
   warn "Network failure: #{e.message}"
 end
@@ -712,7 +713,7 @@ client.documents.download_page('document-id', 'page-id')
 client.documents.delete('document-id')
 client.documents.verify('signature-hash')
 client.documents.public_info('document-id')
-client.documents.send_token('document-id', email: 'alice@example.com')
+client.documents.send_token('document-id', recipient: 'signer@example.com')
 client.documents.list_tags('document-id')
 client.documents.replace_tags('document-id', ['tag-id-1', 'tag-id-2'])
 client.documents.append_tags('document-id', ['tag-id-3'])
@@ -806,6 +807,8 @@ query parameter.
 client.signer_documents.current('signer-id', signer_access_code: 'code')
 client.signer_documents.list('signer-id', { status: 'pending_signature' }, signer_access_code: 'code')
 client.signer_documents.search('signer-id', 'contract', signer_access_code: 'code')
+client.signer_documents.list_as_workspace('signer-id')                 # same route with your API key
+client.signer_documents.search_as_workspace('signer-id', 'contract')
 client.signer_documents.sign_multiple(%w[document-id-1 document-id-2], signer_access_code: 'code')
 client.signer_documents.decline_multiple(%w[document-id-1 document-id-2], decline_reason: 'No', signer_access_code: 'code')
 client.signer_documents.download('signer-id', 'document-id', 'pades') # public: no access code needed

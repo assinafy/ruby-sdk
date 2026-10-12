@@ -131,7 +131,7 @@ module Assinafy
       # Lightweight search over an account's documents (id/name/status/artifacts),
       # without the heavier per-document detail returned by {#list}.
       #
-      # @param query [String] free-text search term
+      # @param query [String, nil] optional free-text search term; nil omits `search`
       # @param params [Hash] extra query parameters (`status`, `page`, `per_page`, ...)
       # @param account_id_override [String, nil]
       # @return [Hash{Symbol=>Array,Hash}] `{ data: [...], meta: {..} | nil }`
@@ -162,10 +162,10 @@ module Assinafy
       #       # ... (one Hash per matching document)
       #     ]
       #   }
-      def search(query, params = {}, account_id_override = nil)
+      def search(query = nil, params = {}, account_id_override = nil)
         acc_id = account_id(account_id_override)
         filters = require_payload(params, 'Document search parameters')
-        require_string(query, 'Search query')
+        require_string(query, 'Search query') unless query.nil?
 
         call_list('Failed to search documents') do
           http_get("accounts/#{acc_id}/documents/search", filters.merge(search: query))
@@ -253,7 +253,7 @@ module Assinafy
       # Rename a document.
       #
       # @param document_id [String]
-      # @param name        [String] the new display name
+      # @param name        [String] the new display name (at most 255 characters)
       # @return [Hash] the updated document object (envelope `data` unwrapped)
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure
@@ -281,7 +281,7 @@ module Assinafy
       #   }
       def rename(document_id, name)
         doc_id   = require_id(document_id, 'Document ID')
-        new_name = require_string(name, 'Name')
+        new_name = require_string(name, 'Name', max_length: 255)
 
         call('Failed to rename document') do
           http_patch("documents/#{doc_id}", body_params(name: new_name))
@@ -664,67 +664,41 @@ module Assinafy
         end
       end
 
-      # Send a 6-digit access token for the document to a signer (public endpoint).
-      # The current OpenAPI permits no body or an `{ email: }` body, while the
-      # deployed API requires `{ recipient:, channel: }` when a recipient is supplied.
+      # Email a 6-digit access token for the document to its signer (public endpoint;
+      # no workspace credentials are sent).
       #
       # @param document_id [String]
-      # @param recipient   [String, nil] deployed-API email address or WhatsApp phone number
-      # @param channel     [String, nil] deployed-API `email` or `whatsapp` channel
-      # @param email       [String, nil] email address for the current OpenAPI request shape
-      # @return [nil, Hash] `nil` for the OpenAPI's no-data envelope; the deployed
-      #   API returns `{ 'document' => {..}, 'channel' => String, 'recipient' => String }`
+      # @param recipient   [String] the signer's email address (required)
+      # @param channel     [String] delivery channel; only `"email"` is accepted
+      # @param email       [String, nil] earlier name for `recipient:`; sent as `recipient`
+      # @return [Hash] `{ 'document' => Hash, 'channel' => String, 'recipient' => String }`
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure
-      # @raise [Assinafy::ValidationError] on invalid required input
+      # @raise [Assinafy::ValidationError] when the recipient is missing or not an email address,
+      #   when the channel is not `email`, or when both `recipient:` and `email:` are given
       # @see PUT /public/documents/{document_id}/send-token
-      # @example Ask the API to use the document's signer contact (no auth required)
-      #   client.documents.send_token('document-id')
+      # @example Email the access token to the signer (no auth required)
+      #   client.documents.send_token('document-id', recipient: 'signer@example.com')
       #
-      # @example Email a signer using the current OpenAPI request (no auth required)
       #   # Request: PUT /public/documents/{document_id}/send-token
-      #   # Body: { "email": "signer@example.com" }
-      #   client.documents.send_token('document-id', email: 'signer@example.com')
+      #   # Body: { "channel": "email", "recipient": "signer@example.com" }
       #
-      # @example Use the deployed-API request shape
-      #   # Body: { "recipient": "signer@example.com", "channel": "email" }
-      #   client.documents.send_token('document-id', recipient: 'signer@example.com', channel: 'email')
-      #
-      #   # Deployed-API response (unwrapped data payload):
-      #   {
-      #     'document' => {
-      #       'resource' => 'document',
-      #       'id' => 'doc1',
-      #       'name' => '1.pdf',
-      #       'page_count' => '1',
-      #       'created_by' => 'John Smith'
-      #     },
-      #     'channel' => 'email',
-      #     'recipient' => 'signer@example.com'
-      #   }
-      #   # => nil when the API returns the documented no-data envelope
-      def send_token(document_id, recipient: nil, channel: nil, email: nil)
+      #   # => {
+      #   #   'document'  => { 'resource' => 'document', 'id' => 'doc1', 'name' => '1.pdf',
+      #   #                    'page_count' => 1, 'created_by' => 'John Smith' },
+      #   #   'channel'   => 'email',
+      #   #   'recipient' => 'signer@example.com'
+      #   # }
+      def send_token(document_id, recipient: nil, channel: 'email', email: nil)
         doc_id = require_id(document_id, 'Document ID')
-        if email.nil? && recipient.nil? && channel.nil?
-          payload = nil
-        elsif !email.nil?
-          if recipient || channel
-            raise ValidationError.new('Use either email or recipient/channel, not both')
-          end
+        raise ValidationError.new('Use either recipient or email, not both') if recipient && email
+        raise ValidationError.new('Channel must be email') unless channel == 'email'
 
-          payload = { email: Utils.require_email(email) }
-        else
-          require_string(recipient, 'Recipient')
-          delivery_channel = require_present(channel, 'Channel').to_s
-          unless %w[email whatsapp].include?(delivery_channel)
-            raise ValidationError.new('Channel must be email or whatsapp')
-          end
-
-          payload = { recipient: recipient, channel: delivery_channel }
-        end
+        address = Utils.require_email(recipient || email)
 
         call('Failed to send signer token') do
-          http_put("public/documents/#{doc_id}/send-token", payload && body_params(payload), workspace_auth: false)
+          http_put("public/documents/#{doc_id}/send-token", { 'channel' => 'email', 'recipient' => address },
+                   workspace_auth: false)
         end
       end
 

@@ -284,11 +284,13 @@ RSpec.describe 'Assinafy live sandbox', :live, order: :defined do # rubocop:disa
         resend_estimate = client.assignments.estimate_resend_cost(id, aid, s1)
         expect(resend_estimate).to include('breakdown' => an_instance_of(Array), 'total' => a_kind_of(Numeric))
         expect(client.assignments.resend_notification(id, aid, s1)).to include('is_sent' => true)
-        sent_token = client.documents.send_token(id, recipient: primary_email, channel: 'email')
+        sent_token = client.documents.send_token(id, recipient: primary_email)
         expect(sent_token).to include('channel' => 'email')
+        expect(sent_token).to include('recipient' => primary_email)
         expect(sent_token.dig('document', 'id')).to eq(id)
-        expect(client.signer_documents.list(s1)[:data]).to be_an(Array)
-        expect(client.signer_documents.search(s1, upload_name)[:data]).to be_an(Array)
+        expect(client.signer_documents.list_as_workspace(s1)[:data]).to be_an(Array)
+        expect(client.signer_documents.search_as_workspace(s1, upload_name)[:data]).to be_an(Array)
+        expect { client.signer_documents.list(s1) }.to raise_error(Assinafy::ValidationError)
         expect(client.signer_documents.download(s1, id, 'original').byteslice(0, 4)).to eq('%PDF')
       end
     ensure
@@ -393,27 +395,33 @@ RSpec.describe 'Assinafy live sandbox', :live, order: :defined do # rubocop:disa
     end
   end
 
-  it 'reads webhook data and toggles an existing subscription' do
-    original = client.webhooks.get
+  # Read-only: the account's existing webhook endpoint is never modified, rotated or deleted.
+  it 'reads webhook data and endpoints, and enforces the endpoint plan limit' do
+    endpoints = client.webhooks.list_endpoints
+    created_id = nil
 
     begin
       aggregate_failures do
+        expect(client.webhooks.get).to be_a(Hash).or be_nil
         expect(client.webhooks.list_event_types).to be_an(Array)
         expect(client.webhooks.list_dispatches(per_page: 2)[:data]).to be_an(Array)
-        expect(client.webhooks.inactivate['is_active']).to be(false) if original
+        expect(endpoints).to be_an(Array)
+        endpoints.first&.then do |endpoint|
+          expect(client.webhooks.get_endpoint(endpoint['id'])).to include('id' => endpoint['id'])
+          next unless endpoint['signing_enabled']
+
+          expect(client.webhooks.endpoint_secret(endpoint['id'])['secret'].start_with?('whsec_')).to be(true)
+        end
+        next if endpoints.empty?
+
+        expect do
+          created_id = client.webhooks.create_endpoint(
+            url: 'https://example.com/assinafy-sdk-live', email: 'signer@example.com', events: ['document_ready']
+          )['id']
+        end.to raise_error(Assinafy::ApiError) { |error| expect(error.status_code).to eq(403) }
       end
     ensure
-      if original
-        # Restore the original subscription (events + active state).
-        cleanup_resources(
-          ['webhook subscription', lambda {
-            client.webhooks.register(
-              url: original['url'], email: original['email'],
-              events: original['events'], is_active: original['is_active']
-            )
-          }]
-        )
-      end
+      cleanup_resources(['webhook endpoint', -> { client.webhooks.delete_endpoint(created_id) if created_id }])
     end
   end
 

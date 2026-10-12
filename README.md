@@ -964,7 +964,9 @@ Toda exceção do SDK deriva de `Assinafy::Error` e carrega um `#context` com de
 depuração. `ApiError` trata as duas formas de corpo de erro da API — o erro de framework
 (`{"name":..., "code":..., "status":...}`) e o envelope de aplicação
 (`{"status":..., "data":null, "message":...}`) — inclusive quando um `200` traz um `status`
-interno de falha. Num `403`, `e.context[:www_authenticate]` traz o desafio OAuth, quando houver.
+interno de falha. Num `403`, `e.context[:www_authenticate]` traz o desafio OAuth, quando houver. Num `429`,
+`e.retry_after` traz os segundos de `Retry-After` e `e.rate_limit` traz `{ limit:, remaining:, reset: }` dos
+cabeçalhos `X-Rate-Limit-*`.
 
 ---
 
