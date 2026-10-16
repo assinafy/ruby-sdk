@@ -41,4 +41,27 @@ RSpec.describe Assinafy::Support::WebhookVerifier, '#verify_delivery' do
     expect(unprefixed.verify_delivery(body, headers, now: time)).to be false
     expect(described_class.new(nil).verify_delivery(body, headers, now: time)).to be false
   end
+
+  it 'accepts the tolerance boundary but rejects future and past replays outside it' do
+    expect(verifier.verify_delivery(body, headers, now: time + 300)).to be true
+    expect(verifier.verify_delivery(body, headers, now: time - 300)).to be true
+    expect(verifier.verify_delivery(body, headers, now: time - 301)).to be false
+  end
+
+  it 'rejects malformed secrets, timestamps and signatures without raising' do
+    ['', 'whsec_', 'whsec_%%invalid%%'].each do |secret|
+      expect(described_class.new(secret).verify_delivery(body, headers, now: time)).to be false
+    end
+    ['invalid', '', nil].each do |timestamp|
+      expect(verifier.verify_delivery(body, headers.merge('webhook-timestamp' => timestamp), now: time)).to be false
+    end
+    ['v2,placeholder', 'v1,%%invalid%%', '', nil].each do |signature|
+      expect(verifier.verify_delivery(body, headers.merge('webhook-signature' => signature), now: time)).to be false
+    end
+  end
+
+  it 'authenticates both the delivery ID and timestamp along with the body' do
+    expect(verifier.verify_delivery(body, headers.merge('webhook-id' => 'other-message'), now: time)).to be false
+    expect(verifier.verify_delivery(body, headers.merge('webhook-timestamp' => (time + 1).to_s), now: time)).to be false
+  end
 end

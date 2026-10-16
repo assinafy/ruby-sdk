@@ -29,7 +29,10 @@ module Assinafy
       #   certificate (an e-CPF, or an e-CNPJ naming them as legal
       #   representative); a CNPJ requires an e-CNPJ for that company, from any
       #   of its representatives.
-      VERIFICATION_METHODS = %w[Email Whatsapp DigitalCertificate].freeze
+      # - `IdDocumentFaceMatchBasic` — government ID photos, face match and liveness.
+      #   Requires its account feature and a valid CPF in `government_id`; priced per signer.
+      VERIFICATION_METHODS = %w[Email Whatsapp DigitalCertificate IdDocumentFaceMatchBasic].freeze
+      IDENTITY_REVIEW_IMAGES = %w[document_front document_back document_pdf face].freeze
 
       # Channels used to notify a signer of the request. Exactly one per signer;
       # WhatsApp incurs an additional cost and is available only on paid
@@ -244,7 +247,8 @@ module Assinafy
         def validate_method_pair!(signer)
           verification = signer[:verification_method]
           notification = signer[:notification_methods]&.first
-          return if verification.nil? || notification.nil? || verification == 'DigitalCertificate'
+          return if verification.nil? || notification.nil? ||
+                    %w[DigitalCertificate IdDocumentFaceMatchBasic].include?(verification)
           return if verification == notification
 
           raise ValidationError.new('notification_methods must match the verification_method')
@@ -488,6 +492,95 @@ module Assinafy
         end
       end
 
+      # Read the account review of a signer's biometric identity verification.
+      # Evidence contains summaries; images are available only while InReview.
+      # The signer can sign during review, but certification awaits approval.
+      #
+      # @param document_id [String]
+      # @param assignment_id [String]
+      # @param signer_id [String]
+      # @return [Hash] SignerIdentityReview; see docs/API_REFERENCE.md#signeridentityreview for all fields
+      # @raise [Assinafy::ApiError] on failure, including 404 when no verification exists
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid IDs
+      # @see GET /documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/identity-verification
+      # @example Read an open review (no request body; workspace credentials)
+      #   client.assignments.identity_review('document-id', 'assignment-id', 'signer-id')
+      #   # => { 'id' => 'verification-id', 'status' => 'InReview', 'provider' => 'AssinafyVerify',
+      #   #      'verification_method' => 'IdDocumentFaceMatchBasic',
+      #   #      'reason_codes' => [{ 'code' => 'NAME_MISMATCH', 'description' => 'Name differs' }],
+      #   #      'evidence_available' => true, 'expected' => { 'name' => 'Example Signer', 'cpf' => nil },
+      #   #      'document' => { 'type' => 'CNH', 'name' => 'EXAMPLE SIGNER', 'cpf' => nil },
+      #   #      'matches' => { 'cpf' => true, 'name' => 0.52, 'birth_date' => nil },
+      #   #      'checks' => [{ 'name' => 'name', 'result' => 'review', 'score' => 0.52,
+      #   #                     'reasons' => ['NAME_MISMATCH'] }], 'images' => ['document_front', 'face'],
+      #   #      'ruleset_version' => '2026-10-12.2', 'evidence_sha256' => 'sha256-placeholder',
+      #   #      'reviewed_by' => nil, 'reviewed_at' => nil, 'review_note' => nil, 'completed_at' => nil }
+      def identity_review(document_id, assignment_id, signer_id)
+        path = identity_review_path(document_id, assignment_id, signer_id)
+
+        call('Failed to fetch signer identity review') { http_get(path) }
+      end
+
+      # Download one evidence image or document PDF while a review is InReview.
+      # Fetched from the provider on each call; keep the sensitive bytes out of logs and caches.
+      #
+      # @param document_id [String]
+      # @param assignment_id [String]
+      # @param signer_id [String]
+      # @param name [String] document_front, document_back, document_pdf or face, as listed in the review
+      # @return [String] binary JPEG, PNG or PDF bytes
+      # @raise [Assinafy::ApiError] on failure; 404 after a decision or when evidence is unavailable
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid IDs or image name
+      # @see GET /documents/{document}/assignments/{assignment}/signers/{signer}/identity-verification/images/{name}
+      # @example Read the face image (no request body; workspace credentials)
+      #   client.assignments.identity_review_image('document-id', 'assignment-id', 'signer-id', 'face')
+      #   # => "\x89PNG\r\n\x1A\n..." # binary String
+      def identity_review_image(document_id, assignment_id, signer_id, name)
+        path = identity_review_path(document_id, assignment_id, signer_id)
+        unless IDENTITY_REVIEW_IMAGES.include?(name)
+          raise ValidationError.new("Image name must be one of: #{IDENTITY_REVIEW_IMAGES.join(', ')}")
+        end
+
+        call_binary('Failed to download signer identity review image') { http_get("#{path}/images/#{name}") }
+      end
+
+      # Approve or reject an InReview identity verification. Rejection cancels the
+      # document and notifies every signer and copy receiver. The note is recorded
+      # in activities and sent to the provider; it is never shown to the signer.
+      #
+      # @param document_id [String]
+      # @param assignment_id [String]
+      # @param signer_id [String]
+      # @param decision [String] Approved or Rejected
+      # @param note [String, nil] optional review note, at most 2000 characters
+      # @return [Hash] SignerIdentityReview, the same fields as {#identity_review}, with the decision recorded
+      # @raise [Assinafy::ApiError] on failure; 400 unless InReview and awaiting signatures or identity review
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid IDs, decision or note
+      # @see POST /documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/identity-verification/review
+      # @example Approve a review with workspace credentials
+      #   client.assignments.decide_identity_review('document-id', 'assignment-id', 'signer-id',
+      #                                             decision: 'Approved', note: 'Identity checked')
+      #   # Body: { 'decision' => 'Approved', 'note' => 'Identity checked' }
+      #   # => the identity_review object with 'status' => 'Approved', 'images' => [],
+      #   #    'reviewed_by' => { 'id' => 'user-id', 'name' => 'Example Reviewer' },
+      #   #    'reviewed_at' => '2026-10-16T12:00:00Z', 'review_note' => 'Identity checked'
+      def decide_identity_review(document_id, assignment_id, signer_id, decision:, note: nil)
+        path = identity_review_path(document_id, assignment_id, signer_id)
+        unless %w[Approved Rejected].include?(decision)
+          raise ValidationError.new('Decision must be Approved or Rejected')
+        end
+        unless note.nil? || (note.is_a?(String) && note.length <= 2000)
+          raise ValidationError.new('Review note must be a String of at most 2000 characters')
+        end
+
+        call('Failed to decide signer identity review') do
+          http_post("#{path}/review", body_params(decision: decision, note: note))
+        end
+      end
+
       # Fetch the document a signer is being asked to sign (signer-access-code auth).
       #
       # @param signer_access_code  [String]
@@ -625,6 +718,13 @@ module Assinafy
       end
 
       private
+
+      def identity_review_path(document_id, assignment_id, signer_id)
+        doc_id = require_id(document_id, 'Document ID')
+        asg_id = require_id(assignment_id, 'Assignment ID')
+        sid    = require_id(signer_id, 'Signer ID')
+        "documents/#{doc_id}/assignments/#{asg_id}/signers/#{sid}/identity-verification"
+      end
 
       def normalise_sign_item(item)
         normalised = require_payload(item, 'Assignment item').each_with_object({}) do |(key, value), result|

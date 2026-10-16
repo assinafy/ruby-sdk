@@ -2,6 +2,19 @@
 
 All notable changes to the `assinafy` Ruby gem are documented here.
 
+## [1.12.0] - 2026-10-16
+
+### Added
+
+- `IdDocumentFaceMatchBasic` biometric verification in assignments, cost estimates and template generation,
+  paired with either Email or Whatsapp notifications.
+- `SignerResource#identity_verification` and `#start_identity_verification` for hosted identity verification
+  with explicit biometric-processing consent and signer-only authentication.
+- `AssignmentResource#identity_review`, `#identity_review_image` and `#decide_identity_review` for account
+  reviewers to inspect evidence and approve or reject a biometric identity review.
+- `WebhookResource#list_endpoints(url:)` filters by exact URL, and `#delete_endpoint_by_url` removes the endpoint
+  registered with that URL.
+
 ## [1.11.1] - 2026-10-12
 
 ### Added

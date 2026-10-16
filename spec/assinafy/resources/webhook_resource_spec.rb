@@ -208,6 +208,40 @@ RSpec.describe Assinafy::Resources::WebhookResource do
       expect(resource.list_endpoints).to eq([endpoint])
     end
 
+    it 'filters by an exact URL without changing the positional account override' do
+      url = 'https://example.com/hook?tenant=one&token=placeholder'
+      stub_request(:get, "#{base_url}/accounts/other/webhooks/endpoints")
+        .with(query: { 'url' => url }, headers: { 'X-Api-Key' => 'test-key' })
+        .to_return(api_envelope([endpoint]))
+
+      expect(resource.list_endpoints('other', url: url)).to eq([endpoint])
+    end
+
+    it 'deletes by an exact URL query without sending a body' do
+      url = 'https://example.com/hook?tenant=one&token=placeholder'
+      stub_request(:delete, endpoints_url)
+        .with(query: { 'url' => url }, body: nil, headers: { 'X-Api-Key' => 'test-key' })
+        .to_return(api_envelope([]))
+
+      expect(resource.delete_endpoint_by_url(url)).to be_nil
+    end
+
+    it 'propagates a missing URL match without deleting anything else' do
+      stub_request(:delete, endpoints_url).with(query: { 'url' => endpoint['url'] })
+                                          .to_return(json_response({ 'message' => 'Missing' }, status: 404))
+
+      expect { resource.delete_endpoint_by_url(endpoint['url']) }
+        .to raise_error(Assinafy::ApiError) { |error| expect(error.status_code).to eq(404) }
+    end
+
+    it 'rejects invalid URL arguments before sending' do
+      ['', ' ', 123, false].each do |url|
+        expect { resource.list_endpoints(url: url) }.to raise_error(Assinafy::ValidationError)
+        expect { resource.delete_endpoint_by_url(url) }.to raise_error(Assinafy::ValidationError)
+      end
+      expect { resource.delete_endpoint_by_url(nil) }.to raise_error(Assinafy::ValidationError)
+    end
+
     it 'creates an endpoint with exactly the fields given' do
       stub_request(:post, endpoints_url)
         .with(body: {
@@ -217,11 +251,11 @@ RSpec.describe Assinafy::Resources::WebhookResource do
           'name'            => 'ERP',
           'signing_enabled' => true
         })
-        .to_return(api_envelope(endpoint))
+        .to_return(api_envelope(endpoint.merge('secret' => 'whsec_once')))
 
       result = resource.create_endpoint(url: 'https://example.com/hook', email: 'ops@example.com',
                                         events: ['document_ready'], name: 'ERP', signing_enabled: true)
-      expect(result).to eq(endpoint)
+      expect(result).to eq(endpoint.merge('secret' => 'whsec_once'))
     end
 
     it 'rejects missing, unknown, and mistyped fields before the network' do

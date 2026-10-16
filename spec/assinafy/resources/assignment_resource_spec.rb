@@ -104,13 +104,20 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
       expect(body['signers']).to eq([{ 'id' => 'a', 'step' => 1 }])
     end
 
-    # Every verification method Assinafy supports, per the API enum:
-    # Email and WhatsApp OTP, plus ICP-Brasil A1/A3 certificate signing.
     described_class::VERIFICATION_METHODS.each do |method|
       it "passes the #{method} verification method through" do
         body = described_class.build_payload(signers: [{ id: 'a', verification_method: method }])
 
         expect(body['signers']).to eq([{ 'id' => 'a', 'verification_method' => method }])
+      end
+    end
+
+    %w[Email Whatsapp].each do |channel|
+      it "allows biometric verification with #{channel} alongside another signer" do
+        signer = { id: 'a', verification_method: 'IdDocumentFaceMatchBasic', notification_methods: [channel] }
+        body = described_class.build_payload(signers: [signer, { id: 'b' }])
+
+        expect(body['signers'].first).to eq(signer.transform_keys(&:to_s))
       end
     end
 
@@ -493,6 +500,86 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
         end.to raise_error(Assinafy::ValidationError, /Decline reason/)
       end
       expect(a_request(:put, "#{base_url}/documents/doc/assignments/asg/reject")).not_to have_been_made
+    end
+  end
+
+  describe 'biometric identity review' do
+    let(:resource) { described_class.new(connection, 'acc') }
+    let(:url) { "#{base_url}/documents/doc/assignments/asg/signers/signer/identity-verification" }
+    let(:review) { { 'id' => 'verification', 'status' => 'InReview', 'images' => ['face'] } }
+
+    it 'reads a review with workspace credentials' do
+      stub_request(:get, url).with(headers: { 'X-Api-Key' => 'test-key' }).to_return(api_envelope(review))
+
+      expect(resource.identity_review('doc', 'asg', 'signer')).to eq(review)
+    end
+
+    {
+      'face'           => 'image/jpeg',
+      'document_front' => 'image/png',
+      'document_pdf'   => 'application/pdf'
+    }.each do |name, mime|
+      it "returns binary #{name} evidence with workspace credentials" do
+        bytes = "\xFF\x00evidence".b
+        stub_request(:get, "#{url}/images/#{name}")
+          .with(headers: { 'X-Api-Key' => 'test-key' })
+          .to_return(status: 200, body: bytes, headers: { 'Content-Type' => mime })
+
+        expect(resource.identity_review_image('doc', 'asg', 'signer', name)).to eq(bytes)
+      end
+    end
+
+    %w[Approved Rejected].each do |decision|
+      it "sends the exact #{decision} review decision and note with workspace credentials" do
+        status = decision == 'Approved' ? 'Approved' : 'Declined'
+        decided = review.merge('status' => status, 'images' => [], 'review_note' => 'Checked')
+        stub_request(:post, "#{url}/review")
+          .with(headers: { 'X-Api-Key' => 'test-key' }, body: { 'decision' => decision, 'note' => 'Checked' })
+          .to_return(api_envelope(decided))
+
+        expect(resource.decide_identity_review('doc', 'asg', 'signer', decision: decision, note: 'Checked'))
+          .to eq(decided)
+      end
+    end
+
+    it 'omits a nil note and accepts an empty or 2000-character note' do
+      [nil, '', 'x' * 2000].each do |note|
+        body = { 'decision' => 'Approved', 'note' => note }.compact
+        stub_request(:post, "#{url}/review").with(body: body).to_return(api_envelope(review))
+
+        expect(resource.decide_identity_review('doc', 'asg', 'signer', decision: 'Approved', note: note)).to eq(review)
+      end
+    end
+
+    it 'rejects invalid decisions, notes, image names and path segments before sending' do
+      [nil, 'approved', 'Declined'].each do |decision|
+        expect { resource.decide_identity_review('doc', 'asg', 'signer', decision: decision) }
+          .to raise_error(Assinafy::ValidationError, /Decision/)
+      end
+      [false, 123, 'x' * 2001].each do |note|
+        expect { resource.decide_identity_review('doc', 'asg', 'signer', decision: 'Approved', note: note) }
+          .to raise_error(Assinafy::ValidationError, /note/)
+      end
+      [nil, '../face', 'selfie'].each do |name|
+        expect { resource.identity_review_image('doc', 'asg', 'signer', name) }
+          .to raise_error(Assinafy::ValidationError, /Image name/)
+      end
+      [['..', 'asg', 'signer'], ['doc', 'a/b', 'signer'], ['doc', 'asg', '']].each do |ids|
+        expect { resource.identity_review(*ids) }.to raise_error(Assinafy::ValidationError)
+        expect { resource.identity_review_image(*ids, 'face') }.to raise_error(Assinafy::ValidationError)
+        expect { resource.decide_identity_review(*ids, decision: 'Approved') }.to raise_error(Assinafy::ValidationError)
+      end
+    end
+
+    it 'propagates missing evidence and refuses text masquerading as an image' do
+      stub_request(:get, "#{url}/images/face").to_return(json_response({ 'message' => 'Review closed' }, status: 404))
+      expect { resource.identity_review_image('doc', 'asg', 'signer', 'face') }
+        .to raise_error(Assinafy::ApiError) { |error| expect(error.status_code).to eq(404) }
+
+      stub_request(:get, "#{url}/images/face").to_return(status: 200, body: '<html>Error</html>',
+                                                         headers: { 'Content-Type' => 'text/html' })
+      expect { resource.identity_review_image('doc', 'asg', 'signer', 'face') }
+        .to raise_error(Assinafy::Error, /binary/)
     end
   end
 

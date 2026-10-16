@@ -20,7 +20,7 @@ module Assinafy
     # with a hex HMAC-SHA256.
     #
     # @example Verify a signed delivery (Rack / Rails)
-    #   secret   = client.webhooks.endpoint_secret('webhook-endpoint-id')[:secret]
+    #   secret   = client.webhooks.endpoint_secret('webhook-endpoint-id').fetch('secret')
     #   verifier = Assinafy::Support::WebhookVerifier.new(secret)
     #   raw_body = request.body.read
     #   return head(:unauthorized) unless verifier.verify_delivery(raw_body, request.headers)

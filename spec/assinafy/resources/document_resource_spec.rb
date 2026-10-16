@@ -244,6 +244,21 @@ RSpec.describe Assinafy::Resources::DocumentResource do
   end
 
   describe '#create_from_template' do
+    %w[Email Whatsapp].each do |channel|
+      it "passes biometric verification and #{channel} through template creation and estimates" do
+        signer = { 'role_id' => 'role', 'id' => 'signer', 'verification_method' => 'IdDocumentFaceMatchBasic',
+                   'notification_methods' => [channel] }
+        template_url = "#{base_url}/accounts/acc/templates/tmpl/documents"
+        stub_request(:post, template_url).with(body: { 'signers' => [signer] })
+                                         .to_return(api_envelope({ 'id' => 'doc' }))
+        stub_request(:post, "#{template_url}/estimate-cost").with(body: { 'signers' => [signer] })
+                                                            .to_return(api_envelope({ 'total_credits' => 1.5 }))
+
+        expect(resource.create_from_template('tmpl', [signer])['id']).to eq('doc')
+        expect(resource.estimate_cost_from_template('tmpl', [signer])['total_credits']).to eq(1.5)
+      end
+    end
+
     it 'posts template document payload' do
       stub_request(:post, "#{base_url}/accounts/acc/templates/tmpl/documents")
         .to_return(api_envelope({ 'id' => 'doc-1' }))

@@ -388,6 +388,7 @@ the missing side is inferred from the other, and when both are omitted both defa
 | `Email` *(default)* | One-time code (OTP) by email before signing | `Email` | 0 credits |
 | `Whatsapp` | One-time code (OTP) over WhatsApp; needs `whatsapp_phone_number` and a paid plan | `Whatsapp` | 0.45 credits (the WhatsApp notification) |
 | `DigitalCertificate` | Signs with their own ICP-Brasil certificate (A1/A3), producing a qualified PAdES signature | `Email` **or** `Whatsapp` | 0.5 credits + its notification (0 or 0.45) |
+| `IdDocumentFaceMatchBasic` | Government ID photos, a photo holding the ID and liveness; requires its account feature and a valid CPF in `government_id` | `Email` **or** `Whatsapp` | Per-signer fee + notification; request an estimate |
 
 - Send exactly one channel in `notification_methods` (a one-element array).
 - The certificate charge appears in the cost breakdown under the code `SignatureDigitalCertificate`. Resending a
@@ -517,6 +518,48 @@ signing.assignments.decline(
 )
 ```
 
+**Biometric signers** use `verification_method: 'IdDocumentFaceMatchBasic'` with exactly one Email or Whatsapp
+notification in virtual/collect assignments or template generation. Store a valid CPF in the signer's
+`government_id` first and call `estimate_cost` or `estimate_cost_from_template` for the current price.
+The OTP example above applies to Email/Whatsapp. For biometrics, read the verification state and collect explicit
+biometric-processing consent before starting:
+
+```ruby
+state = signing.signers.identity_verification(signer_access_code: access_code)
+# => { 'can_start' => true, 'status' => nil, 'url' => nil, 'expires_at' => nil, 'completed_at' => nil }
+
+# After the signer explicitly consents to biometric processing:
+session = signing.signers.start_identity_verification(consent: true, signer_access_code: access_code)
+# => { 'id' => 'verification-id', 'url' => 'https://verify.assinafy.com.br/c/session#t=token-placeholder',
+#      'expires_at' => '2026-10-16T13:00:00Z' }
+```
+
+Open the capture URL unchanged, including its `#t=` fragment. It is a bearer link: keep it out of logs and browser
+storage. For an existing Pending session, use the URL from `identity_verification`. `can_start` is true only
+before any session or after Expired; restarting an Expired session costs nothing extra. Declined or Abandoned
+requires a new document and assignment.
+
+InReview lets the signer view, confirm data and sign while account review holds certification. After all signers
+sign, the document can be `pending_identity_review`. The account reviewer uses workspace credentials:
+
+```ruby
+review = client.assignments.identity_review(document.fetch('id'), assignment.fetch('id'), signer.fetch('id'))
+# => SignerIdentityReview: status, reason_codes, evidence_available, expected, document, matches,
+#    checks, images, ruleset_version, evidence_sha256 and decision metadata
+image = client.assignments.identity_review_image(document.fetch('id'), assignment.fetch('id'), signer.fetch('id'), 'face')
+# => JPEG, PNG or PDF bytes, depending on the name listed in review['images']; do not cache
+
+# After the reviewer checks the evidence:
+client.assignments.decide_identity_review(
+  document.fetch('id'), assignment.fetch('id'), signer.fetch('id'), decision: 'Approved', note: 'Identity checked'
+)
+```
+
+`decision: 'Rejected'` cancels the document and notifies signers and copy receivers. The optional note accepts at
+most 2000 characters, goes to activities and the provider, and is never shown to the signer. Images exist only
+during InReview. Observe signer_identity_review_required, signer_identity_review_approved,
+signer_identity_review_rejected, signer_identity_verified and signer_identity_verification_failed events.
+
 **A1/A3 certificate signers** complete their signature in Assinafy's hosted signing flow, opened from
 `assignment['signing_urls']`: they accept the terms, confirm their data, and sign with their A1 or A3 certificate
 through the Web PKI browser extension. The ordinary signing endpoint rejects certificate signers, and the SDK does
@@ -538,7 +581,7 @@ endpoint = client.webhooks.create_endpoint(
   name:            'ERP',
   signing_enabled: true
 )
-secret = client.webhooks.endpoint_secret(endpoint.fetch('id'))['secret']  # => "whsec_..."
+secret = endpoint.fetch('secret') # returned once on creation; store it immediately, including for OAuth apps
 ```
 
 - `create_endpoint` requires `url`, `email`, and `events`; `name`, `is_active` (default `true`), and
@@ -548,7 +591,9 @@ secret = client.webhooks.endpoint_secret(endpoint.fetch('id'))['secret']  # => "
   endpoint has none and keeps the current one otherwise; `false` discards it.
 - `rotate_endpoint_secret(id)` returns a new secret; the old one stops working immediately.
 - Reading and rotating secrets is not available to OAuth applications — use an API key or a user session token.
-  Both answer `400` when signing is disabled.
+  Both answer `400` when signing is disabled. An OAuth app that loses its secret must delete and recreate the endpoint.
+- `list_endpoints(url: registered_url)` filters by exact URL; `delete_endpoint_by_url(registered_url)` removes
+  that endpoint and returns `nil` (`404` when no endpoint matches).
 
 **Delivery contract.** Each delivery is a `POST` with an `application/json` body and the headers `webhook-id`
 (identical on every attempt of the same event to the same endpoint — deduplicate on it), `webhook-timestamp`

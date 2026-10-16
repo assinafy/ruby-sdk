@@ -49,11 +49,11 @@ module Assinafy
       #   # }
       #   # => unwrapped data payload returned:
       #   # {
-      #   #   events:     ["document_ready", "document_prepared"],
-      #   #   is_active:  true,
-      #   #   url:        "https://example.com/webhook",
-      #   #   email:      "ops@example.com",
-      #   #   updated_at: "2026-06-05T21:13:24Z"
+      #   #   'events' => ["document_ready", "document_prepared"],
+      #   #   'is_active' => true,
+      #   #   'url' => "https://example.com/webhook",
+      #   #   'email' => "ops@example.com",
+      #   #   'updated_at' => "2026-06-05T21:13:24Z"
       #   # }
       def register(payload, account_id_override = nil)
         body   = { is_active: true }.merge(webhook_body(payload, SUBSCRIPTION_FIELDS, REQUIRED_FIELDS))
@@ -82,11 +82,11 @@ module Assinafy
       #   # GET /accounts/{account_id}/webhooks/subscriptions
       #   # => unwrapped data payload returned (nil if no subscription exists):
       #   # {
-      #   #   events:     ["document_ready", "signer_signed_document"],
-      #   #   is_active:  false,
-      #   #   url:        "https://example.com/sdk-smoke-webhook",
-      #   #   email:      "webhook@example.com",
-      #   #   updated_at: "2026-06-05T21:13:24Z"
+      #   #   'events' => ["document_ready", "signer_signed_document"],
+      #   #   'is_active' => false,
+      #   #   'url' => "https://example.com/sdk-smoke-webhook",
+      #   #   'email' => "webhook@example.com",
+      #   #   'updated_at' => "2026-06-05T21:13:24Z"
       #   # }
       def get(account_id_override = nil)
         acc_id = account_id(account_id_override)
@@ -111,11 +111,11 @@ module Assinafy
       #   # PUT /accounts/{account_id}/webhooks/inactivate  (no request body)
       #   # => unwrapped data payload returned:
       #   # {
-      #   #   events:     ["document_ready", "document_prepared"],
-      #   #   is_active:  false,
-      #   #   url:        "https://example.com/webhook",
-      #   #   email:      "ops@example.com",
-      #   #   updated_at: "2026-06-05T21:13:24Z"
+      #   #   'events' => ["document_ready", "document_prepared"],
+      #   #   'is_active' => false,
+      #   #   'url' => "https://example.com/webhook",
+      #   #   'email' => "ops@example.com",
+      #   #   'updated_at' => "2026-06-05T21:13:24Z"
       #   # }
       def inactivate(account_id_override = nil)
         acc_id = account_id(account_id_override)
@@ -129,7 +129,7 @@ module Assinafy
 
       # Catalogue of supported event-type identifiers.
       #
-      # @return [Array<Hash>] each entry is { id:, description: } (18 event types available)
+      # @return [Array<Hash>] each entry is { id:, description: }
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure
       # @raise [Assinafy::ValidationError] on invalid required input
@@ -137,17 +137,17 @@ module Assinafy
       # @example List subscribable event types
       #   client.webhooks.list_event_types
       #   # GET /webhooks/event-types
-      #   # => unwrapped data payload returned (18 entries):
+      #   # => unwrapped data payload returned:
       #   # [
-      #   #   { id: "document_uploaded",        description: "Triggered when the User has uploaded a Document" },
-      #   #   { id: "document_metadata_ready",  description: "Triggered when the document is ready to be prepared..." },
-      #   #   { id: "document_prepared",        description: "Triggered when the User prepares a Document." },
-      #   #   { id: "assignment_created",       description: "Triggered when the User created an assignment..." },
-      #   #   { id: "signature_requested",      description: "Triggered when the User requested signature..." },
-      #   #   { id: "document_ready",           description: "Triggered when the last Signer signs the Document..." },
-      #   #   { id: "signer_created",           description: "Triggered when the User created a Signer" },
-      #   #   { id: "signer_email_verified",    description: "Triggered when Signer's email has been verified..." }
-      #   #   # ... (see docs for the full 18-event catalogue)
+      #   #   { 'id' => "document_uploaded", 'description' => "Document uploaded" },
+      #   #   { 'id' => "document_metadata_ready", 'description' => "Document metadata ready" },
+      #   #   { 'id' => "document_prepared", 'description' => "Document prepared" },
+      #   #   { 'id' => "assignment_created", 'description' => "Assignment created" },
+      #   #   { 'id' => "signature_requested", 'description' => "Signature requested" },
+      #   #   { 'id' => "document_ready", 'description' => "All signers signed" },
+      #   #   { 'id' => "signer_created", 'description' => "Signer created" },
+      #   #   { 'id' => "signer_email_verified", 'description' => "Signer email verified" }
+      #   #   # ... (read list_event_types for the complete current catalogue)
       #   # ]
       def list_event_types
         call_array('Failed to list webhook event types') do
@@ -172,17 +172,17 @@ module Assinafy
       #   # {
       #   #   data: [
       #   #     {
-      #   #       id:            "dispatch-id",
+      #   #       'id' => "dispatch-id",
       #   #       event:         "signature_requested",
       #   #       activity_id:   15431,
       #   #       endpoint:      "https://example.com/webhook",
-      #   #       payload:       { id: 15431, event: "signature_requested", object: {}, subject: {}, payload: {} },
+      #   #       payload:       { 'id' => 15431, event: "signature_requested", object: {}, subject: {}, payload: {} },
       #   #       delivered:     false,
       #   #       http_status:   404,
       #   #       response_body: "{\"success\":false,...}",
       #   #       error:         "Client error: `POST https://example.com/webhook` resulted in a 404 ...",
-      #   #       created_at:    "2026-07-20T15:57:38Z",
-      #   #       updated_at:    "2026-07-20T15:57:38Z"
+      #   #       'created_at' => "2026-07-20T15:57:38Z",
+      #   #       'updated_at' => "2026-07-20T15:57:38Z"
       #   #     }
       #   #     # ... (see docs for full dispatch shape)
       #   #   ],
@@ -211,17 +211,17 @@ module Assinafy
       #   # => unwrapped data payload returned:
       #   # {
       #   #   resource:      "activity_dispatching_history",
-      #   #   id:            "dispatch-id",
+      #   #   'id' => "dispatch-id",
       #   #   event:         "signature_requested",
       #   #   activity_id:   15431,
       #   #   endpoint:      "https://example.com/webhook",
-      #   #   payload:       { id: 15431, event: "signature_requested", object: {}, subject: {} },
+      #   #   payload:       { 'id' => 15431, event: "signature_requested", object: {}, subject: {} },
       #   #   delivered:     true,
       #   #   http_status:   200,
       #   #   response_body: "OK",
       #   #   error:         nil,
-      #   #   created_at:    "2026-07-20T15:57:38Z",
-      #   #   updated_at:    "2026-07-20T15:57:39Z"
+      #   #   'created_at' => "2026-07-20T15:57:38Z",
+      #   #   'updated_at' => "2026-07-20T15:57:39Z"
       #   # }
       def retry_dispatch(dispatch_id, account_id_override = nil)
         acc_id = account_id(account_id_override)
@@ -235,6 +235,7 @@ module Assinafy
       # List the account's webhook endpoints, oldest first.
       #
       # @param account_id_override [String, nil]
+      # @param url [String, nil] filter by the exact registered URL
       # @return [Array<Hash>] webhook endpoint objects
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure
@@ -246,29 +247,31 @@ module Assinafy
       #   # => unwrapped data payload returned:
       #   # [
       #   #   {
-      #   #     id:              "webhook-endpoint-id",
-      #   #     name:            "ERP",
-      #   #     url:             "https://example.com/webhooks/assinafy",
-      #   #     email:           "ops@example.com",
-      #   #     events:          ["document_ready", "signer_signed_document"],
-      #   #     is_active:       true,
-      #   #     signing_enabled: true,
-      #   #     created_at:      "2026-10-01T12:00:00Z",
-      #   #     updated_at:      "2026-10-01T12:00:00Z"
+      #   #     'id' => "webhook-endpoint-id",
+      #   #     'name' => "ERP",
+      #   #     'url' => "https://example.com/webhooks/assinafy",
+      #   #     'email' => "ops@example.com",
+      #   #     'events' => ["document_ready", "signer_signed_document"],
+      #   #     'is_active' => true,
+      #   #     'signing_enabled' => true,
+      #   #     'created_at' => "2026-10-01T12:00:00Z",
+      #   #     'updated_at' => "2026-10-01T12:00:00Z"
       #   #   }
       #   # ]
-      def list_endpoints(account_id_override = nil)
+      def list_endpoints(account_id_override = nil, url: nil)
         acc_id = account_id(account_id_override)
+        require_string(url, 'Webhook URL') unless url.nil?
 
         call_array('Failed to list webhook endpoints') do
-          http_get("accounts/#{acc_id}/webhooks/endpoints")
+          http_get("accounts/#{acc_id}/webhooks/endpoints", { url: url })
         end
       end
 
       # Register a new webhook endpoint. Each endpoint of an account needs a
       # distinct `url`. Creating one past the plan's limit (1, or 3 on paid
       # plans) answers `403`. With `signing_enabled: true` a signing secret is
-      # generated; read it with {#endpoint_secret}.
+      # generated and returned once under `secret`. Store it from this response,
+      # especially for OAuth apps, which cannot call {#endpoint_secret}.
       #
       # @param payload [Hash]
       # @option payload [String]        :url             http(s) URL that receives the events (required)
@@ -301,9 +304,10 @@ module Assinafy
       #   #   "signing_enabled": true
       #   # }
       #   # => unwrapped data payload returned (same shape as {#list_endpoints} entries):
-      #   # { id: "webhook-endpoint-id", name: "ERP", url: "https://example.com/webhooks/assinafy",
-      #   #   email: "ops@example.com", events: [...], is_active: true, signing_enabled: true,
-      #   #   created_at: "2026-10-01T12:00:00Z", updated_at: "2026-10-01T12:00:00Z" }
+      #   # { 'id' => "webhook-endpoint-id", 'name' => "ERP", 'url' => "https://example.com/webhooks/assinafy",
+      #   #   'email' => "ops@example.com", 'events' => [...], 'is_active' => true, 'signing_enabled' => true,
+      #   #   'created_at' => "2026-10-01T12:00:00Z", 'updated_at' => "2026-10-01T12:00:00Z",
+      #   #   'secret' => 'whsec_secret-placeholder' } # secret appears only on creation with signing enabled
       def create_endpoint(payload, account_id_override = nil)
         body   = webhook_body(payload, ENDPOINT_FIELDS, REQUIRED_FIELDS)
         acc_id = account_id(account_id_override)
@@ -327,7 +331,7 @@ module Assinafy
       # @example Fetch an endpoint
       #   client.webhooks.get_endpoint('webhook-endpoint-id')
       #   # GET /accounts/{account_id}/webhooks/endpoints/webhook-endpoint-id
-      #   # => { id: "webhook-endpoint-id", name: "ERP", url: "https://example.com/webhooks/assinafy", ... }
+      #   # => { 'id' => "webhook-endpoint-id", 'name' => "ERP", 'url' => "https://example.com/webhooks/assinafy", ... }
       def get_endpoint(endpoint_id, account_id_override = nil)
         call('Failed to fetch webhook endpoint') do
           http_get(endpoint_path(endpoint_id, account_id_override))
@@ -351,7 +355,7 @@ module Assinafy
       #   # PUT /accounts/{account_id}/webhooks/endpoints/webhook-endpoint-id
       #   # request body sent by the SDK:
       #   # { "is_active": false }
-      #   # => { id: "webhook-endpoint-id", is_active: false, ... }
+      #   # => { 'id' => "webhook-endpoint-id", 'is_active' => false, ... }
       def update_endpoint(endpoint_id, payload, account_id_override = nil)
         body = webhook_body(payload, ENDPOINT_FIELDS, [])
         raise ValidationError.new('Webhook endpoint update must change at least one field') if body.empty?
@@ -386,13 +390,37 @@ module Assinafy
         end
       end
 
+      # Delete the endpoint registered with an exact URL and free its slot.
+      # Requires webhooks:write for OAuth applications.
+      #
+      # @param url [String] exact URL used when registering the endpoint
+      # @param account_id_override [String, nil]
+      # @return [nil] the SDK discards the empty data array on success
+      # @raise [Assinafy::ApiError] on failure; 404 when the workspace has no matching endpoint
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on invalid URL or account ID
+      # @see DELETE /accounts/{account_id}/webhooks/endpoints
+      # @example Remove an integration by its registered URL
+      #   client.webhooks.delete_endpoint_by_url('https://app.example.com/webhooks/assinafy')
+      #   # DELETE /accounts/{account_id}/webhooks/endpoints?url=https%3A%2F%2Fapp.example.com%2Fwebhooks%2Fassinafy
+      #   # No request body. Response envelope data: []
+      #   # => nil
+      def delete_endpoint_by_url(url, account_id_override = nil)
+        acc_id = account_id(account_id_override)
+        target = require_string(url, 'Webhook URL')
+
+        call_void('Failed to delete webhook endpoint by URL') do
+          http_delete("accounts/#{acc_id}/webhooks/endpoints", { url: target })
+        end
+      end
+
       # Read the Standard Webhooks secret that signs deliveries to an endpoint.
       # Pass it to {Assinafy::Support::WebhookVerifier}. Not available to OAuth
       # applications; use an API key or a user access token.
       #
       # @param endpoint_id [String]
       # @param account_id_override [String, nil]
-      # @return [Hash] `{ secret: "whsec_..." }`
+      # @return [Hash] `{ "secret" => "whsec_..." }`
       # @raise [Assinafy::ApiError] `400` when signing is disabled; `404` on an unknown ID
       # @raise [Assinafy::NetworkError] on transport or TLS failure
       # @raise [Assinafy::ValidationError] on invalid required input
@@ -400,7 +428,7 @@ module Assinafy
       # @example Read the signing secret
       #   client.webhooks.endpoint_secret('webhook-endpoint-id')
       #   # GET /accounts/{account_id}/webhooks/endpoints/webhook-endpoint-id/secret
-      #   # => { secret: "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw" }
+      #   # => { 'secret' => "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw" }
       def endpoint_secret(endpoint_id, account_id_override = nil)
         call('Failed to fetch webhook endpoint secret') do
           http_get("#{endpoint_path(endpoint_id, account_id_override)}/secret")
@@ -413,7 +441,7 @@ module Assinafy
       #
       # @param endpoint_id [String]
       # @param account_id_override [String, nil]
-      # @return [Hash] `{ secret: "whsec_..." }` (the new secret)
+      # @return [Hash] `{ "secret" => "whsec_..." }` (the new secret)
       # @raise [Assinafy::ApiError] `400` when signing is disabled; `404` on an unknown ID
       # @raise [Assinafy::NetworkError] on transport or TLS failure
       # @raise [Assinafy::ValidationError] on invalid required input
@@ -421,7 +449,7 @@ module Assinafy
       # @example Rotate the signing secret
       #   client.webhooks.rotate_endpoint_secret('webhook-endpoint-id')
       #   # POST /accounts/{account_id}/webhooks/endpoints/webhook-endpoint-id/secret/rotate  (no request body)
-      #   # => { secret: "whsec_new-secret-placeholder" }
+      #   # => { 'secret' => "whsec_new-secret-placeholder" }
       def rotate_endpoint_secret(endpoint_id, account_id_override = nil)
         path = endpoint_path(endpoint_id, account_id_override)
 

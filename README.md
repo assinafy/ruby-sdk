@@ -519,6 +519,7 @@ dois, ambos assumem `Email`.
 | `Email` *(padrão)* | código de uso único (OTP) por e-mail, exigido antes de assinar | `Email` | 0 crédito |
 | `Whatsapp` | código de uso único (OTP) por WhatsApp; exige `whatsapp_phone_number` e plano pago | `Whatsapp` | 0,45 crédito (a notificação por WhatsApp) |
 | `DigitalCertificate` | o signatário assina com o **próprio certificado ICP-Brasil (A1/A3)**, gerando uma assinatura **PAdES qualificada** | `Email` **ou** `Whatsapp` | 0,5 crédito + a notificação (0 ou 0,45) |
+| `IdDocumentFaceMatchBasic` | documento de identidade, foto segurando o documento e prova de vida; exige o recurso na conta e CPF válido em `government_id` | `Email` **ou** `Whatsapp` | tarifa por signatário + notificação; consulte a estimativa |
 
 - Informe **exatamente um** canal em `notification_methods` (um array de um elemento).
 - O custo do certificado digital aparece na estimativa com o código `SignatureDigitalCertificate`.
@@ -717,6 +718,55 @@ signatario_client.assignments.decline(
 signatario_client.signer_documents.decline_multiple([doc['id']], decline_reason: 'Não', signer_access_code: codigo)
 ```
 
+### Signatários com verificação biométrica
+
+Na criação do assignment (virtual ou collect), ou em `create_from_template`, envie
+`verification_method: 'IdDocumentFaceMatchBasic'` e exatamente um canal de notificação.
+Cadastre o CPF válido do signatário em `government_id` antes de criar o assignment. Use
+`estimate_cost` ou `estimate_cost_from_template` para obter o custo antes de enviar.
+
+O fluxo de OTP acima se aplica a `Email` e `Whatsapp`. Para biometria, consulte o estado com o
+código de acesso do signatário e abra uma sessão somente após obter o consentimento explícito:
+
+```ruby
+estado = signatario_client.signers.identity_verification(signer_access_code: codigo)
+# => { 'can_start' => true, 'status' => nil, 'url' => nil, 'expires_at' => nil, 'completed_at' => nil }
+
+# Após o consentimento explícito do signatário para o processamento biométrico:
+sessao = signatario_client.signers.start_identity_verification(consent: true, signer_access_code: codigo)
+# => { 'id' => 'verification-id', 'url' => 'https://verify.assinafy.com.br/c/session#t=token-placeholder',
+#      'expires_at' => '2026-10-16T13:00:00Z' }
+```
+
+Abra `sessao['url']` sem alterar a URL nem o fragmento `#t=`; ela concede acesso à captura e não
+deve aparecer em logs ou armazenamento do navegador. Se já houver uma sessão `Pending`, use a
+URL retornada por `identity_verification`. `can_start` só é verdadeiro antes da primeira sessão
+ou após `Expired`; reiniciar uma sessão expirada não cobra novamente. `Declined` e `Abandoned`
+exigem um novo documento e assignment.
+
+Em `InReview`, o signatário continua visualizando, confirmando dados e assinando, mas a certificação
+aguarda a revisão da conta. Depois de todas as assinaturas, o documento pode ficar em
+`pending_identity_review`. Com as credenciais do workspace, o revisor consulta e decide:
+
+```ruby
+revisao = client.assignments.identity_review(doc['id'], assignment['id'], signatario['id'])
+# => SignerIdentityReview: status, reason_codes, evidence_available, expected, document,
+#    matches, checks, images, ruleset_version, evidence_sha256 e dados da decisão
+imagem = client.assignments.identity_review_image(doc['id'], assignment['id'], signatario['id'], 'face')
+# => bytes JPEG, PNG ou PDF, conforme o nome retornado em revisao['images']; não armazenar em cache
+
+# Após o revisor conferir as evidências:
+client.assignments.decide_identity_review(
+  doc['id'], assignment['id'], signatario['id'], decision: 'Approved', note: 'Identidade conferida'
+)
+```
+
+`decision: 'Rejected'` cancela o documento e notifica signatários e destinatários de cópia.
+A nota opcional aceita até 2000 caracteres, fica na atividade e vai ao provedor; não é mostrada
+ao signatário. As imagens só ficam disponíveis durante `InReview`. Acompanhe também os eventos
+`signer_identity_review_required`, `signer_identity_review_approved`, `signer_identity_review_rejected`,
+`signer_identity_verified` e `signer_identity_verification_failed`.
+
 ### Signatários com certificado A1/A3
 
 O signatário por certificado digital conclui a assinatura no fluxo hospedado da Assinafy, aberto
@@ -749,9 +799,11 @@ endpoint = client.webhooks.create_endpoint(
 endpoint['id'] # => "webhook-endpoint-id"
 
 client.webhooks.list_endpoints                              # do mais antigo ao mais novo
+client.webhooks.list_endpoints(url: 'https://app.example.com/webhooks/assinafy') # URL exata
 client.webhooks.get_endpoint('webhook-endpoint-id')
 client.webhooks.update_endpoint('webhook-endpoint-id', is_active: false)   # só os campos enviados
 client.webhooks.delete_endpoint('webhook-endpoint-id')                     # => nil, libera a vaga
+client.webhooks.delete_endpoint_by_url('https://app.example.com/webhooks/assinafy') # => nil
 ```
 
 - `create_endpoint` exige `url`, `email` e `events`; `name`, `is_active` (padrão `true`) e
@@ -762,6 +814,10 @@ client.webhooks.delete_endpoint('webhook-endpoint-id')                     # => 
   o atual se tiver); `signing_enabled: false` descarta o segredo.
 
 ### Segredo de assinatura
+
+Com `signing_enabled: true`, `create_endpoint` devolve o segredo uma única vez em
+`endpoint['secret']`. Guarde esse valor na criação, inclusive em aplicativos OAuth. Se o segredo
+de um aplicativo OAuth for perdido, exclua e recrie o endpoint.
 
 ```ruby
 segredo = client.webhooks.endpoint_secret('webhook-endpoint-id')

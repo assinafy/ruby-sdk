@@ -295,6 +295,8 @@ module Assinafy
       def delete: (String signer_id, ?String? account_id_override) -> nil
       def find_by_email: (String email, ?String? account_id_override) -> api_object?
       def self_data: (signer_access_code: String) -> api_object
+      def identity_verification: (signer_access_code: String) -> api_object
+      def start_identity_verification: (consent: bool, signer_access_code: String) -> api_object
       def accept_terms: (signer_access_code: String) -> nil
       def verify_email: (verification_code: String, signer_access_code: String) -> nil
       def confirm_data: (String document_id, params payload, signer_access_code: String) -> api_object
@@ -335,6 +337,7 @@ module Assinafy
       VERIFICATION_METHODS: Array[String]
       NOTIFICATION_METHODS: Array[String]
       SIGN_ITEM_KEY_MAP: Hash[String, String]
+      IDENTITY_REVIEW_IMAGES: Array[String]
 
       def self.build_payload: (params payload, ?params options) -> Hash[String, untyped]
       def list: (?params params, ?String? account_id_override) -> list_result
@@ -343,6 +346,15 @@ module Assinafy
       def reset_expiration: (String document_id, String assignment_id, String? expires_at) -> api_object
       def resend_notification: (String document_id, String assignment_id, String signer_id) -> api_object
       def estimate_resend_cost: (String document_id, String assignment_id, String signer_id) -> api_object
+      def identity_review: (String document_id, String assignment_id, String signer_id) -> api_object
+      def identity_review_image: (String document_id, String assignment_id, String signer_id, String name) -> String
+      def decide_identity_review: (
+        String document_id,
+        String assignment_id,
+        String signer_id,
+        decision: String,
+        ?note: String?
+      ) -> api_object
       def signer_document: (signer_access_code: String, ?has_accepted_terms: bool?) -> api_object
       def sign: (String document_id, String assignment_id, Array[params] items, signer_access_code: String) -> api_object
       def decline: (
@@ -362,11 +374,12 @@ module Assinafy
       def list_event_types: () -> Array[api_object]
       def list_dispatches: (?params params, ?String? account_id_override) -> list_result
       def retry_dispatch: (String dispatch_id, ?String? account_id_override) -> api_object
-      def list_endpoints: (?String? account_id_override) -> Array[api_object]
+      def list_endpoints: (?String? account_id_override, ?url: String?) -> Array[api_object]
       def create_endpoint: (params payload, ?String? account_id_override) -> api_object
       def get_endpoint: (String endpoint_id, ?String? account_id_override) -> api_object
       def update_endpoint: (String endpoint_id, params payload, ?String? account_id_override) -> api_object
       def delete_endpoint: (String endpoint_id, ?String? account_id_override) -> nil
+      def delete_endpoint_by_url: (String url, ?String? account_id_override) -> nil
       def endpoint_secret: (String endpoint_id, ?String? account_id_override) -> api_object
       def rotate_endpoint_secret: (String endpoint_id, ?String? account_id_override) -> api_object
     end

@@ -1,7 +1,7 @@
 # Assinafy Ruby SDK API Reference
 
-> Contract source: Assinafy API v1 OpenAPI 3.1.0, retrieved 2026-10-12 from
-> `https://api.assinafy.com.br/v1/docs/openapi.json` (81 paths, 106 operations, 44 schemas).
+> Contract source: Assinafy API v1 OpenAPI 3.1.0, retrieved 2026-10-16 from
+> `https://api.assinafy.com.br/v1/docs/openapi.json` (85 paths, 112 operations, 45 schemas).
 > `scripts/check_api_contract.rb` validates contract compatibility weekly.
 
 This is the SDK-facing contract reference. Paths below are wire paths; Ruby methods return the unwrapped
@@ -82,8 +82,9 @@ Required parameters and object properties are marked with `*`.
 | POST | `/v1/accounts/{accountId}/templates/{templateId}/documents/estimate-cost` | `DocumentResource#estimate_cost_from_template` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `templateId*`: string | required; `application/json` object { `signers*`: Array<object { `role_id*`: string; `verification_method`: string; `notification_methods`: Array<string> }> } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`CostEstimate`](#costestimate) } |
 | GET | `/v1/accounts/{accountId}/theme` | `AccountResource#theme` | Bearer token or `X-Api-Key` | path `accountId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`AccountTheme`](#accounttheme) } |
 | GET | `/v1/accounts/{accountId}/webhooks` | `WebhookResource#list_dispatches` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>query `endpoint_id`: string<br>query `event`: string<br>query `delivered`: string<br>query `from`: integer<br>query `to`: integer<br>query `page`: integer<br>query `per-page`: integer | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`WebhookDispatch`](#webhookdispatch)> } |
-| GET | `/v1/accounts/{accountId}/webhooks/endpoints` | `WebhookResource#list_endpoints` | Bearer token or `X-Api-Key`; OAuth `account:read` | path `accountId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`WebhookEndpoint`](#webhookendpoint)> } |
-| POST | `/v1/accounts/{accountId}/webhooks/endpoints` | `WebhookResource#create_endpoint` | Bearer token or `X-Api-Key`; OAuth `webhooks:write` | path `accountId*`: string | required; `application/json` object { `url*`: string (uri); `email*`: string (email); `events*`: Array<string>; `name`: string; `is_active`: boolean; `signing_enabled`: boolean }; unknown keys raise `ValidationError` locally | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`WebhookEndpoint`](#webhookendpoint) }; `400` duplicate URL, `403` past the plan limit (1 endpoint, 3 on paid plans) |
+| GET | `/v1/accounts/{accountId}/webhooks/endpoints` | `WebhookResource#list_endpoints` | Bearer token or `X-Api-Key`; OAuth `account:read` | path `accountId*`: string; query `url`: exact registered URL | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`WebhookEndpoint`](#webhookendpoint)> } |
+| POST | `/v1/accounts/{accountId}/webhooks/endpoints` | `WebhookResource#create_endpoint` | Bearer token or `X-Api-Key`; OAuth `webhooks:write` | path `accountId*`: string | required; `application/json` object { `url*`: string (uri); `email*`: string (email); `events*`: Array<string>; `name`: string; `is_active`: boolean; `signing_enabled`: boolean }; unknown keys raise `ValidationError` locally | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`WebhookEndpoint`](#webhookendpoint) with `secret`: string when signing_enabled is true (returned once) }; `400` duplicate URL, `403` past the plan limit (1 endpoint, 3 on paid plans) |
+| DELETE | `/v1/accounts/{accountId}/webhooks/endpoints` | `WebhookResource#delete_endpoint_by_url` | Bearer token or `X-Api-Key`; OAuth `webhooks:write` | path `accountId*`: string; query `url*`: exact registered URL | None | `200` envelope data `[]`; SDK returns `nil`; `404` when no endpoint matches |
 | GET | `/v1/accounts/{accountId}/webhooks/endpoints/{endpointId}` | `WebhookResource#get_endpoint` | Bearer token or `X-Api-Key`; OAuth `account:read` | path `accountId*`: string<br>path `endpointId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`WebhookEndpoint`](#webhookendpoint) } |
 | PUT | `/v1/accounts/{accountId}/webhooks/endpoints/{endpointId}` | `WebhookResource#update_endpoint` | Bearer token or `X-Api-Key`; OAuth `webhooks:write` | path `accountId*`: string<br>path `endpointId*`: string | required; `application/json` object { `url`: string (uri); `email`: string (email); `events`: Array<string>; `name`: string; `is_active`: boolean; `signing_enabled`: boolean } — partial; at least one field | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`WebhookEndpoint`](#webhookendpoint) } |
 | DELETE | `/v1/accounts/{accountId}/webhooks/endpoints/{endpointId}` | `WebhookResource#delete_endpoint` | Bearer token or `X-Api-Key`; OAuth `webhooks:write` | path `accountId*`: string<br>path `endpointId*`: string | None | `200` `application/json` [`Envelope`](#envelope); SDK returns `nil` |
@@ -111,6 +112,9 @@ Required parameters and object properties are marked with `*`.
 | PUT | `/v1/documents/{documentId}/assignments/{assignmentId}/reject` | `AssignmentResource#decline` | `signer-access-code` query parameter | path `documentId*`: string<br>path `assignmentId*`: string | required; `application/json` object { `decline_reason*`: string } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<any> } |
 | PUT | `/v1/documents/{documentId}/assignments/{assignmentId}/reset-expiration` | `AssignmentResource#reset_expiration` | Bearer token or `X-Api-Key` | path `documentId*`: string<br>path `assignmentId*`: string | required; `application/json` object { `expires_at*`: string (date-time) or `null` to clear } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Assignment`](#assignment) } |
 | POST | `/v1/documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/estimate-resend-cost` | `AssignmentResource#estimate_resend_cost` | Bearer token or `X-Api-Key` | path `documentId*`: string<br>path `assignmentId*`: string<br>path `signerId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`CostEstimate`](#costestimate) } |
+| GET | `/v1/documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/identity-verification` | `AssignmentResource#identity_review` | Bearer token or `X-Api-Key` | path `documentId*`, `assignmentId*`, `signerId*`: string | None | `200` envelope data [`SignerIdentityReview`](#signeridentityreview); `404` when no verification exists |
+| GET | `/v1/documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/identity-verification/images/{name}` | `AssignmentResource#identity_review_image` | Bearer token or `X-Api-Key` | path `documentId*`, `assignmentId*`, `signerId*`: string; `name*`: enum `document_front`, `document_back`, `document_pdf`, `face` | None | `200` binary `image/jpeg`, `image/png` or `application/pdf`, `Cache-Control: no-store`; `404` unless evidence exists and review is InReview |
+| POST | `/v1/documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/identity-verification/review` | `AssignmentResource#decide_identity_review` | Bearer token or `X-Api-Key` | path `documentId*`, `assignmentId*`, `signerId*`: string | required; `application/json` { `decision*`: enum `Approved`, `Rejected`; `note`: string or null (max 2000 characters) } | `200` envelope data [`SignerIdentityReview`](#signeridentityreview); `400` unless InReview and document is pending_signature or pending_identity_review |
 | PUT | `/v1/documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/resend` | `AssignmentResource#resend_notification` | Bearer token or `X-Api-Key` | path `documentId*`: string<br>path `assignmentId*`: string<br>path `signerId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `is_sent`: boolean; `document_id`: string; `signer_id`: string } } |
 | GET | `/v1/documents/{documentId}/assignments/{assignmentId}/whatsapp-notifications` | `AssignmentResource#whatsapp_notifications` | Bearer token or `X-Api-Key` | path `documentId*`: string<br>path `assignmentId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`WhatsappNotification`](#whatsappnotification)> } |
 | GET | `/v1/documents/{documentId}/download/{artifactName}` | `DocumentResource#download` | Bearer token or `X-Api-Key` | path `documentId*`: string<br>path `artifactName*`: string | None | `200` `application/pdf` string (binary) |
@@ -132,6 +136,8 @@ Required parameters and object properties are marked with `*`.
 | PUT | `/v1/signers/documents/decline-multiple` | `SignerDocumentResource#decline_multiple` | `signer-access-code` query parameter | None | required; `application/json` object { `document_ids*`: Array<string>; `decline_reason*`: string } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<any> } |
 | PUT | `/v1/signers/documents/sign-multiple` | `SignerDocumentResource#sign_multiple` | `signer-access-code` query parameter | None | required; `application/json` object { `document_ids*`: Array<string> } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<any> } |
 | GET | `/v1/signers/self` | `SignerResource#self_data` | `signer-access-code` query parameter | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`SignerSelf`](#signerself) } |
+| GET | `/v1/signers/identity-verification` | `SignerResource#identity_verification` | `signer-access-code` query parameter | None | None | `200` envelope data { `can_start`: boolean; `status`: string or null; `url`: string or null (bearer capture URL, preserve fragment); `expires_at`: date-time or null; `completed_at`: date-time or null } |
+| POST | `/v1/signers/identity-verification` | `SignerResource#start_identity_verification` | `signer-access-code` query parameter | None | required; `application/json` { `consent*`: true } | `200` envelope data { `id`: string; `url`: string (bearer capture URL, preserve fragment); `expires_at`: date-time or null }; `400` unless no session exists or the last session Expired |
 | GET | `/v1/signers/{signerId}/document` | `SignerDocumentResource#current` | `signer-access-code` query parameter | path `signerId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Document`](#document) } |
 | GET | `/v1/signers/{signerId}/documents` | `SignerDocumentResource#list` (signer code); `#list_as_workspace` (Bearer token or `X-Api-Key`) | `signer-access-code` query parameter, or workspace credentials | path `signerId*`: string<br>query `page`: integer<br>query `per-page`: integer | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`Document`](#document)> } |
 | GET | `/v1/signers/{signerId}/documents/search` | `SignerDocumentResource#search` (signer code); `#search_as_workspace` (Bearer token or `X-Api-Key`) | `signer-access-code` query parameter, or workspace credentials | path `signerId*`: string<br>query `search`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`Document`](#document)> } |
@@ -294,7 +300,7 @@ look successful while the connection stays active.
 
 Verification and notification methods are coupled per signer: the omitted side is inferred from the other, and
 when both are omitted both are `Email`. Exactly one notification method is allowed. Allowed pairs: `Email` with
-`Email`, `Whatsapp` with `Whatsapp`, and `DigitalCertificate` with either. `Email` costs 0 credits; `Whatsapp`
+`Email`, `Whatsapp` with `Whatsapp`, and `DigitalCertificate` or `IdDocumentFaceMatchBasic` with either. `Email` costs 0 credits; `Whatsapp`
 costs 0.45 credits (its WhatsApp notification, paid plans only); `DigitalCertificate` costs 0.5 credits per signer
 on top of its notification, shown in cost estimates under the breakdown code `SignatureDigitalCertificate`.
 
@@ -311,10 +317,38 @@ Certificate signers complete the signature in Assinafy's hosted signing flow, re
 `/signers/certificate/complete`), whose authentication and request/response schemas are not part of the OpenAPI
 contract. Once the flow completes, the `pades` artifact returns the qualified signature.
 
+### Biometric identity verification
+
+`IdDocumentFaceMatchBasic` requires its account feature and a valid CPF in the signer's `government_id`.
+It uses government ID photos, a photo holding the ID and liveness, and adds a per-signer fee to the chosen
+Email or Whatsapp notification. Call `estimate_cost` or `estimate_cost_from_template` for the current total.
+Both assignment methods and template generation accept this verification method.
+
+With the signer access code, read `signers.identity_verification`; after the signer explicitly consents to
+biometric processing, call `signers.start_identity_verification(consent: true, signer_access_code: code)`.
+Open the returned capture URL unchanged, including its fragment; it is a bearer link, so keep it out of logs
+and browser storage. The status response backfills pending provider decisions. `can_start` is true only before
+any session or after Expired; Pending, InReview, Approved, Declined and Abandoned cannot restart. A restart
+replaces an Expired session without another charge. Declined or Abandoned requires a new document and assignment.
+
+During InReview the signer may view, confirm data and sign. Certification waits for account approval; once all
+signers sign, the document can be `pending_identity_review`. Read `assignments.identity_review`, download only
+names from its `images` with `identity_review_image`, and submit `decide_identity_review(decision: 'Approved')`
+or `decision: 'Rejected'` while the document is pending_signature or pending_identity_review. Rejection cancels
+the document and notifies signers and copy receivers. Optional `note:` (at most 2000 characters) is recorded in
+activities and sent to the provider; it is never shown to the signer. Images are fetched from the provider,
+available only during InReview, and must not be cached. The review retains summaries, with `evidence_available`
+false when none is retained or fetched. Direct approvals expose evidence through the signer_identity_verified
+activity instead. Observe signer_identity_review_required, signer_identity_review_approved,
+signer_identity_review_rejected, signer_identity_verified and signer_identity_verification_failed events.
+
 ### Webhook endpoints and deliveries
 
 An account can have 1 webhook endpoint, or up to 3 on paid plans; each has a distinct URL, its own events, and its
-own signing setting, and every active endpoint subscribed to an event receives it. `WebhookResource#create_endpoint`
+own signing setting, and every active endpoint subscribed to an event receives it. Creation with
+`signing_enabled: true` returns a `secret` once: store it immediately. OAuth apps cannot read or rotate it later;
+if lost, delete and recreate the endpoint. `#list_endpoints(url: registered_url)` finds an exact URL match and
+`#delete_endpoint_by_url(registered_url)` deletes that endpoint, returning `nil`. `WebhookResource#create_endpoint`
 and `#update_endpoint` accept only `url`, `email`, `events`, `name`, `is_active`, and `signing_enabled`.
 `#register`, `#get`, and `#inactivate` (`/webhooks/subscriptions`, `/webhooks/inactivate`) act on the account's
 oldest endpoint; `#register` accepts only `url`, `email`, `events`, and `is_active`.
@@ -369,7 +403,7 @@ return-value, and usage details.
 | `Assinafy::OAuthError.new`, `.from_response`, `#error`, `#error_description` | Represent an OAuth endpoint failure; subclasses `ApiError`, so existing rescue clauses keep working. | [`errors.rb`](../lib/assinafy/errors.rb) |
 | `Assinafy::OAuth.generate_code_verifier`, `.code_challenge`, `.generate_state`, `.normalize_scope`, `.validate_code_verifier!`, `.authorization_url` | Build the PKCE pair, CSRF state, and authorization URL for the browser half of the OAuth flow. No network request. | [`oauth.rb`](../lib/assinafy/oauth.rb) |
 | `Assinafy::OAuth::AUTHORIZATION_SERVER`, `::AUTHORIZATION_SERVER_METADATA_URL`, `::AUTHORIZATION_ENDPOINT`, `::CODE_CHALLENGE_METHOD`, `::SCOPES` | Published authorization-server endpoints and scopes. | [`oauth.rb`](../lib/assinafy/oauth.rb) |
-| `AssignmentResource::VERIFICATION_METHODS`, `::NOTIFICATION_METHODS` | The signer verification (`Email`, `Whatsapp`, `DigitalCertificate`) and notification (`Email`, `Whatsapp`) enums, validated locally by `build_payload`. | [`assignment_resource.rb`](../lib/assinafy/resources/assignment_resource.rb) |
+| `AssignmentResource::VERIFICATION_METHODS`, `::NOTIFICATION_METHODS` | The signer verification (`Email`, `Whatsapp`, `DigitalCertificate`, `IdDocumentFaceMatchBasic`) and notification (`Email`, `Whatsapp`) enums, validated locally by `build_payload`. | [`assignment_resource.rb`](../lib/assinafy/resources/assignment_resource.rb) |
 | `Assinafy::Utils.handle_assinafy_response`, `.clean_params`, `.query_params`, `.body_params`, `.require_email`, `.require_expiration` | Internal public helpers used by resources for envelope and parameter normalization; applications should prefer resource methods. | [`utils.rb`](../lib/assinafy/utils.rb) |
 | `Assinafy::NullLogger#debug`, `#info`, `#warn`, `#error`, `#fatal`, `#unknown` | Internal no-op logger methods used when no logger is configured. | [`null_logger.rb`](../lib/assinafy/null_logger.rb) |
 | `Assinafy::VERSION` | Published SDK version constant. | [`version.rb`](../lib/assinafy/version.rb) |
@@ -466,6 +500,8 @@ A signer within an assignment: the base Signer plus per-assignment verification/
 | `notified` | boolean | No | Yes | — |
 | `completed` | boolean | No | Yes | Only present in account-owner contexts. |
 | `notification_history` | Array<[`NotificationHistoryEntry`](#notificationhistoryentry)> | No | Yes | Per-channel delivery history for this signer (email + WhatsApp), most-recent send order. |
+| `government_id` | string | No | Yes | Signer's normalized CPF (11 digits) or CNPJ (14 characters; may be alphanumeric). |
+| `identity_verification_status` | string | No | Yes | Latest identity-document verification status; `InReview` means the account must decide it before the document can be certificated. enum: `["Pending", "InReview", "Approved", "Declined", "Expired", "Abandoned"]` |
 
 ### AssignmentSummary
 
@@ -795,6 +831,47 @@ A signing party belonging to a workspace account.
 | `email` | string (email) | No | Yes | — |
 | `whatsapp_phone_number` | string | No | Yes | E.164 format; normalized on save. |
 | `has_accepted_terms` | boolean | No | No | — |
+| `government_id` | string | No | Yes | Signer's normalized CPF (11 digits) or CNPJ (14 characters; may be alphanumeric). |
+
+### SignerIdentityReview
+
+Account review of a biometric identity verification. Images are available only during InReview.
+
+| Property | Type | Required | Nullable | Constraints / description |
+| --- | --- | --- | --- | --- |
+| `id` | string | No | No | — |
+| `status` | string | No | No | — enum: `["Pending", "InReview", "Approved", "Declined", "Expired", "Abandoned"]` |
+| `provider` | string | No | No | — enum: `["AssinafyVerify"]` |
+| `verification_method` | string | No | No | — enum: `["IdDocumentFaceMatchBasic"]` |
+| `reason_codes` | Array<object> | No | No | Why the provider sent it to review, in its order. Unknown codes have the code as description. |
+| `reason_codes[].code` | string | No | No | — |
+| `reason_codes[].description` | string | No | No | — |
+| `evidence_available` | boolean | No | No | — |
+| `expected` | object | No | Yes | What the signer was registered with. |
+| `expected.name` | string | No | Yes | — |
+| `expected.cpf` | string | No | Yes | — |
+| `document` | object | No | Yes | What was read from the document. |
+| `document.type` | string | No | Yes | — |
+| `document.name` | string | No | Yes | — |
+| `document.cpf` | string | No | Yes | — |
+| `matches` | object | No | Yes | — |
+| `matches.cpf` | boolean | No | Yes | — |
+| `matches.name` | number | No | Yes | Name similarity, 0-1. |
+| `matches.birth_date` | boolean | No | Yes | — |
+| `checks` | Array<object> | No | No | — |
+| `checks[].name` | string | No | No | — |
+| `checks[].result` | string | No | No | pass, review, skipped, or a failure result. |
+| `checks[].score` | number | No | Yes | — |
+| `checks[].reasons` | Array<string> | No | No | — |
+| `images` | Array<string> | No | No | The evidence images the reviewer can open with **Signer identity review image**, in display order: `document_front`, `document_back`, `document_pdf`, `face`. Only while `status` is `InReview`; empty once decided. |
+| `ruleset_version` | string | No | Yes | — |
+| `evidence_sha256` | string | No | Yes | — |
+| `reviewed_by` | object | No | Yes | — |
+| `reviewed_by.id` | string | No | No | — |
+| `reviewed_by.name` | string | No | No | — |
+| `reviewed_at` | string (date-time) | No | Yes | — |
+| `review_note` | string | No | Yes | — |
+| `completed_at` | string (date-time) | No | Yes | — |
 
 ### SignerSelf
 
@@ -811,6 +888,8 @@ The current signer, as returned by `GET /v1/signers/self`. Extends Signer with t
 | `has_signature` | boolean | No | No | Whether the signer has a saved signature image stored. |
 | `has_initial` | boolean | No | No | Whether the signer has a saved initials image stored. |
 | `is_signature_reusable` | boolean | No | No | Whether the signer opted to reuse their saved signature/initials in future processes. When false, clients should not pre-render the saved image even if `has_signature`/`has_initial` is true. |
+| `government_id` | string | No | Yes | Signer's normalized CPF (11 digits) or CNPJ (14 characters; may be alphanumeric). |
+| `verification_method` | string | No | No | How this signature request verifies the signer. `Email`/`Whatsapp` ask for the 6-digit code; `IdDocumentFaceMatchBasic` runs the identity document check instead (see **Identity document verification status**). enum: `["Email", "Whatsapp", "DigitalCertificate", "IdDocumentFaceMatchBasic"]` |
 
 ### SigningUrl
 

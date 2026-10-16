@@ -13,6 +13,53 @@ RSpec.describe Assinafy::Resources::SignerResource do
     !request.headers.key?('X-Api-Key') && !request.headers.key?('Authorization')
   end
 
+  describe 'biometric identity verification' do
+    let(:url) { "#{base_url}/signers/identity-verification" }
+
+    it 'reads nullable state using only the signer query credential' do
+      state = { 'can_start' => true, 'status' => nil, 'url' => nil, 'expires_at' => nil, 'completed_at' => nil }
+      stub_request(:get, url).with(query: { 'signer-access-code' => 'code' }) do |request|
+        workspace_auth_absent?(request)
+      end.to_return(api_envelope(state))
+
+      expect(resource.identity_verification(signer_access_code: 'code')).to eq(state)
+    end
+
+    it 'posts explicit consent and preserves the hosted bearer URL including its fragment' do
+      session = { 'id' => 'verification', 'url' => 'https://verify.assinafy.com.br/c/session#t=placeholder',
+                  'expires_at' => nil }
+      stub_request(:post, url)
+        .with(query: { 'signer-access-code' => 'code' }, body: { 'consent' => true }) do |request|
+          workspace_auth_absent?(request)
+        end.to_return(api_envelope(session))
+
+      expect(resource.start_identity_verification(consent: true, signer_access_code: 'code')).to eq(session)
+    end
+
+    it 'rejects missing, false or mistyped consent and invalid signer codes before sending' do
+      [nil, false, 'true', 1].each do |consent|
+        expect { resource.start_identity_verification(consent: consent, signer_access_code: 'code') }
+          .to raise_error(Assinafy::ValidationError, /consent/)
+      end
+      [nil, '', ' ', 123].each do |code|
+        expect { resource.identity_verification(signer_access_code: code) }
+          .to raise_error(Assinafy::ValidationError, /Signer access code/)
+        expect { resource.start_identity_verification(consent: true, signer_access_code: code) }
+          .to raise_error(Assinafy::ValidationError, /Signer access code/)
+      end
+    end
+
+    it 'surfaces an existing live session without retrying or replacing it' do
+      stub_request(:post, url).with(query: { 'signer-access-code' => 'code' })
+                              .to_return(json_response({ 'status' => 400, 'message' => 'Session already exists' },
+                                                       status: 400))
+
+      expect { resource.start_identity_verification(consent: true, signer_access_code: 'code') }
+        .to raise_error(Assinafy::ApiError) { |error| expect(error.status_code).to eq(400) }
+      expect(a_request(:post, url).with(query: { 'signer-access-code' => 'code' })).to have_been_made.once
+    end
+  end
+
   describe '#update' do
     it 'raises when signer ID is empty' do
       expect { resource.update('', { full_name: 'Test' }) }.to raise_error(Assinafy::ValidationError)

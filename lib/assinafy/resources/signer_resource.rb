@@ -149,7 +149,7 @@ module Assinafy
       # @option payload [String] :email
       # @option payload [String] :whatsapp_phone_number E.164; normalized on save
       # @option payload [String] :phone alias for `:whatsapp_phone_number`
-      # @option payload [String] :government_id CPF/CNPJ; digits only on save
+      # @option payload [String] :government_id CPF (digits) or CNPJ (may be alphanumeric); normalized on save
       # @param account_id_override [String, nil]
       # @return [Hash] updated signer object (envelope `data` unwrapped)
       # @raise [Assinafy::ApiError] on an unsuccessful API response
@@ -270,6 +270,60 @@ module Assinafy
 
         call('Failed to fetch signer self') do
           http_get('signers/self', { signer_access_code: code }, workspace_auth: false)
+        end
+      end
+
+      # Read the signer's biometric verification state. Only an absent or Expired
+      # session can start again. InReview permits signing while account review
+      # holds certification; Declined or Abandoned needs a new document and assignment.
+      #
+      # @param signer_access_code [String]
+      # @return [Hash] can_start, status, url, expires_at and completed_at (nullable except can_start)
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on a missing or invalid access code
+      # @see GET /signers/identity-verification
+      # @example Read state with signer-only authentication
+      #   client.signers.identity_verification(signer_access_code: 'signer-access-code')
+      #   # GET /signers/identity-verification?signer-access-code=signer-access-code (no body)
+      #   # => { 'can_start' => false, 'status' => 'Pending',
+      #   #      'url' => 'https://verify.assinafy.com.br/c/session-id#t=token-placeholder',
+      #   #      'expires_at' => '2026-10-16T13:00:00Z', 'completed_at' => nil }
+      #   # The URL is a bearer link: open it intact, including its fragment; never log or cache it.
+      def identity_verification(signer_access_code:)
+        code = require_signer_access_code(signer_access_code)
+
+        call('Failed to fetch signer identity verification') do
+          http_get('signers/identity-verification', { signer_access_code: code }, workspace_auth: false)
+        end
+      end
+
+      # Record explicit biometric-processing consent and open the hosted verification
+      # session. Restart is allowed only after Expired; it incurs no additional fee.
+      #
+      # @param consent [Boolean] must be true, supplied explicitly by the signer
+      # @param signer_access_code [String]
+      # @return [Hash] id, hosted capture url and nullable expires_at
+      # @raise [Assinafy::ApiError] on failure; 400 when a session already exists and is not Expired
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] on missing consent or an invalid access code
+      # @see POST /signers/identity-verification
+      # @example Start with signer-only authentication after collecting consent
+      #   client.signers.start_identity_verification(consent: true, signer_access_code: 'signer-access-code')
+      #   # POST /signers/identity-verification?signer-access-code=signer-access-code
+      #   # Body: { 'consent' => true }
+      #   # => { 'id' => 'verification-id',
+      #   #      'url' => 'https://verify.assinafy.com.br/c/session-id#t=token-placeholder',
+      #   #      'expires_at' => '2026-10-16T13:00:00Z' }
+      #   # Redirect to url unchanged, including its fragment; never log or cache the bearer link.
+      def start_identity_verification(consent:, signer_access_code:)
+        raise ValidationError.new('Biometric processing requires explicit consent: true') unless consent == true
+
+        code = require_signer_access_code(signer_access_code)
+
+        call('Failed to start signer identity verification') do
+          http_post('signers/identity-verification', body_params(consent: consent),
+                    { signer_access_code: code }, workspace_auth: false)
         end
       end
 
