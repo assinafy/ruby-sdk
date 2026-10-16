@@ -2,7 +2,7 @@
 
 All notable changes to the `assinafy` Ruby gem are documented here.
 
-## [1.12.0] - 2026-10-16
+## [2.0.0] - 2026-10-16
 
 ### Added
 
