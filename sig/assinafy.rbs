@@ -336,6 +336,7 @@ module Assinafy
       METHODS: Array[String]
       VERIFICATION_METHODS: Array[String]
       NOTIFICATION_METHODS: Array[String]
+      DIGITAL_CERTIFICATE_REQUIRES_VIRTUAL: String
       SIGN_ITEM_KEY_MAP: Hash[String, String]
       IDENTITY_REVIEW_IMAGES: Array[String]
 

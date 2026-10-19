@@ -308,9 +308,15 @@ on top of its notification, shown in cost estimates under the breakdown code `Si
 
 `DigitalCertificate` has the signer sign with their own ICP-Brasil certificate (A1 or A3) through the Web PKI
 browser extension, producing a qualified PAdES signature. It requires the Digital Certificate account feature, a
-CPF or CNPJ in the signer's `government_id` (accepted by both `SignerResource#create` and `#update`), and that the
-signer is alone in its signing step. A CPF requires that person's certificate (an e-CPF, or an e-CNPJ naming them
-as legal representative); a CNPJ requires an e-CNPJ for that company, from any of its representatives.
+CPF or CNPJ in the signer's `government_id` (accepted by both `SignerResource#create` and `#update`), a
+`method: 'virtual'` assignment, and that the signer is alone in its signing step. `AssignmentResource#create` and
+`#estimate_cost` reject any other assignment method with `ValidationError`; its stable
+`errors[:code]` is `digital_certificate_requires_virtual`. A CPF requires that person's certificate (an e-CPF, or
+an e-CNPJ naming them as legal representative); a CNPJ requires an e-CNPJ for that company, from any of its
+representatives.
+
+A template with positioned signer fields creates a collect assignment, so it cannot be used with a
+`DigitalCertificate` signer. Use a template without positioned signer fields for certificate signing.
 
 Certificate signers complete the signature in Assinafy's hosted signing flow, reached through the assignment's
 `signing_urls`. The SDK does not wrap the two-step Web PKI handshake (`/signers/certificate/start`,

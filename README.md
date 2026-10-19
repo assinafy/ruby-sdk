@@ -531,9 +531,12 @@ dois, ambos assumem `Email`.
 ### Certificado digital ICP-Brasil (A1/A3)
 
 Exige o recurso **Certificado Digital** na conta (planos Standard e Pro), CPF ou CNPJ em
-`government_id` do signatário, e que cada signatário por certificado esteja **sozinho no seu
-passo**. Um CPF exige o certificado daquela pessoa (e-CPF, ou e-CNPJ que a nomeie como
-representante legal); um CNPJ exige um e-CNPJ da empresa, de qualquer um de seus representantes.
+`government_id` do signatário, assignment com `method: 'virtual'` e que cada signatário por certificado esteja
+**sozinho no seu passo**. Um assignment `collect`, inclusive quando inferido de um template com campos de
+signatário posicionados, não aceita certificado digital. A criação e a estimativa diretas levantam
+`ValidationError` com o código estável `digital_certificate_requires_virtual`. Um CPF exige o certificado daquela
+pessoa (e-CPF, ou e-CNPJ que a nomeie como representante legal); um CNPJ exige um e-CNPJ da empresa, de qualquer
+um de seus representantes.
 
 ---
 

@@ -11,6 +11,7 @@ module Assinafy
     class AssignmentResource < BaseResource
       OPTIONAL_FIELDS   = %i[message expires_at copy_receivers].freeze
       METHODS           = %w[virtual collect].freeze
+      DIGITAL_CERTIFICATE_REQUIRES_VIRTUAL = 'digital_certificate_requires_virtual'
 
       # How a signer's identity is verified before they may sign, set per signer
       # on the assignment. When omitted it is inferred from
@@ -24,7 +25,7 @@ module Assinafy
       #   certificate (A1 or A3), producing a qualified PAdES signature.
       #   Requires the Digital Certificate feature, a CPF or CNPJ in the
       #   signer's `government_id`, and that the signer is alone in its signing
-      #   step. Charged 0.5 credits per signer on top of its notification
+      #   step on a virtual assignment. Charged 0.5 credits per signer on top of its notification
       #   (breakdown code `SignatureDigitalCertificate`). A CPF requires that person's
       #   certificate (an e-CPF, or an e-CNPJ naming them as legal
       #   representative); a CNPJ requires an e-CNPJ for that company, from any
@@ -124,6 +125,7 @@ module Assinafy
 
           result = { method: method }
           normalised = signers.map { |ref| normalise_signer_ref(ref, options) }
+          validate_certificate_method!(method, normalised)
           validate_signing_steps!(normalised)
           result[:signers] = normalised unless normalised.empty?
           OPTIONAL_FIELDS.each { |key| result[key] = p[key] if p[key] }
@@ -252,6 +254,16 @@ module Assinafy
           return if verification == notification
 
           raise ValidationError.new('notification_methods must match the verification_method')
+        end
+
+        def validate_certificate_method!(method, signers)
+          return if method == 'virtual'
+          return unless signers.any? { |signer| signer[:verification_method] == 'DigitalCertificate' }
+
+          raise ValidationError.new(
+            'DigitalCertificate signers require method: virtual',
+            { code: DIGITAL_CERTIFICATE_REQUIRES_VIRTUAL, method: method }
+          )
         end
 
         def validate_signing_steps!(signers)

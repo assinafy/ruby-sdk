@@ -394,9 +394,11 @@ the missing side is inferred from the other, and when both are omitted both defa
 - The certificate charge appears in the cost breakdown under the code `SignatureDigitalCertificate`. Resending a
   notification charges the notification again.
 - `DigitalCertificate` needs the Digital Certificate account feature (Standard and Pro plans), a CPF or CNPJ in the
-  signer's `government_id`, and the signer alone in its signing step. A CPF requires that person's certificate (an
-  e-CPF, or an e-CNPJ naming them as legal representative); a CNPJ requires an e-CNPJ for that company, from any of
-  its representatives.
+  signer's `government_id`, a `method: 'virtual'` assignment, and the signer alone in its signing step. A collect
+  assignment, including one inferred from a template with positioned signer fields, cannot use certificate
+  signing. Direct assignment creation and estimation reject it with `ValidationError` code
+  `digital_certificate_requires_virtual`. A CPF requires that person's certificate (an e-CPF, or an e-CNPJ naming
+  them as legal representative); a CNPJ requires an e-CNPJ for that company, from any of its representatives.
 - `AssignmentResource::VERIFICATION_METHODS` and `::NOTIFICATION_METHODS` publish the enums. `build_payload`
   validates values, pairings, and `step` locally, so a typo fails before the request is sent.
 
@@ -433,10 +435,11 @@ assignment = client.assignments.create(
 assignment['signing_urls'] # => [{ 'signer_id' => 'signer-id', 'url' => 'https://.../sign/...' }, ...]
 ```
 
-`virtual` has no positioned fields; `collect` adds `entries` of positioned fields (see
-[Assignments](#assignments)). Both require a non-empty `signers` array. Steps are all-or-none, positive, and
-contiguous from 1; equal steps sign in parallel, and each step is notified when the previous one finishes. A
-certificate signer is alone in its step. Deadlines are zoned ISO 8601 and at least one hour ahead.
+`virtual` has no positioned fields and is required for `DigitalCertificate`; `collect` adds `entries` of
+positioned fields (see [Assignments](#assignments)). Both require a non-empty `signers` array. Steps are
+all-or-none, positive, and contiguous from 1; equal steps sign in parallel, and each step is notified when the
+previous one finishes. A certificate signer is alone in its step. Deadlines are zoned ISO 8601 and at least one
+hour ahead.
 
 For a template, bind one distinct existing signer to each role and create the document and assignment together:
 

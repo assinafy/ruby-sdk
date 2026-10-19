@@ -230,6 +230,25 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
           .with(body: { 'method' => 'virtual', 'signers' => [{ 'id' => 's1' }, { 'id' => 's2' }] })
       ).to have_been_made
     end
+
+    it 'rejects a DigitalCertificate signer on a collect assignment before sending' do
+      resource = described_class.new(connection, 'acc')
+
+      expect do
+        resource.create(
+          'doc-1',
+          method:  'collect',
+          signers: [{ id: 's1', verification_method: 'DigitalCertificate' }],
+          entries: [{ page_id: 'p1', fields: [] }]
+        )
+      end.to raise_error(Assinafy::ValidationError) { |error|
+        expect(error.errors).to include(
+          code:   described_class::DIGITAL_CERTIFICATE_REQUIRES_VIRTUAL,
+          method: 'collect'
+        )
+      }
+      expect(a_request(:post, "#{base_url}/documents/doc-1/assignments")).not_to have_been_made
+    end
   end
 
   describe '#resend_notification' do
@@ -341,6 +360,23 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
         a_request(:post, "#{base_url}/documents/doc-1/assignments/estimate-cost")
           .with(body: { 'method' => 'virtual', 'signers' => [{ 'verification_method' => 'Whatsapp' }] })
       ).to have_been_made
+    end
+
+    it 'rejects pricing a DigitalCertificate signer on a collect assignment before sending' do
+      resource = described_class.new(connection, 'acc')
+
+      expect do
+        resource.estimate_cost(
+          'doc-1',
+          method: 'collect', signers: [{ verification_method: 'DigitalCertificate' }]
+        )
+      end.to raise_error(Assinafy::ValidationError) { |error|
+        expect(error.errors).to include(
+          code:   described_class::DIGITAL_CERTIFICATE_REQUIRES_VIRTUAL,
+          method: 'collect'
+        )
+      }
+      expect(a_request(:post, "#{base_url}/documents/doc-1/assignments/estimate-cost")).not_to have_been_made
     end
   end
 

@@ -2,6 +2,14 @@
 
 All notable changes to the `assinafy` Ruby gem are documented here.
 
+## [2.0.1] - 2026-10-19
+
+### Fixed
+
+- Assignment creation and cost estimation reject `DigitalCertificate` signers unless the assignment method is
+  `virtual`, before an unsignable collect assignment can invite the signer or consume credits. The local
+  `ValidationError` exposes the stable code `digital_certificate_requires_virtual` in `errors[:code]`.
+
 ## [2.0.0] - 2026-10-16
 
 ### Added
