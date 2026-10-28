@@ -966,6 +966,38 @@ verificacao['agreement_code']  # código impresso no certificado do documento
 Ela devolve o resultado da Assinafy; não valida independentemente a assinatura do PDF nem a
 cadeia de certificação.
 
+### Acompanhar o contrato
+
+Quando o plano da conta inclui acompanhamento de contratos, registre os termos no documento e
+use o `updated_at` devolvido pela API como precondição para evitar sobrescrever uma alteração
+concorrente:
+
+```ruby
+contrato = client.contracts.update(
+  documento['id'],
+  status: 'active',
+  counterparty_name: 'Empresa Exemplo Ltda',
+  value: 120_000,
+  currency: 'BRL',
+  start_date: '2026-11-01',
+  end_date: '2027-10-31',
+  auto_renew: true,
+  renewal_term_months: 12,
+  notice_period_days: 30
+)
+
+client.contracts.get(documento['id'])
+client.contracts.list(status: ['active'], ending_within_days: 30)
+client.contracts.related(documento['id'])
+client.contracts.renew(documento['id'], term: contrato['term'], updated_at: contrato['updated_at'])
+client.contracts.terminate(documento['id'], reason: 'Encerrado pelas partes')
+```
+
+`update` é parcial e preserva `nil` como JSON `null` para limpar campos. Um documento de aditivo
+pode ser ligado com `parent_document_id` e `relation_type`. As leituras usam o escopo OAuth
+`documents:read`; alterações usam `documents:write` e exigem que o plano tenha acompanhamento de
+contratos. `get` e `related` devolvem `nil` quando o documento não tem termos acompanhados.
+
 ---
 
 ## 12. Organizar e limpar
@@ -1072,6 +1104,7 @@ end
 | `client.accounts` | workspaces, tema, KPIs, logo |
 | `client.users` | perfil próprio, KPIs, preferências de notificação |
 | `client.documents` | upload, listagem, download, ciclo de vida, tags, verificação |
+| `client.contracts` | termos, aditivos, renovações e encerramentos de contratos |
 | `client.signers` | CRUD de signatários e todo o autoatendimento do signatário |
 | `client.signer_documents` | documentos do signatário, assinar/recusar em lote |
 | `client.assignments` | pedidos de assinatura, custos, reenvios, assinatura, recusa |

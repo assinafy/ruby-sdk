@@ -157,6 +157,20 @@ RSpec.describe Assinafy::Client, type: :coverage_matrix do
       ['DELETE', '/accounts/{account_id}/documents/{document_id}/tags/{tag_id}',
        'DocumentResource#detach_tag'],
 
+      # Contract tracking
+      ['GET',    '/accounts/{account_id}/contracts',
+       'ContractResource#list'],
+      ['GET',    '/accounts/{account_id}/documents/{document_id}/contract',
+       'ContractResource#get'],
+      ['PUT',    '/accounts/{account_id}/documents/{document_id}/contract',
+       'ContractResource#update'],
+      ['GET',    '/accounts/{account_id}/documents/{document_id}/contract/related',
+       'ContractResource#related'],
+      ['POST',   '/accounts/{account_id}/documents/{document_id}/contract/renew',
+       'ContractResource#renew'],
+      ['POST',   '/accounts/{account_id}/documents/{document_id}/contract/terminate',
+       'ContractResource#terminate'],
+
       # Templates
       ['GET',    '/accounts/{account_id}/templates',
        'TemplateResource#list'],

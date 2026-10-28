@@ -40,6 +40,8 @@ module Assinafy
       #     },
       #     'is_closed' => false,
       #     'signing_url' => 'https://app-sandbox.assinafy.com.br/sign/document-id',
+      #     'verification_code' => nil,
+      #     'verification_url' => nil,
       #     'decline_reason' => nil,
       #     'declined_by' => nil,
       #     'tags' => [],
@@ -233,6 +235,7 @@ module Assinafy
       #     'declined_by' => nil,
       #     'tags' => [],
       #     'assignment' => nil,
+      #     'has_contract' => false,
       #     'pages' => [
       #       { 'id' => 'page-id', 'number' => 1, 'height' => 1651,
       #         'width' => 1275, 'download_url' => 'https://sandbox.assinafy.com.br/v1/documents/.../download' }

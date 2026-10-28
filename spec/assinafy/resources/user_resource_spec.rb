@@ -53,6 +53,10 @@ RSpec.describe Assinafy::Resources::UserResource do
         DocumentProcessingFailed
         TemplateProcessingFailed
         SignerWhatsappFailed
+        ContractRenewalNotice
+        ContractExpiring
+        ContractExpired
+        ContractRenewed
       ]
     end
 
@@ -60,7 +64,7 @@ RSpec.describe Assinafy::Resources::UserResource do
       preference_codes.to_h { |code| [code, true] }
     end
 
-    it 'pins the nine documented codes independently of the implementation constant' do
+    it 'pins the thirteen documented codes independently of the implementation constant' do
       expect(described_class::NOTIFICATION_PREFERENCE_CODES).to eq(preference_codes)
     end
 
@@ -78,6 +82,15 @@ RSpec.describe Assinafy::Resources::UserResource do
 
       result = resource.update_notification_preferences(SignerDeclined: false)
       expect(result['SignerDeclined']).to be(false)
+    end
+
+    it 'accepts contract lifecycle preferences' do
+      stub_request(:put, "#{base_url}/users/self/notification-preferences")
+        .with(body: { 'ContractRenewalNotice' => false })
+        .to_return(api_envelope(preferences.merge('ContractRenewalNotice' => false)))
+
+      result = resource.update_notification_preferences(ContractRenewalNotice: false)
+      expect(result['ContractRenewalNotice']).to be(false)
     end
 
     it 'rejects empty, unknown, and non-boolean values before requesting' do

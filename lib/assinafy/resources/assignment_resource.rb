@@ -303,6 +303,8 @@ module Assinafy
       #     data: [
       #       {
       #         'id' => 'assignment-id',
+      #         'document_id' => 'document-id',
+      #         'created_at' => '2026-06-05T21:21:19Z',
       #         'sender_email' => 'sender@example.com',
       #         'method' => 'virtual',
       #         'expires_at' => nil,
@@ -342,6 +344,7 @@ module Assinafy
       #   #   "message" => "Please sign" }
       #   # => {
       #   #   "resource" => "assignment", "id" => "assignment-id",
+      #   #   "document_id" => "document-id", "created_at" => "2026-06-05T21:21:19Z",
       #   #   "sender_email" => "sender@example.com", "method" => "virtual",
       #   #   "expires_at" => nil, "message" => "Please sign",
       #   #   "signers" => [{ "id" => "signer-id", "full_name" => "Example Signer",
@@ -475,9 +478,7 @@ module Assinafy
       # @param document_id   [String]
       # @param assignment_id [String]
       # @param signer_id     [String]
-      # @return [Hash] cost breakdown (documents, credits, needs_extra_document, extra_document_cost,
-      #   total_credits, breakdown[], document_balance, credit_balance, has_sufficient_resources,
-      #   blocking_reason, message)
+      # @return [Hash] resend cost (`total`, `breakdown`, `credit_balance`, `has_sufficient_credits`)
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure
       # @raise [Assinafy::ValidationError] on invalid required input
@@ -486,13 +487,11 @@ module Assinafy
       #   resource.estimate_resend_cost("document-id", "assignment-id", "signer-id")
       #   # (no request body)
       #   # => {
-      #   #   "documents" => 1, "credits" => 0.45, "needs_extra_document" => false,
-      #   #   "extra_document_cost" => 0, "total_credits" => 0.45,
-      #   #   "breakdown" => [{ "code" => "NotificationWhatsapp",
-      #   #                     "name" => "Whatsapp Notification", "cost" => 0.45,
-      #   #                     "quantity" => 1, "unit_cost" => 0.45 }],
-      #   #   "document_balance" => 10, "credit_balance" => 100,
-      #   #   "has_sufficient_resources" => true, "blocking_reason" => nil, "message" => nil
+      #   #   "total" => 0.45,
+      #   #   "breakdown" => [{ "code" => "NotificationWhatsappResend",
+      #   #                     "name" => "Whatsapp Notification Resend", "cost" => 0.45 }],
+      #   #   "credit_balance" => 100,
+      #   #   "has_sufficient_credits" => true
       #   # }
       def estimate_resend_cost(document_id, assignment_id, signer_id)
         doc_id = require_id(document_id, 'Document ID')

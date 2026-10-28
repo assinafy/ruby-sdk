@@ -1,7 +1,7 @@
 # Assinafy Ruby SDK API Reference
 
-> Contract source: Assinafy API v1 OpenAPI 3.1.0, retrieved 2026-10-16 from
-> `https://api.assinafy.com.br/v1/docs/openapi.json` (85 paths, 112 operations, 45 schemas).
+> Contract source: Assinafy API v1 OpenAPI 3.1.0, retrieved 2026-10-28 from
+> `https://api.assinafy.com.br/v1/docs/openapi.json` (90 paths, 118 operations, 49 schemas).
 > `scripts/check_api_contract.rb` validates contract compatibility weekly.
 
 This is the SDK-facing contract reference. Paths below are wire paths; Ruby methods return the unwrapped
@@ -50,6 +50,12 @@ Required parameters and object properties are marked with `*`.
 | GET | `/v1/accounts/{accountId}` | `AccountResource#get` | Bearer token or `X-Api-Key` | path `accountId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Account`](#account) } |
 | PUT | `/v1/accounts/{accountId}` | `AccountResource#update` | Bearer token or `X-Api-Key` | path `accountId*`: string | required; `application/json` object { `name`: string; `notification_sender_type`: string } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Account`](#account) } |
 | DELETE | `/v1/accounts/{accountId}` | `AccountResource#delete` | Bearer token or `X-Api-Key` | path `accountId*`: string | optional; `application/json` object { `force`: boolean } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<any> } |
+| GET | `/v1/accounts/{accountId}/contracts` | `ContractResource#list` | Bearer token or `X-Api-Key`; OAuth `documents:read` | path `accountId*`: string<br>query `status`: comma-separated array of `draft`, `active`, `expired`, `terminated`<br>query `counterparty`, `search`, `end_date_from`, `end_date_to`, `ending_within_days`, `external_system`, `external_id`, `sort`, `expand`, `page`, `per-page` | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`DocumentContract`](#documentcontract)> }; pagination headers become `{ data:, meta: }` |
+| GET | `/v1/accounts/{accountId}/documents/{documentId}/contract` | `ContractResource#get` | Bearer token or `X-Api-Key`; OAuth `documents:read` | path `accountId*`: string<br>path `documentId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`DocumentContract`](#documentcontract) or [`DocumentContractAmendment`](#documentcontractamendment) }; SDK returns `nil` on `404` |
+| PUT | `/v1/accounts/{accountId}/documents/{documentId}/contract` | `ContractResource#update` | Bearer token or `X-Api-Key`; OAuth `documents:write` | path `accountId*`: string<br>path `documentId*`: string | required non-empty [`DocumentContractInput`](#documentcontractinput); explicit `nil` is sent as JSON null | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`DocumentContract`](#documentcontract) or [`DocumentContractAmendment`](#documentcontractamendment) }; `403` without contract tracking, `409` on stale `updated_at` |
+| GET | `/v1/accounts/{accountId}/documents/{documentId}/contract/related` | `ContractResource#related` | Bearer token or `X-Api-Key`; OAuth `documents:read` | path `accountId*`: string<br>path `documentId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: root [`DocumentContract`](#documentcontract) with `amendments` }; SDK returns `nil` on `404` |
+| POST | `/v1/accounts/{accountId}/documents/{documentId}/contract/renew` | `ContractResource#renew` | Bearer token or `X-Api-Key`; OAuth `documents:write` | path `accountId*`: string<br>path `documentId*`: string | optional; `application/json` object { `end_date`: string (date, nullable); `value`: number (nullable); `term`: integer; `updated_at`: string (date-time) }; a valid request requires `term` or `end_date` | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`DocumentContract`](#documentcontract) }; `403` without contract tracking, `409` on stale `updated_at` |
+| POST | `/v1/accounts/{accountId}/documents/{documentId}/contract/terminate` | `ContractResource#terminate` | Bearer token or `X-Api-Key`; OAuth `documents:write` | path `accountId*`: string<br>path `documentId*`: string | optional; `application/json` object { `reason`: string (nullable, max 500); `updated_at`: string (date-time) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`DocumentContract`](#documentcontract) }; `403` without contract tracking, `409` on stale `updated_at` |
 | GET | `/v1/accounts/{accountId}/documents` | `DocumentResource#list` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>query `status`: string<br>query `method`: string<br>query `search`: string<br>query `tags`: string<br>query `sort`: string<br>query `page`: integer<br>query `per-page`: integer | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`Document`](#document)> } |
 | POST | `/v1/accounts/{accountId}/documents` | `DocumentResource#upload` | Bearer token or `X-Api-Key` | path `accountId*`: string | required; `multipart/form-data` object { `file*`: string (binary) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Document`](#document) } |
 | GET | `/v1/accounts/{accountId}/documents/search` | `DocumentResource#search` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>query `search`: string<br>query `status`: string<br>query `page`: integer<br>query `per-page`: integer | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`Document`](#document)> } |
@@ -111,7 +117,7 @@ Required parameters and object properties are marked with `*`.
 | POST | `/v1/documents/{documentId}/assignments/{assignmentId}` | `AssignmentResource#sign` | `signer-access-code` query parameter | path `documentId*`: string<br>path `assignmentId*`: string | required; `application/json` Array<object { `itemId*`: string; `fieldId*`: string; `pageId*`: string; `value*`: string }> | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object } |
 | PUT | `/v1/documents/{documentId}/assignments/{assignmentId}/reject` | `AssignmentResource#decline` | `signer-access-code` query parameter | path `documentId*`: string<br>path `assignmentId*`: string | required; `application/json` object { `decline_reason*`: string } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<any> } |
 | PUT | `/v1/documents/{documentId}/assignments/{assignmentId}/reset-expiration` | `AssignmentResource#reset_expiration` | Bearer token or `X-Api-Key` | path `documentId*`: string<br>path `assignmentId*`: string | required; `application/json` object { `expires_at*`: string (date-time) or `null` to clear } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Assignment`](#assignment) } |
-| POST | `/v1/documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/estimate-resend-cost` | `AssignmentResource#estimate_resend_cost` | Bearer token or `X-Api-Key` | path `documentId*`: string<br>path `assignmentId*`: string<br>path `signerId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`CostEstimate`](#costestimate) } |
+| POST | `/v1/documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/estimate-resend-cost` | `AssignmentResource#estimate_resend_cost` | Bearer token or `X-Api-Key` | path `documentId*`: string<br>path `assignmentId*`: string<br>path `signerId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`ResendCostEstimate`](#resendcostestimate) } |
 | GET | `/v1/documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/identity-verification` | `AssignmentResource#identity_review` | Bearer token or `X-Api-Key` | path `documentId*`, `assignmentId*`, `signerId*`: string | None | `200` envelope data [`SignerIdentityReview`](#signeridentityreview); `404` when no verification exists |
 | GET | `/v1/documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/identity-verification/images/{name}` | `AssignmentResource#identity_review_image` | Bearer token or `X-Api-Key` | path `documentId*`, `assignmentId*`, `signerId*`: string; `name*`: enum `document_front`, `document_back`, `document_pdf`, `face` | None | `200` binary `image/jpeg`, `image/png` or `application/pdf`, `Cache-Control: no-store`; `404` unless evidence exists and review is InReview |
 | POST | `/v1/documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/identity-verification/review` | `AssignmentResource#decide_identity_review` | Bearer token or `X-Api-Key` | path `documentId*`, `assignmentId*`, `signerId*`: string | required; `application/json` { `decision*`: enum `Approved`, `Rejected`; `note`: string or null (max 2000 characters) } | `200` envelope data [`SignerIdentityReview`](#signeridentityreview); `400` unless InReview and document is pending_signature or pending_identity_review |
@@ -151,8 +157,8 @@ Required parameters and object properties are marked with `*`.
 | PUT | `/v1/users/self/mfa/totp/confirm` | `AuthResource#confirm_totp_enrollment` | Bearer token or `X-Api-Key` | None | required; `application/json` object { `id*`: string (SDK `method_id:`); `code*`: string; `password`: string (password); `reauth_code`: string } — `password` or `reauth_code` only when replacing a confirmed method | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `recovery_codes`: Array<string> (shown once) } } |
 | POST | `/v1/users/self/mfa/recovery-codes` | `AuthResource#regenerate_recovery_codes` | Bearer token or `X-Api-Key` | None | required; `application/json` object { `password`: string (password); `code`: string } — one of the two is required (checked locally) | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `recovery_codes`: Array<string> } } |
 | DELETE | `/v1/users/self/mfa/{customId}` | `AuthResource#delete_mfa_method` | Bearer token or `X-Api-Key` | path `customId*`: string | required; `application/json` object { `password`: string (password); `code`: string } — one of the two is required (checked locally) | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `is_mfa_enabled`: boolean } } |
-| GET | `/v1/users/self/notification-preferences` | `UserResource#notification_preferences` | Bearer token or `X-Api-Key` | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`NotificationPreferences`](#notificationpreferences) } |
-| PUT | `/v1/users/self/notification-preferences` | `UserResource#update_notification_preferences` | Bearer token or `X-Api-Key` | None | required; `application/json` [`NotificationPreferences`](#notificationpreferences) | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`NotificationPreferences`](#notificationpreferences) } |
+| GET | `/v1/users/self/notification-preferences` | `UserResource#notification_preferences` | User bearer token or `X-Api-Key`; unavailable to third-party OAuth apps | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`NotificationPreferences`](#notificationpreferences) } |
+| PUT | `/v1/users/self/notification-preferences` | `UserResource#update_notification_preferences` | User bearer token or `X-Api-Key`; unavailable to third-party OAuth apps | None | required; `application/json` [`NotificationPreferences`](#notificationpreferences) | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`NotificationPreferences`](#notificationpreferences) } |
 | GET | `/v1/users/self/stats` | `UserResource#stats` | Bearer token or `X-Api-Key` | query `granularity`: string<br>query `month`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`DocumentStatsRow`](#documentstatsrow)> } |
 | POST | `/v1/verify` | `SignerResource#verify_email` | `signer-access-code` query parameter | None | required; `application/json` object { `verification-code*`: string } | `200` `application/json` [`Envelope`](#envelope) |
 | GET | `/v1/webhooks/event-types` | `WebhookResource#list_event_types` | Bearer token or `X-Api-Key` | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`WebhookEventType`](#webhookeventtype)> } |
@@ -248,6 +254,21 @@ locally together with the `.pdf` extension and `%PDF-` header.
 `DocumentResource#list` accepts `tags` as a comma-separated String or an Array of tag IDs, which the SDK joins
 with commas; matching documents carry every listed tag. `DocumentResource#replace_tags` and `#append_tags` accept
 arrays of tag IDs. Use a tag ID with `DocumentResource#detach_tag`.
+
+### Contract tracking
+
+Contract terms belong to an existing document; setting terms never uploads, sends, or signs the document.
+`ContractResource#update` creates or partially changes the terms. Explicit `nil` values remain JSON null so they
+clear nullable fields. To record a signed amendment, renewal, or termination instrument, upload that document and
+set its `parent_document_id`, `relation_type`, and changed terms; the delta applies after the instrument is
+certificated. `#get` reads the terms or an instrument, and `#related` always reads the root family.
+
+The hourly lifecycle moves active contracts through notice, expiry, and automatic renewal. `#renew` starts the
+next term immediately; sending the current `term` makes a lost-response retry safe. `#terminate` closes the
+contract and records its optional reason. Writers can send the `updated_at` they read as an optimistic-lock
+precondition; the API refuses a stale write with `409`. Reads remain available without the contract-tracking
+plan, while writes answer `403` when the plan lacks the feature. OAuth reads require `documents:read`, and writes
+require `documents:write`.
 
 ### KPI statistics
 
@@ -357,7 +378,9 @@ if lost, delete and recreate the endpoint. `#list_endpoints(url: registered_url)
 `#delete_endpoint_by_url(registered_url)` deletes that endpoint, returning `nil`. `WebhookResource#create_endpoint`
 and `#update_endpoint` accept only `url`, `email`, `events`, `name`, `is_active`, and `signing_enabled`.
 `#register`, `#get`, and `#inactivate` (`/webhooks/subscriptions`, `/webhooks/inactivate`) act on the account's
-oldest endpoint; `#register` accepts only `url`, `email`, `events`, and `is_active`.
+oldest endpoint; `#register` accepts only `url`, `email`, `events`, and `is_active`. New or changed endpoint URLs
+must be absolute HTTPS URLs; the SDK rejects other schemes locally, while the API also refuses private, loopback,
+link-local, and other reserved destination addresses.
 
 Each delivery is a JSON `POST` carrying `webhook-id` (stable across attempts of one event to one endpoint; use it to
 deduplicate), `webhook-timestamp` (Unix seconds), and, when signing is enabled, `webhook-signature`. Any `2xx` is
@@ -385,7 +408,7 @@ return-value, and usage details.
 | `Assinafy::Client.from_config`, `.from_hash` | Construct a client from string- or symbol-keyed configuration. | [`client.rb`](../lib/assinafy/client.rb) |
 | `Client#faraday_connection` | Return the configured Faraday connection for advanced integration. | [`client.rb`](../lib/assinafy/client.rb) |
 | `Client#upload_and_request_signatures` | Upload, optionally wait, create signers, and create a virtual assignment. | [`client.rb`](../lib/assinafy/client.rb) |
-| `Client#auth`, `#oauth`, `#accounts`, `#users`, `#documents`, `#signers`, `#signer_documents`, `#assignments`, `#webhooks`, `#templates`, `#fields`, `#tags`, `#webhook_verifier` | Return the client's resource and helper instances. | [`client.rb`](../lib/assinafy/client.rb) |
+| `Client#auth`, `#oauth`, `#accounts`, `#users`, `#documents`, `#contracts`, `#signers`, `#signer_documents`, `#assignments`, `#webhooks`, `#templates`, `#fields`, `#tags`, `#webhook_verifier` | Return the client's resource and helper instances. | [`client.rb`](../lib/assinafy/client.rb) |
 | `Assinafy::Configuration.new`, `.from_hash` | Build configuration directly or from string/symbol keys. | [`configuration.rb`](../lib/assinafy/configuration.rb) |
 | `Configuration#auth_headers` | Return the selected API-key, bearer, or empty authentication header set. | [`configuration.rb`](../lib/assinafy/configuration.rb) |
 | Configuration readers/writers: `api_key`, `token`, `account_id`, `base_url`, `webhook_secret`, `timeout`, `logger` | Read or update configuration values; `base_url=` and `timeout=` validate like the constructor. Construct a new client to apply changes. | [`configuration.rb`](../lib/assinafy/configuration.rb) |
@@ -439,6 +462,8 @@ A workspace account (organization).
 | `notification_sender_type` | string | No | No | enum: `["User", "Account"]` |
 | `roles` | Array<string> | No | No | — |
 | `is_delete_allowed` | boolean | No | No | — |
+| `limits` | object | No | No | Current-plan limits; present only on the single-account response. More keys may be added. |
+| `limits.webhook_endpoints` | integer | No | No | Maximum webhook endpoints: 1, or 3 with the Multiple Webhooks feature. |
 | `created_at` | string (date-time) | No | No | — |
 
 ### AccountTheme
@@ -466,7 +491,9 @@ A request for signers to sign a document.
 | --- | --- | --- | --- | --- |
 | `resource` | string | No | No | — |
 | `id` | string | No | No | — |
-| `sender_email` | string (email) | No | No | — |
+| `document_id` | string | No | Yes | Document this assignment belongs to; null only after the document is deleted. |
+| `created_at` | string (date-time) | No | No | — |
+| `sender_email` | string (email) | No | Yes | Null once the sender has deleted their account. |
 | `method` | string | No | No | enum: `["virtual", "collect"]` |
 | `expires_at` | string (date-time) | No | Yes | — |
 | `message` | string | No | Yes | — |
@@ -608,12 +635,14 @@ A document and its current lifecycle state.
 | `artifacts` | object | No | No | Artifact download URLs keyed by name. Always `original`, plus `thumbnail` once one exists. A certificated document also carries `certificated`, `certificate-page` and `bundle`, and `pades` when it was signed with a digital certificate — the PAdES version holds the signers' ICP-Brasil signatures, which certification flattens out of the certificated PDF. |
 | `is_closed` | boolean | No | No | — |
 | `signing_url` | string | No | No | — |
+| `verification_code` | string | No | Yes | Code printed on the certificate page; null until certificated. |
+| `verification_url` | string (uri) | No | Yes | Public verification page; null until certificated. |
 | `decline_reason` | string | No | Yes | — |
 | `declined_by` | any JSON value | No | Yes | — |
 | `tags` | Array<object> | No | No | — |
 | `tags[].id` | string | No | No | — |
 | `tags[].name` | string | No | No | — |
-| `assignment` | object | No | Yes | Expanded assignment data when included via ?expand=assignment; null otherwise. |
+| `assignment` | object | No | Yes | Included by list/details/signer-list/template-generation responses; search and upload omit it. Only rename follows `?expand=assignment`. |
 | `assignment.resource` | string | No | No | — |
 | `assignment.id` | string | No | No | — |
 | `assignment.sender_email` | string (email) | No | No | — |
@@ -626,6 +655,7 @@ A document and its current lifecycle state.
 | `assignment.summary` | [`AssignmentSummary`](#assignmentsummary) | No | No | — |
 | `assignment.signing_urls` | Array<[`SigningUrl`](#signingurl)> | No | No | — |
 | `pages` | Array<[`DocumentPage`](#documentpage)> | No | No | — |
+| `has_contract` | boolean | No | No | Only on workspace `GET /documents/{documentId}` when contract tracking is available. A missing key means unknown. |
 | `created_at` | string (date-time) | No | No | — |
 | `updated_at` | string (date-time) | No | No | — |
 
@@ -643,6 +673,85 @@ A document activity event.
 | `origin.ip` | string | No | No | — |
 | `origin.user-agent` | string | No | No | — |
 | `created_at` | string (date-time) | No | No | — |
+
+### DocumentContract
+
+Contract terms tracked on a document. The single-contract and related-family reads can include amendments; the
+workspace list can include the document when `expand=document` is requested.
+
+| Property | Type | Required | Nullable | Constraints / description |
+| --- | --- | --- | --- | --- |
+| `resource` | string | No | No | `document_contract` in single-resource responses. |
+| `document_id` | string | No | No | Document that owns the terms. |
+| `status` | string | No | No | enum: `["draft", "active", "expired", "terminated"]` |
+| `counterparty_name` | string | No | Yes | — |
+| `counterparty_taxpayer_id` | string | No | Yes | Normalized CPF/CNPJ, digits only. |
+| `value` | number | No | Yes | At most two decimal places. |
+| `currency` | string | No | Yes | ISO 4217 code; defaults to BRL when a value is set. |
+| `start_date` | string (date) | No | Yes | — |
+| `end_date` | string (date) | No | Yes | — |
+| `auto_renew` | boolean | No | No | — |
+| `renewal_term_months` | integer | No | Yes | — |
+| `notice_period_days` | integer | No | Yes | — |
+| `term` | integer | No | No | Renewal term number, starting at 1. |
+| `owner_id` | string | No | Yes | Active workspace member responsible for lifecycle email. |
+| `metadata` | object | No | Yes | Up to 50 caller-defined string values. |
+| `external_references` | Array<object> | No | No | IDs in outside systems, sorted by system and ID. |
+| `external_references[].system` | string | No | No | Outside system name. |
+| `external_references[].id` | string | No | No | ID in that system. |
+| `document` | [`Document`](#document) | No | No | Only on list results with `expand=document`. |
+| `amendments` | Array<[`DocumentContractAmendment`](#documentcontractamendment)> | No | No | Only on single-contract/family reads. |
+| `created_at` | string (date-time) | No | No | — |
+| `updated_at` | string (date-time) | No | No | Moves on every direct or lifecycle change. |
+
+### DocumentContractAmendment
+
+A document linked as an amendment, renewal, or termination instrument. Its terms are a delta applied to the
+parent after this document is certificated.
+
+| Property | Type | Required | Nullable | Constraints / description |
+| --- | --- | --- | --- | --- |
+| `resource` | string | No | No | `document_contract_amendment` in single-resource responses. |
+| `document_id` | string | No | No | The instrument document. |
+| `document_name` | string | No | No | Instrument document name. |
+| `parent_document_id` | string | No | No | Root contract document. |
+| `relation_type` | string | No | No | enum: `["amendment", "renewal", "termination"]` |
+| `number` | integer | No | Yes | Applied position; null while pending. |
+| `status` | string | No | No | enum: `["pending", "applied"]` |
+| `document_status` | string | No | No | Current lifecycle status of the instrument document. |
+| `apply_error` | string | No | Yes | Why a signed instrument has not applied yet. |
+| `currency` | string | No | Yes | Currency used by amount values in `terms` and `changes`. |
+| `terms` | object | No | Yes | Only contract terms changed by this instrument. |
+| `changes` | object | No | Yes | Changed fields as `{ from:, to: }`, previewed while pending and fixed once applied. |
+| `applied_at` | string (date-time) | No | Yes | — |
+| `created_at` | string (date-time) | No | No | — |
+| `updated_at` | string (date-time) | No | No | — |
+
+### DocumentContractInput
+
+Partial body for setting terms or linking an instrument. Only sent fields change. JSON null clears a nullable
+term; for a pending instrument it removes that term from the delta. `external_references` replaces the whole list.
+
+| Property | Type | Required | Nullable | Constraints / description |
+| --- | --- | --- | --- | --- |
+| `status` | string | No | No | enum: `["draft", "active", "expired", "terminated"]`; closed statuses are creation-only. |
+| `counterparty_name` | string | No | Yes | Maximum 255 characters. |
+| `counterparty_taxpayer_id` | string | No | Yes | Valid formatted or unformatted CPF/CNPJ. |
+| `value` | number | No | Yes | 0–9,999,999,999,999.99; at most two decimal places. |
+| `currency` | string | No | Yes | Three-letter code, stored uppercase. |
+| `start_date` | string (date) | No | Yes | `YYYY-MM-DD`, year 1000 or later. |
+| `end_date` | string (date) | No | Yes | On or after `start_date`. |
+| `auto_renew` | boolean | No | Yes | Null resets to false. |
+| `renewal_term_months` | integer | No | Yes | 1–600; defaults to 12 when unset. |
+| `notice_period_days` | integer | No | Yes | 0–3650. |
+| `owner_id` | string | No | Yes | Active member of the workspace. |
+| `metadata` | object | No | Yes | Up to 50 keys of 1–40 letters, digits, `_`, `-`, or `.`, each holding at most 500 characters. |
+| `external_references` | Array<object> | No | Yes | At most 20; null or an empty array clears the list. |
+| `external_references[].system` | string | Yes | No | Up to 64 letters, digits, `_`, `-`, or `.`; stored lowercase. |
+| `external_references[].id` | string | Yes | No | Up to 255 characters. |
+| `parent_document_id` | string | No | Yes | Links to a contract family; null unlinks a pending instrument. |
+| `relation_type` | string | No | No | Required for the first link; enum: `["amendment", "renewal", "termination"]`. |
+| `updated_at` | string (date-time) | No | Yes | Optional optimistic-lock value; a stale value returns `409`. Null is last-write-wins. |
 
 ### DocumentPage
 
@@ -795,6 +904,10 @@ Owner-facing document notifications, keyed by notification type. `true` means th
 | `DocumentProcessingFailed` | boolean | No | No | An uploaded document could not be processed. |
 | `TemplateProcessingFailed` | boolean | No | No | A template could not be processed. |
 | `SignerWhatsappFailed` | boolean | No | No | A WhatsApp notification to a signer could not be delivered. |
+| `ContractRenewalNotice` | boolean | No | No | A tracked contract entered its notice period. |
+| `ContractExpiring` | boolean | No | No | A tracked contract ends in 45 or 30 days. |
+| `ContractExpired` | boolean | No | No | A tracked contract ended without renewal. |
+| `ContractRenewed` | boolean | No | No | A tracked contract was automatically renewed into its next term. |
 
 ### OAuthRevokeRequest
 
@@ -824,6 +937,20 @@ Body of `POST /v1/oauth/token`. Sent form-encoded per RFC 6749, or as JSON.
 | `subject_token` | string | No | No | Token-exchange grant only. The front-end resource's access token being traded in. Must be a live, original (never itself exchanged) token minted for a resource this server issues tokens for, other than this API's own audience. |
 | `subject_token_type` | string | No | No | enum: `["urn:ietf:params:oauth:token-type:access_token"]`; Token-exchange grant only. Required; only `urn:ietf:params:oauth:token-type:access_token` is supported. |
 | `requested_token_type` | string | No | No | enum: `["urn:ietf:params:oauth:token-type:access_token"]`; Token-exchange grant only. Optional; when present it must agree with the only type this server issues. |
+
+### ResendCostEstimate
+
+Credits needed to resend one signer's notification. A reminder consumes no document allowance.
+
+| Property | Type | Required | Nullable | Constraints / description |
+| --- | --- | --- | --- | --- |
+| `total` | number | No | No | Sum of the breakdown costs. |
+| `breakdown` | Array<object> | No | No | Per-charge resend costs. |
+| `breakdown[].code` | string | No | No | For example `NotificationWhatsappResend`. |
+| `breakdown[].name` | string | No | No | Human-readable charge name. |
+| `breakdown[].cost` | number | No | No | Credits charged for this item. |
+| `credit_balance` | number | No | Yes | Available credits; null when credits are unlimited. |
+| `has_sufficient_credits` | boolean | No | No | Whether the workspace can pay for the resend. |
 
 ### Signer
 
@@ -987,6 +1114,10 @@ A single webhook delivery-history entry.
 | `endpoint` | string | No | Yes | URL that received the request. |
 | `payload` | object | No | Yes | JSON payload sent to the endpoint. |
 | `delivered` | boolean | No | No | Whether delivery succeeded. |
+| `webhook_id` | string | No | Yes | Stable `webhook-id` header across attempts of this event to this endpoint. |
+| `attempt` | integer | No | Yes | Attempt number, starting at 1. |
+| `kind` | string | No | No | enum: `["scheduled", "probe", "manual"]` |
+| `will_retry` | boolean | No | No | Whether another attempt follows this entry. |
 | `http_status` | integer | No | Yes | HTTP status returned (null if connection failed). |
 | `response_body` | string | No | Yes | Endpoint response body, truncated to 2000 chars. |
 | `error` | string | No | Yes | Delivery error message, if any. |
@@ -999,12 +1130,15 @@ A URL that receives the account's webhook events. Every active endpoint subscrib
 
 | Property | Type | Required | Nullable | Constraints / description |
 | --- | --- | --- | --- | --- |
+| `resource` | string | No | No | Always `activity_event_subscription` in single-resource responses. |
 | `id` | string | No | No | Endpoint ID. |
 | `name` | string | No | Yes | Label to tell endpoints apart. |
-| `url` | string (uri) | No | No | URL that receives the events (http or https). |
+| `url` | string (uri) | No | No | HTTPS URL that receives the events. |
 | `email` | string (email) | No | No | Contact email for delivery-failure notices. |
 | `events` | Array<string> | No | No | Event types delivered to this endpoint. |
 | `is_active` | boolean | No | No | Whether events are delivered to this endpoint. |
+| `is_held` | boolean | No | No | Whether deliveries are paused after repeated failures. |
+| `held_since` | integer | No | Yes | Unix timestamp when the pause began; null while deliveries run. |
 | `signing_enabled` | boolean | No | No | Whether deliveries carry a `webhook-signature` header. |
 | `created_at` | string (date-time) | No | No | — |
 | `updated_at` | string (date-time) | No | No | — |
@@ -1054,6 +1188,8 @@ An account's webhook subscription configuration: the account's oldest webhook en
 | --- | --- | --- | --- | --- |
 | `events` | Array<string> | No | No | Event types subscribed for delivery. |
 | `is_active` | boolean | No | No | Whether webhook delivery is active. |
+| `is_held` | boolean | No | No | Whether deliveries are paused after repeated failures. |
+| `held_since` | integer | No | Yes | Unix timestamp when the pause began; null while deliveries run. |
 | `url` | string | No | Yes | Webhook endpoint URL. |
 | `email` | string | No | Yes | Contact email for delivery notices. |
 | `updated_at` | string (date-time) | No | Yes | — |

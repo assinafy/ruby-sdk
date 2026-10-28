@@ -16,6 +16,10 @@ module Assinafy
         DocumentProcessingFailed
         TemplateProcessingFailed
         SignerWhatsappFailed
+        ContractRenewalNotice
+        ContractExpiring
+        ContractExpired
+        ContractRenewed
       ].freeze
 
       # Fetch the authenticated user's profile. The current OpenAPI response is
@@ -117,11 +121,11 @@ module Assinafy
         end
       end
 
-      # Fetch all owner-facing document email preferences. All nine keys are
+      # Fetch all owner-facing document and contract email preferences. All thirteen keys are
       # returned and default to true. Account and security email is not
       # configurable through this endpoint.
       #
-      # @return [Hash{String=>Boolean}] all nine documented preference codes
+      # @return [Hash{String=>Boolean}] all thirteen documented preference codes
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure
       # @raise [Assinafy::ValidationError] on invalid required input
@@ -139,7 +143,11 @@ module Assinafy
       #     'DocumentExpirationReset' => true,
       #     'DocumentProcessingFailed' => true,
       #     'TemplateProcessingFailed' => true,
-      #     'SignerWhatsappFailed' => true
+      #     'SignerWhatsappFailed' => true,
+      #     'ContractRenewalNotice' => true,
+      #     'ContractExpiring' => true,
+      #     'ContractExpired' => true,
+      #     'ContractRenewed' => true
       #   }
       def notification_preferences
         call('Failed to fetch notification preferences') do
@@ -147,10 +155,10 @@ module Assinafy
         end
       end
 
-      # Merge selected owner-facing document email preferences.
+      # Merge selected owner-facing document and contract email preferences.
       #
       # Omitted keys keep their current values. The API returns the full
-      # nine-key map shown by {#notification_preferences}.
+      # thirteen-key map shown by {#notification_preferences}.
       #
       # @param preferences [Hash{String,Symbol=>Boolean}] non-empty partial map
       # @return [Hash{String=>Boolean}] the full updated map
@@ -174,7 +182,11 @@ module Assinafy
       #     'DocumentExpirationReset' => true,
       #     'DocumentProcessingFailed' => true,
       #     'TemplateProcessingFailed' => true,
-      #     'SignerWhatsappFailed' => true
+      #     'SignerWhatsappFailed' => true,
+      #     'ContractRenewalNotice' => true,
+      #     'ContractExpiring' => true,
+      #     'ContractExpired' => true,
+      #     'ContractRenewed' => true
       #   }
       def update_notification_preferences(preferences)
         preferences = require_payload(preferences, 'Notification preferences')

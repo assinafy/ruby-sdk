@@ -2,6 +2,21 @@
 
 All notable changes to the `assinafy` Ruby gem are documented here.
 
+## [2.1.0] - 2026-10-28
+
+### Added
+
+- `ContractResource` and `client.contracts` cover listing, reading, updating, relating, renewing and terminating
+  the contract terms tracked on documents, including nullable fields and optimistic `updated_at` preconditions.
+- User notification preferences support `ContractRenewalNotice`, `ContractExpiring`, `ContractExpired` and
+  `ContractRenewed`.
+
+### Changed
+
+- New or changed webhook endpoint URLs must be absolute HTTPS URLs; invalid URLs raise `ValidationError` before a
+  request.
+- Contract, document, assignment, webhook and reminder-cost response fields reflect the current API contract.
+
 ## [2.0.1] - 2026-10-19
 
 ### Fixed

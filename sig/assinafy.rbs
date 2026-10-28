@@ -283,6 +283,23 @@ module Assinafy
       def signing_progress: (String document_id) -> signing_progress
     end
 
+    class ContractResource < BaseResource
+      STATUSES: Array[String]
+      RELATION_TYPES: Array[String]
+      SORTS: Array[String]
+      LIST_FIELDS: Array[String]
+      UPDATE_FIELDS: Array[String]
+      RENEW_FIELDS: Array[String]
+      TERMINATE_FIELDS: Array[String]
+
+      def list: (?params params, ?String? account_id_override) -> list_result
+      def get: (String document_id, ?String? account_id_override) -> api_object?
+      def update: (String document_id, params payload, ?String? account_id_override) -> api_object
+      def related: (String document_id, ?String? account_id_override) -> api_object?
+      def renew: (String document_id, params payload, ?String? account_id_override) -> api_object
+      def terminate: (String document_id, ?params payload, ?String? account_id_override) -> api_object
+    end
+
     class SignerResource < BaseResource
       EMAIL_REGEX: Regexp
       SIGNATURE_TYPES: Array[String]
@@ -445,6 +462,7 @@ module Assinafy
     attr_reader accounts: Resources::AccountResource
     attr_reader users: Resources::UserResource
     attr_reader documents: Resources::DocumentResource
+    attr_reader contracts: Resources::ContractResource
     attr_reader signers: Resources::SignerResource
     attr_reader signer_documents: Resources::SignerDocumentResource
     attr_reader assignments: Resources::AssignmentResource

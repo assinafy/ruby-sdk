@@ -33,6 +33,8 @@ module Assinafy
     attr_reader :users
     # @return [Resources::DocumentResource]
     attr_reader :documents
+    # @return [Resources::ContractResource]
+    attr_reader :contracts
     # @return [Resources::SignerResource]
     attr_reader :signers
     # @return [Resources::SignerDocumentResource]
@@ -84,6 +86,7 @@ module Assinafy
       @accounts         = Resources::AccountResource.new(@connection, account_id, @logger)
       @users            = Resources::UserResource.new(@connection, nil, @logger)
       @documents        = Resources::DocumentResource.new(@connection, account_id, @logger)
+      @contracts        = Resources::ContractResource.new(@connection, account_id, @logger)
       @signers          = Resources::SignerResource.new(@connection, account_id, @logger)
       @signer_documents = Resources::SignerDocumentResource.new(@connection, nil, @logger)
       @assignments      = Resources::AssignmentResource.new(@connection, account_id, @logger)
@@ -190,6 +193,7 @@ module Assinafy
     #   #     },
     #   #     assignment: {
     #   #       "resource" => "assignment", "id" => "assignment-id",
+    #   #       "document_id" => "document-id", "created_at" => "2026-06-05T21:21:19Z",
     #   #       "sender_email" => "sender@example.com", "method" => "virtual",
     #   #       "expires_at" => nil, "message" => "Please review and sign",
     #   #       "signers" => [{ "id" => "signer-id", "full_name" => "Example Signer",

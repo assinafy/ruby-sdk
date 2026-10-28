@@ -691,7 +691,7 @@ See [Errors](#errors) for the full hierarchy.
 
 ## Resource reference
 
-`Assinafy::Client` exposes thirteen accessors — twelve API resources plus the local `webhook_verifier` helper:
+`Assinafy::Client` exposes fourteen accessors — thirteen API resources plus the local `webhook_verifier` helper:
 
 | Accessor                    | What it covers                                                     |
 | --------------------------- | ------------------------------------------------------------------ |
@@ -700,6 +700,7 @@ See [Errors](#errors) for the full hierarchy.
 | `client.accounts`           | Account CRUD, theme, KPI stats, brand logo                         |
 | `client.users`              | User profile, notification preferences, cross-account KPIs         |
 | `client.documents`          | Upload, list, search, rename, download, delete, verify, tags       |
+| `client.contracts`          | Contract terms, amendments, renewals, terminations                 |
 | `client.signers`            | Workspace signer CRUD + signer self-service endpoints              |
 | `client.signer_documents`   | Signer-authenticated multi-document operations + search            |
 | `client.assignments`        | List/create/sign/decline/resend/estimate assignments               |
@@ -780,6 +781,27 @@ client.documents.signing_progress('document-id')   # => { signed: 1, total: 2, p
 
 An Array `tags` filter is sent as comma-separated tag IDs. The tag arrays of `replace_tags`/`append_tags` take tag
 IDs.
+
+### Contracts
+
+```ruby
+contract = client.contracts.update(
+  'document-id',
+  status: 'active', counterparty_name: 'Example Ltda', value: 120_000, currency: 'BRL',
+  start_date: '2026-11-01', end_date: '2027-10-31', auto_renew: true,
+  renewal_term_months: 12, notice_period_days: 30
+)
+
+client.contracts.get('document-id')
+client.contracts.list(status: ['active'], ending_within_days: 30)
+client.contracts.related('document-id')
+client.contracts.renew('document-id', term: contract['term'], updated_at: contract['updated_at'])
+client.contracts.terminate('document-id', reason: 'Ended by the parties')
+```
+
+`update` is partial and preserves explicit `nil` values as JSON `null`. Link an amendment document with
+`parent_document_id` and `relation_type`. Reads require OAuth scope `documents:read`; writes require
+`documents:write` and a plan with contract tracking. `get` and `related` return `nil` when no tracked terms exist.
 
 ### Signers (workspace CRUD)
 

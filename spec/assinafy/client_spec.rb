@@ -15,6 +15,7 @@ RSpec.describe Assinafy::Client do
         expect(client.accounts).to         be_a(Assinafy::Resources::AccountResource)
         expect(client.users).to            be_a(Assinafy::Resources::UserResource)
         expect(client.documents).to        be_a(Assinafy::Resources::DocumentResource)
+        expect(client.contracts).to        be_a(Assinafy::Resources::ContractResource)
         expect(client.signers).to          be_a(Assinafy::Resources::SignerResource)
         expect(client.signer_documents).to be_a(Assinafy::Resources::SignerDocumentResource)
         expect(client.assignments).to      be_a(Assinafy::Resources::AssignmentResource)

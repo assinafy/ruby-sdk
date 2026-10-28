@@ -90,6 +90,7 @@ module Assinafy
       #     'name' => 'MT',
       #     'primary_color' => nil,
       #     'secondary_color' => nil,
+      #     'limits' => { 'webhook_endpoints' => 1 },
       #     'created_at' => '2026-05-12T18:05:11Z'
       #   }
       def get(account_id_override = nil)

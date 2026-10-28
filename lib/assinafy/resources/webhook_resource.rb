@@ -28,7 +28,8 @@ module Assinafy
       # @option payload [Array<String>] :events    event-type IDs (see {#list_event_types})
       # @option payload [Boolean]       :is_active default `true` when omitted
       # @param account_id_override [String, nil]
-      # @return [Hash] the subscription object: { events:, is_active:, url:, email:, updated_at: }
+      # @return [Hash] the subscription object: { events:, is_active:, is_held:, held_since:, url:, email:,
+      #   updated_at: }
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure
       # @raise [Assinafy::ValidationError] on invalid required input
@@ -51,6 +52,8 @@ module Assinafy
       #   # {
       #   #   'events' => ["document_ready", "document_prepared"],
       #   #   'is_active' => true,
+      #   #   'is_held' => false,
+      #   #   'held_since' => nil,
       #   #   'url' => "https://example.com/webhook",
       #   #   'email' => "ops@example.com",
       #   #   'updated_at' => "2026-06-05T21:13:24Z"
@@ -84,6 +87,8 @@ module Assinafy
       #   # {
       #   #   'events' => ["document_ready", "signer_signed_document"],
       #   #   'is_active' => false,
+      #   #   'is_held' => false,
+      #   #   'held_since' => nil,
       #   #   'url' => "https://example.com/sdk-smoke-webhook",
       #   #   'email' => "webhook@example.com",
       #   #   'updated_at' => "2026-06-05T21:13:24Z"
@@ -113,6 +118,8 @@ module Assinafy
       #   # {
       #   #   'events' => ["document_ready", "document_prepared"],
       #   #   'is_active' => false,
+      #   #   'is_held' => false,
+      #   #   'held_since' => nil,
       #   #   'url' => "https://example.com/webhook",
       #   #   'email' => "ops@example.com",
       #   #   'updated_at' => "2026-06-05T21:13:24Z"
@@ -178,6 +185,10 @@ module Assinafy
       #   #       endpoint:      "https://example.com/webhook",
       #   #       payload:       { 'id' => 15431, event: "signature_requested", object: {}, subject: {}, payload: {} },
       #   #       delivered:     false,
+      #   #       webhook_id:    "webhook-id-placeholder",
+      #   #       attempt:       2,
+      #   #       kind:          "scheduled",
+      #   #       will_retry:    false,
       #   #       http_status:   404,
       #   #       response_body: "{\"success\":false,...}",
       #   #       error:         "Client error: `POST https://example.com/webhook` resulted in a 404 ...",
@@ -217,6 +228,10 @@ module Assinafy
       #   #   endpoint:      "https://example.com/webhook",
       #   #   payload:       { 'id' => 15431, event: "signature_requested", object: {}, subject: {} },
       #   #   delivered:     true,
+      #   #   webhook_id:    "webhook-id-placeholder",
+      #   #   attempt:       1,
+      #   #   kind:          "manual",
+      #   #   will_retry:    false,
       #   #   http_status:   200,
       #   #   response_body: "OK",
       #   #   error:         nil,
@@ -247,12 +262,15 @@ module Assinafy
       #   # => unwrapped data payload returned:
       #   # [
       #   #   {
+      #   #     'resource' => "activity_event_subscription",
       #   #     'id' => "webhook-endpoint-id",
       #   #     'name' => "ERP",
       #   #     'url' => "https://example.com/webhooks/assinafy",
       #   #     'email' => "ops@example.com",
       #   #     'events' => ["document_ready", "signer_signed_document"],
       #   #     'is_active' => true,
+      #   #     'is_held' => false,
+      #   #     'held_since' => nil,
       #   #     'signing_enabled' => true,
       #   #     'created_at' => "2026-10-01T12:00:00Z",
       #   #     'updated_at' => "2026-10-01T12:00:00Z"
@@ -274,7 +292,7 @@ module Assinafy
       # especially for OAuth apps, which cannot call {#endpoint_secret}.
       #
       # @param payload [Hash]
-      # @option payload [String]        :url             http(s) URL that receives the events (required)
+      # @option payload [String]        :url             HTTPS URL that receives the events (required)
       # @option payload [String]        :email           contact email for delivery-failure notices (required)
       # @option payload [Array<String>] :events          event-type IDs (see {#list_event_types}) (required)
       # @option payload [String]        :name            label to tell endpoints apart
@@ -304,8 +322,10 @@ module Assinafy
       #   #   "signing_enabled": true
       #   # }
       #   # => unwrapped data payload returned (same shape as {#list_endpoints} entries):
-      #   # { 'id' => "webhook-endpoint-id", 'name' => "ERP", 'url' => "https://example.com/webhooks/assinafy",
-      #   #   'email' => "ops@example.com", 'events' => [...], 'is_active' => true, 'signing_enabled' => true,
+      #   # { 'resource' => "activity_event_subscription", 'id' => "webhook-endpoint-id", 'name' => "ERP",
+      #   #   'url' => "https://example.com/webhooks/assinafy", 'email' => "ops@example.com",
+      #   #   'events' => [...], 'is_active' => true, 'is_held' => false, 'held_since' => nil,
+      #   #   'signing_enabled' => true,
       #   #   'created_at' => "2026-10-01T12:00:00Z", 'updated_at' => "2026-10-01T12:00:00Z",
       #   #   'secret' => 'whsec_secret-placeholder' } # secret appears only on creation with signing enabled
       def create_endpoint(payload, account_id_override = nil)
@@ -481,7 +501,7 @@ module Assinafy
       end
 
       def validate_webhook_fields!(body)
-        require_string(body[:url], 'Webhook URL') if body.key?(:url)
+        validate_webhook_url!(body[:url]) if body.key?(:url)
         Utils.require_email(body[:email]) if body.key?(:email)
         require_string(body[:name], 'Webhook name') if body.key?(:name)
         %i[is_active signing_enabled].each { |key| require_boolean(body[key], key.to_s) if body.key?(key) }
@@ -491,6 +511,16 @@ module Assinafy
         return if events.all? { |event| event.is_a?(String) && !event.strip.empty? }
 
         raise ValidationError.new('Webhook events must be non-empty Strings')
+      end
+
+      def validate_webhook_url!(value)
+        url = require_string(value, 'Webhook URL')
+        uri = URI.parse(url)
+        return if uri.is_a?(URI::HTTPS) && uri.host && !uri.host.empty?
+
+        raise ValidationError.new('Webhook URL must be an absolute HTTPS URL')
+      rescue URI::InvalidURIError
+        raise ValidationError.new('Webhook URL must be an absolute HTTPS URL')
       end
     end
   end

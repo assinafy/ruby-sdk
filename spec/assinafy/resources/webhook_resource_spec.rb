@@ -269,6 +269,17 @@ RSpec.describe Assinafy::Resources::WebhookResource do
       expect { resource.register(base.merge(signing_enabled: true)) }.to raise_error(Assinafy::ValidationError)
     end
 
+    it 'rejects non-HTTPS URLs for new or changed endpoints before the network' do
+      base = { email: 'ops@example.com', events: ['document_ready'] }
+
+      expect { resource.create_endpoint(base.merge(url: 'http://example.com/hook')) }
+        .to raise_error(Assinafy::ValidationError, /HTTPS/)
+      expect { resource.register(base.merge(url: 'relative/hook')) }
+        .to raise_error(Assinafy::ValidationError, /HTTPS/)
+      expect { resource.update_endpoint('ep1', url: 'ftp://example.com/hook') }
+        .to raise_error(Assinafy::ValidationError, /HTTPS/)
+    end
+
     it 'gets, updates, and deletes one endpoint' do
       stub_request(:get, "#{endpoints_url}/ep1").to_return(api_envelope(endpoint))
       stub_request(:put, "#{endpoints_url}/ep1").with(body: { 'is_active' => false })
