@@ -56,7 +56,7 @@ jobs:
     timeout-minutes: 10
     environment: release
     permissions:
-      contents: read
+      contents: write
       packages: write
       id-token: write
     steps:
@@ -134,3 +134,27 @@ jobs:
             404) gem push --host "https://rubygems.pkg.github.com/assinafy" "assinafy-${version}.gem" ;;
             *) echo "GitHub Packages version check returned HTTP $status" >&2; exit 1 ;;
           esac
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          notes="$RUNNER_TEMP/release-notes.md"
+          VERSION="$version" ruby -e '
+            lines = File.readlines("CHANGELOG.md")
+            heading = "## [#{ENV.fetch("VERSION")}]"
+            first = lines.index { |line| line.start_with?(heading) }
+            abort "CHANGELOG section not found: #{heading}" unless first
+            last = ((first + 1)...lines.length).find { |index| lines[index].start_with?("## ") } || lines.length
+            content = lines[(first + 1)...last].join.strip
+            abort "CHANGELOG section is empty: #{heading}" if content.empty?
+            File.write(ARGV.fetch(0), "#{content}\n")
+          ' "$notes"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "GitHub release $GITHUB_REF_NAME already exists; skipping"
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag \
+              --title "Assinafy Ruby SDK $GITHUB_REF_NAME" --notes-file "$notes"
+          fi
