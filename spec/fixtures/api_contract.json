@@ -4,7 +4,7 @@
   "path_count": 90,
   "operation_count": 118,
   "schema_count": 49,
-  "canonical_sha256": "eaf6f81a8e506364ffbc2ee1a1f93ba9fab140e5c26f3156995455861acacc30",
+  "canonical_sha256": "fbd4497a08751e71c027647569cf2e0b8f46e459fd51467b7378092134e7c010",
   "operations": [
     "DELETE /v1/accounts/{accountId}",
     "DELETE /v1/accounts/{accountId}/documents/{documentId}/tags/{tagId}",

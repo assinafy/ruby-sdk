@@ -420,6 +420,9 @@ module Assinafy
         doc_id = require_id(document_id, 'Document ID')
         body   = body_params(require_payload(payload))
         code   = require_signer_access_code(signer_access_code)
+        require_string(body['full_name'], 'Full name') if body.key?('full_name')
+        Utils.require_email(body['email']) if body.key?('email')
+        require_string(body['government_id'], 'Government ID') if body.key?('government_id')
 
         call('Failed to confirm signer data') do
           http_put("documents/#{doc_id}/signers/confirm-data", body,

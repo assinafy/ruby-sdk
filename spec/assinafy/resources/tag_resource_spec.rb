@@ -99,9 +99,14 @@ RSpec.describe Assinafy::Resources::TagResource do
   end
 
   describe 'payload validation' do
-    it 'rejects non-string tag names before a request' do
+    it 'rejects non-string tag fields before a request' do
       expect { resource.create(name: 123) }.to raise_error(Assinafy::ValidationError)
+      expect { resource.create(name: 'Contracts', color: false) }.to raise_error(Assinafy::ValidationError)
+      expect { resource.create(name: 'Contracts', color: 'red') }.to raise_error(Assinafy::ValidationError)
       expect { resource.update('tag', name: false) }.to raise_error(Assinafy::ValidationError)
+      expect { resource.update('tag', color: 123) }.to raise_error(Assinafy::ValidationError)
+
+      expect(a_request(:any, %r{/tags/})).not_to have_been_made
     end
   end
 end

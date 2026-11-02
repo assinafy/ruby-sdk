@@ -730,11 +730,12 @@ client.accounts.delete_logo
 ```ruby
 client.users.me
 client.users.stats(granularity: 'daily', month: '2026-06')  # cross-account KPI rows
-client.users.notification_preferences                 # returns all nine owner-email preferences
-client.users.update_notification_preferences(SignerDeclined: false) # partial request; returns all nine
+client.users.notification_preferences                 # returns all thirteen owner-email preferences
+client.users.update_notification_preferences(SignerDeclined: false) # partial request; returns all thirteen
 ```
 
-Both stats methods validate `granularity` (`monthly` or `daily`) and `month` (`YYYY-MM`) locally, and return rows
+Both stats methods validate `granularity` (`monthly` or `daily`) and `month` (`YYYY-MM`) locally; daily statistics
+require `month`. They return rows
 with `period`, `documents_uploaded`, `documents_sent`, `signature_requests`,
 `signature_requests_notification_email`, `signature_requests_notification_whatsapp`,
 `signature_requests_notification_bypass`, `signature_requests_verification_email`,

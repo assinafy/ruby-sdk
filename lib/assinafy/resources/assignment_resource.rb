@@ -712,7 +712,7 @@ module Assinafy
       #   resource.whatsapp_notifications("document-id", "assignment-id")
       #   # (no request body)
       #   # => [
-      #   #   { "sent_at" => 1710000000,
+      #   #   { "sent_at" => "2026-07-07T12:00:00Z",
       #   #     "header" => "Documento para assinatura: Contrato de Servico",
       #   #     "body" => "Oi, Maria.\n\nJoao Silva enviou um documento...",
       #   #     "buttons" => [{ "text" => "Abrir documento" }],

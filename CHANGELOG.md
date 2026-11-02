@@ -2,6 +2,14 @@
 
 All notable changes to the `assinafy` Ruby gem are documented here.
 
+## [2.1.1] - 2026-11-02
+
+### Fixed
+
+- Daily account and user statistics require a `YYYY-MM` month before a request is sent.
+- Signer confirmation, field regex and tag color payloads reject malformed values before a request is sent.
+- WhatsApp notification `sent_at` values are documented as ISO 8601 date-time strings.
+
 ## [2.1.0] - 2026-10-28
 
 ### Added

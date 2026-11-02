@@ -103,11 +103,14 @@ RSpec.describe Assinafy::Resources::UserResource do
   end
 
   describe '#stats parameter validation' do
-    it 'rejects unknown granularity and malformed months before the network' do
+    it 'rejects unknown granularity, malformed months, and daily stats without a month before the network' do
       resource = described_class.new(build_test_connection)
 
       expect { resource.stats(granularity: 'weekly') }.to raise_error(Assinafy::ValidationError, /granularity/)
       expect { resource.stats(month: '2026-13') }.to raise_error(Assinafy::ValidationError, /YYYY-MM/)
+      expect { resource.stats(granularity: 'daily') }.to raise_error(Assinafy::ValidationError, /month is required/)
+
+      expect(a_request(:get, "#{base_url}/users/self/stats")).not_to have_been_made
     end
   end
 end

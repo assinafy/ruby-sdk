@@ -52,7 +52,7 @@ module Assinafy
       #
       # @param payload [Hash]
       # @option payload [String] :name  required tag display name
-      # @option payload [String, nil] :color optional 6-character hex color
+      # @option payload [String, nil] :color optional 6-digit hex color, with or without `#`
       # @param account_id_override [String, nil]
       # @return [Hash] the created tag object
       # @raise [Assinafy::ValidationError] if `:name` is missing or blank
@@ -168,6 +168,10 @@ module Assinafy
         body['color'] = nil if explicit_nil_color?(raw)
 
         validate_tag_name!(body, require_name: require_name)
+        if body.key?('color') && !body['color'].nil?
+          color = require_string(body['color'], 'Tag color')
+          raise ValidationError.new('Tag color must be a 6-digit hex color') unless color.match?(/\A#?[0-9a-f]{6}\z/i)
+        end
 
         if !require_name && body.empty?
           raise ValidationError.new('Provide at least one of name or color to update')

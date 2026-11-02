@@ -310,6 +310,15 @@ RSpec.describe Assinafy::Resources::SignerResource do
 
       expect(a_request(:put, "#{base_url}/documents/doc/signers/confirm-data")).not_to have_been_made
     end
+
+    it 'rejects malformed documented fields before sending a request' do
+      [{ full_name: 123 }, { email: 'invalid' }, { government_id: false }].each do |payload|
+        expect { resource.confirm_data('doc', payload, signer_access_code: 'code') }
+          .to raise_error(Assinafy::ValidationError)
+      end
+
+      expect(a_request(:put, "#{base_url}/documents/doc/signers/confirm-data")).not_to have_been_made
+    end
   end
 
   describe '#upload_signature' do

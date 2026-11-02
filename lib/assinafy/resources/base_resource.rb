@@ -95,6 +95,9 @@ module Assinafy
         unless granularity.nil? || STATS_GRANULARITIES.include?(granularity)
           raise ValidationError.new('granularity must be monthly or daily')
         end
+        if granularity == 'daily' && month.nil?
+          raise ValidationError.new('month is required when granularity is daily')
+        end
         unless month.nil? || (month.is_a?(String) && month.match?(/\A\d{4}-(0[1-9]|1[0-2])\z/))
           raise ValidationError.new('month must be YYYY-MM')
         end

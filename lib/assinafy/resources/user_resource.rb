@@ -86,7 +86,7 @@ module Assinafy
       # @note Documented in the API reference, but gated on the account's plan:
       #   this route answers 404 where the KPI feature is not enabled.
       # @param granularity [String, nil] `"monthly"` or `"daily"`
-      # @param month       [String, nil] e.g. `"2026-06"`
+      # @param month       [String, nil] e.g. `"2026-06"`; required with daily granularity
       # @return [Array<Hash>] one KPI entry per period
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure

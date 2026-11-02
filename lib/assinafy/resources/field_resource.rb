@@ -50,6 +50,7 @@ module Assinafy
         body   = with_explicit_regex(raw, body_params(raw))
         require_string(body['name'], 'Field name')
         require_string(body['type'], 'Field type')
+        require_string(body['regex'], 'Field regex') if body.key?('regex') && !body['regex'].nil?
         require_boolean(body['is_required'], 'is_required') if body.key?('is_required')
 
         call('Failed to create field definition') do
@@ -171,6 +172,7 @@ module Assinafy
         raw    = require_payload(payload)
         body   = with_explicit_regex(raw, body_params(raw))
         require_string(body['name'], 'Field name') if body.key?('name')
+        require_string(body['regex'], 'Field regex') if body.key?('regex') && !body['regex'].nil?
         require_boolean(body['is_active'], 'is_active') if body.key?('is_active')
 
         call('Failed to update field definition') do

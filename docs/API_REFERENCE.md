@@ -1,6 +1,6 @@
 # Assinafy Ruby SDK API Reference
 
-> Contract source: Assinafy API v1 OpenAPI 3.1.0, retrieved 2026-10-28 from
+> Contract source: Assinafy API v1 OpenAPI 3.1.0, retrieved 2026-11-02 from
 > `https://api.assinafy.com.br/v1/docs/openapi.json` (90 paths, 118 operations, 49 schemas).
 > `scripts/check_api_contract.rb` validates contract compatibility weekly.
 
@@ -64,10 +64,10 @@ Required parameters and object properties are marked with `*`.
 | POST | `/v1/accounts/{accountId}/documents/{documentId}/tags` | `DocumentResource#append_tags` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `documentId*`: string | required; `application/json` object { `tags`: Array<string> } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`Tag`](#tag)> } |
 | DELETE | `/v1/accounts/{accountId}/documents/{documentId}/tags/{tagId}` | `DocumentResource#detach_tag` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `documentId*`: string<br>path `tagId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `detached`: boolean } } |
 | GET | `/v1/accounts/{accountId}/fields` | `FieldResource#list` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>query `include_inactive`: boolean<br>query `include_standard`: boolean | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`Field`](#field)> } |
-| POST | `/v1/accounts/{accountId}/fields` | `FieldResource#create` | Bearer token or `X-Api-Key` | path `accountId*`: string | required; `application/json` object { `name*`: string; `type*`: string; `regex`: string; `is_required`: boolean } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Field`](#field) } |
+| POST | `/v1/accounts/{accountId}/fields` | `FieldResource#create` | Bearer token or `X-Api-Key` | path `accountId*`: string | required; `application/json` object { `name*`: string; `type*`: string; `regex`: string or null; `is_required`: boolean } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Field`](#field) } |
 | POST | `/v1/accounts/{accountId}/fields/validate-multiple` | `FieldResource#validate_multiple` | Bearer token or `X-Api-Key` | path `accountId*`: string | required; `application/json` Array<object { `field_id*`: string; `value*`: any JSON value }> | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`FieldValidationResult`](#fieldvalidationresult)> } |
 | GET | `/v1/accounts/{accountId}/fields/{fieldId}` | `FieldResource#get` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `fieldId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Field`](#field) } |
-| PUT | `/v1/accounts/{accountId}/fields/{fieldId}` | `FieldResource#update` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `fieldId*`: string | required; `application/json` object { `name`: string; `regex`: string; `is_active`: boolean } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Field`](#field) } |
+| PUT | `/v1/accounts/{accountId}/fields/{fieldId}` | `FieldResource#update` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `fieldId*`: string | required; `application/json` object { `name`: string; `regex`: string or null; `is_active`: boolean } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Field`](#field) } |
 | DELETE | `/v1/accounts/{accountId}/fields/{fieldId}` | `FieldResource#delete` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `fieldId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<any> } |
 | POST | `/v1/accounts/{accountId}/fields/{fieldId}/validate` | `FieldResource#validate` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `fieldId*`: string | required; `application/json` object { `value*`: any JSON value } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`FieldValidation`](#fieldvalidation) } |
 | GET | `/v1/accounts/{accountId}/logo` | `AccountResource#download_logo` | Bearer token or `X-Api-Key` | path `accountId*`: string | None | `200` `image/*` string (binary) |
@@ -78,10 +78,10 @@ Required parameters and object properties are marked with `*`.
 | GET | `/v1/accounts/{accountId}/signers/{signerId}` | `SignerResource#get` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `signerId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Signer`](#signer) } |
 | PUT | `/v1/accounts/{accountId}/signers/{signerId}` | `SignerResource#update` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `signerId*`: string | required; `application/json` object { `full_name`: string; `email`: string (email); `whatsapp_phone_number`: string; `government_id`: string } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Signer`](#signer) } |
 | DELETE | `/v1/accounts/{accountId}/signers/{signerId}` | `SignerResource#delete` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `signerId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<any> } |
-| GET | `/v1/accounts/{accountId}/stats` | `AccountResource#stats` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>query `granularity`: string<br>query `month`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`DocumentStatsRow`](#documentstatsrow)> } |
+| GET | `/v1/accounts/{accountId}/stats` | `AccountResource#stats` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>query `granularity`: string<br>query `month`: string (`YYYY-MM`; required for daily) | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`DocumentStatsRow`](#documentstatsrow)> } |
 | GET | `/v1/accounts/{accountId}/tags` | `TagResource#list` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>query `search`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`Tag`](#tag)> } |
-| POST | `/v1/accounts/{accountId}/tags` | `TagResource#create` | Bearer token or `X-Api-Key` | path `accountId*`: string | required; `application/json` object { `name*`: string; `color`: string } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Tag`](#tag) } |
-| PUT | `/v1/accounts/{accountId}/tags/{tagId}` | `TagResource#update` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `tagId*`: string | required; `application/json` object { `name`: string; `color`: string } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Tag`](#tag) } |
+| POST | `/v1/accounts/{accountId}/tags` | `TagResource#create` | Bearer token or `X-Api-Key` | path `accountId*`: string | required; `application/json` object { `name*`: string; `color`: 6-digit hex string (optional leading `#`) or null } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Tag`](#tag) } |
+| PUT | `/v1/accounts/{accountId}/tags/{tagId}` | `TagResource#update` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `tagId*`: string | required; `application/json` object { `name`: string; `color`: 6-digit hex string (optional leading `#`) or null } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Tag`](#tag) } |
 | DELETE | `/v1/accounts/{accountId}/tags/{tagId}` | `TagResource#delete` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `tagId*`: string<br>query `force`: boolean | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `deleted`: boolean } } |
 | GET | `/v1/accounts/{accountId}/templates` | `TemplateResource#list` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>query `search`: string<br>query `page`: integer<br>query `per-page`: integer | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`Template`](#template)> } |
 | POST | `/v1/accounts/{accountId}/templates/{templateId}/documents` | `DocumentResource#create_from_template` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `templateId*`: string | required; `application/json` object { `signers*`: Array<object { `role_id*`: string; `id*`: string; `verification_method`: string; `notification_methods`: Array<string>; `step`: integer }>; `editor_fields`: Array<object { `field_id*`: string; `value*`: string }>; `name`: string; `message`: string; `expires_at`: string (date-time); `tags`: Array<string> } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Document`](#document) } |
@@ -159,7 +159,7 @@ Required parameters and object properties are marked with `*`.
 | DELETE | `/v1/users/self/mfa/{customId}` | `AuthResource#delete_mfa_method` | Bearer token or `X-Api-Key` | path `customId*`: string | required; `application/json` object { `password`: string (password); `code`: string } — one of the two is required (checked locally) | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `is_mfa_enabled`: boolean } } |
 | GET | `/v1/users/self/notification-preferences` | `UserResource#notification_preferences` | User bearer token or `X-Api-Key`; unavailable to third-party OAuth apps | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`NotificationPreferences`](#notificationpreferences) } |
 | PUT | `/v1/users/self/notification-preferences` | `UserResource#update_notification_preferences` | User bearer token or `X-Api-Key`; unavailable to third-party OAuth apps | None | required; `application/json` [`NotificationPreferences`](#notificationpreferences) | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`NotificationPreferences`](#notificationpreferences) } |
-| GET | `/v1/users/self/stats` | `UserResource#stats` | Bearer token or `X-Api-Key` | query `granularity`: string<br>query `month`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`DocumentStatsRow`](#documentstatsrow)> } |
+| GET | `/v1/users/self/stats` | `UserResource#stats` | Bearer token or `X-Api-Key` | query `granularity`: string<br>query `month`: string (`YYYY-MM`; required for daily) | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`DocumentStatsRow`](#documentstatsrow)> } |
 | POST | `/v1/verify` | `SignerResource#verify_email` | `signer-access-code` query parameter | None | required; `application/json` object { `verification-code*`: string } | `200` `application/json` [`Envelope`](#envelope) |
 | GET | `/v1/webhooks/event-types` | `WebhookResource#list_event_types` | Bearer token or `X-Api-Key` | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`WebhookEventType`](#webhookeventtype)> } |
 
@@ -273,7 +273,7 @@ require `documents:write`.
 ### KPI statistics
 
 `UserResource#stats` and `AccountResource#stats` validate `granularity` (`monthly` or `daily`) and `month`
-(`YYYY-MM`) locally before sending.
+(`YYYY-MM`) locally before sending. Daily statistics require `month`.
 
 ### OAuth response shapes
 
@@ -1200,7 +1200,7 @@ A rendered WhatsApp notification sent for an assignment, split into header/body/
 
 | Property | Type | Required | Nullable | Constraints / description |
 | --- | --- | --- | --- | --- |
-| `sent_at` | integer | No | No | Unix timestamp when sent. |
+| `sent_at` | string (date-time) | No | No | When the message was sent. |
 | `header` | string | No | No | — |
 | `body` | string | No | No | — |
 | `buttons` | Array<object> | No | No | — |

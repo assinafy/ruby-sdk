@@ -319,12 +319,13 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
   describe '#whatsapp_notifications' do
     it 'gets the documented whatsapp-notifications endpoint' do
       path = "#{base_url}/documents/doc/assignments/asg/whatsapp-notifications"
-      stub_request(:get, path).to_return(api_envelope([{ 'signer_id' => 'sig' }]))
+      stub_request(:get, path).to_return(api_envelope([{ 'signer_id' => 'sig', 'sent_at' => '2026-07-07T12:00:00Z' }]))
 
       resource = described_class.new(connection, 'acc')
       result   = resource.whatsapp_notifications('doc', 'asg')
 
       expect(result.first['signer_id']).to eq('sig')
+      expect(result.first['sent_at']).to eq('2026-07-07T12:00:00Z')
       expect(a_request(:get, path)).to have_been_made
     end
 
