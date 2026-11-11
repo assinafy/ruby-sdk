@@ -296,7 +296,6 @@ module Assinafy
     end
 
     class EnvelopeResource < BaseResource
-      ARTIFACTS: Array[String]
       def list: (?params params, ?String? account_id_override) -> list_result
       def create: (params payload, ?String? account_id_override, ?idempotency_key: String?) -> api_object
       def estimate_cost: (params payload, ?String? account_id_override) -> api_object

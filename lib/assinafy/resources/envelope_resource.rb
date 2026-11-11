@@ -4,8 +4,6 @@ module Assinafy
   module Resources
     # Groups documents into one invitation while retaining each document's signatures and artifacts.
     class EnvelopeResource < BaseResource
-      ARTIFACTS = %w[original certificated certificate-page pades bundle].freeze
-
       # @param params [Hash] search, status (open/closed), page, per_page
       # @param account_id_override [String, nil]
       # @return [Hash] paginated DocumentEnvelope objects
@@ -150,8 +148,8 @@ module Assinafy
       #   client.envelopes.download('envelope-id', 'original')
       #   # GET .../envelopes/envelope-id/download/original; no body; => binary ZIP bytes
       def download(envelope_id, artifact = 'certificated', account_id_override = nil)
-        unless ARTIFACTS.include?(artifact)
-          raise ValidationError.new("artifact must be one of: #{ARTIFACTS.join(', ')}")
+        unless DocumentResource::ARTIFACT_TYPES.include?(artifact)
+          raise ValidationError.new("artifact must be one of: #{DocumentResource::ARTIFACT_TYPES.join(', ')}")
         end
 
         path = "#{envelope_path(envelope_id, account_id_override)}/download/#{artifact}"
