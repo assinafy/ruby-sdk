@@ -291,7 +291,7 @@ RSpec.describe 'Assinafy live sandbox', :live, order: :defined do # rubocop:disa
         expect(client.signer_documents.list_as_workspace(s1)[:data]).to be_an(Array)
         expect(client.signer_documents.search_as_workspace(s1, upload_name)[:data]).to be_an(Array)
         expect { client.signer_documents.list(s1) }.to raise_error(Assinafy::ValidationError)
-        expect(client.signer_documents.download(s1, id, 'original').byteslice(0, 4)).to eq('%PDF')
+        expect { client.signer_documents.download(s1, id, 'original') }.to raise_error(Assinafy::ValidationError)
       end
     ensure
       cleanup_resources(
@@ -471,7 +471,8 @@ RSpec.describe 'Assinafy live sandbox', :live, order: :defined do # rubocop:disa
 
     begin
       template = client.templates.get(template_id)
-      roles = template.fetch('roles').each_with_index.map do |role, index|
+      signing_roles = template.fetch('roles').reject { |role| role['assignment_type'] == 'Editor' }
+      roles = signing_roles.each_with_index.map do |role, index|
         email = index.zero? ? primary_email : secondary_email
         signer_id, created = find_or_create_signer(client, "SDK Template Signer #{index + 1}", email)
         created_signer_ids << signer_id if created
@@ -481,9 +482,19 @@ RSpec.describe 'Assinafy live sandbox', :live, order: :defined do # rubocop:disa
       estimate = client.documents.estimate_cost_from_template(template_id, roles)
       document = client.documents.create_from_template(template_id, roles, name: "sdk-template-#{rand(9999)}")
       document_id = document.fetch('id')
-      ready = client.documents.wait_until_ready(document_id, max_wait_seconds: 60)
+      deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 60
+      loop do
+        document = client.documents.details(document_id)
+        break if document['assignment'] || document['status'] == 'failed'
+        raise Assinafy::Error.new('Timeout waiting for template assignment') if
+          Process.clock_gettime(Process::CLOCK_MONOTONIC) >= deadline
+
+        sleep 2
+      end
       expect(estimate).to include('has_sufficient_resources')
-      expect(ready['id']).to eq(document_id)
+      expect(document['id']).to eq(document_id)
+      expect(document['status']).to eq('pending_signature')
+      expect(document['assignment']).to be_a(Hash)
     ensure
       cleanup_resources(
         ['template document', -> { delete_document_when_ready(client, document_id) if document_id }],

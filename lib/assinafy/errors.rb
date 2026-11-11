@@ -39,7 +39,7 @@ module Assinafy
     attr_reader :response_data
     # @return [String, nil] the API's `name` field (framework errors only)
     attr_reader :error_name
-    # @return [Integer, String, nil] the API's `code` field, when present
+    # @return [Integer, String, nil] the API's `code` field, including actionable refusal codes
     attr_reader :error_code
 
     def initialize(message, status_code, response_data = nil)
@@ -79,7 +79,8 @@ module Assinafy
     end
 
     # Build an {ApiError} from an HTTP status and parsed body. Reads the human
-    # message from `message`, `error`, or `name` (in that order).
+    # message from `message`, `error`, or `name` (in that order). Field errors
+    # remain available as `response_data['errors']` with their field, code and message.
     #
     # @param status_code   [Integer]
     # @param response_data [Hash, Object]

@@ -277,7 +277,7 @@ RSpec.describe Assinafy::Resources::DocumentResource do
     end
 
     it 'rejects non-Hash signer entries before making a request' do
-      expect { resource.create_from_template('tmpl', [{ role_id: 'role' }, 'bad']) }
+      expect { resource.create_from_template('tmpl', [{ role_id: 'role', id: 'signer' }, 'bad']) }
         .to raise_error(Assinafy::ValidationError, /Signer/)
       expect(a_request(:post, "#{base_url}/accounts/acc/templates/tmpl/documents")).not_to have_been_made
     end
@@ -363,7 +363,7 @@ RSpec.describe Assinafy::Resources::DocumentResource do
     it 'rejects null instead of silently treating it as an empty list' do
       stub_request(:get, "#{base_url}/documents/doc-1/activities").to_return(api_envelope(nil))
 
-      expect { resource.activities('doc-1') }.to raise_error(Assinafy::Error, /Array data payload/)
+      expect { resource.activities('doc-1') }.to raise_error(Assinafy::Error, /Array list payload/)
     end
   end
 
@@ -518,7 +518,7 @@ RSpec.describe Assinafy::Resources::DocumentResource do
       expect { resource.create_from_template('template', [{ full_name: 'Example' }]) }
         .to raise_error(Assinafy::ValidationError, /role ID/)
       expect { resource.create_from_template('template', [{ role_id: 'role' }]) }
-        .to raise_error(Assinafy::ValidationError, /Signer ID/)
+        .to raise_error(Assinafy::ValidationError, /email/)
       expect { resource.estimate_cost_from_template('template', [{ role_id: 'role', verification_method: 'SMS' }]) }
         .to raise_error(Assinafy::ValidationError, /verification_method/)
     end
@@ -547,6 +547,149 @@ RSpec.describe Assinafy::Resources::DocumentResource do
                                                               .to_return(api_envelope([]))
 
       expect(described_class.new(connection, 'acc').list(tags: %w[t1 t2])).to eq(data: [])
+    end
+  end
+
+  describe 'template generation controls' do
+    [
+      { 'verification_method' => 'DigitalCertificate' },
+      { 'verification_method' => 'Email', 'step' => 1 }
+    ].each do |signing_options|
+      it "leaves copy receivers out of role-dependent step validation for #{signing_options}" do
+        body = { 'signers' => [
+          { 'role_id' => 'sign-role', 'id' => 'signer' }.merge(signing_options),
+          { 'role_id' => 'copy-role', 'id' => 'copy' }
+        ] }
+        path = "#{base_url}/accounts/acc/templates/template"
+        stub_request(:post, "#{path}/documents").with(body: body).to_return(api_envelope({ 'id' => 'doc' }))
+        stub_request(:post, "#{path}/documents/estimate-cost")
+          .with(body: body).to_return(api_envelope({ 'total_credits' => 1 }))
+
+        expect(resource.create_from_template('template', body)['id']).to eq('doc')
+        expect(resource.estimate_cost_from_template('template', body)['total_credits']).to eq(1)
+      end
+    end
+
+    it 'extracts idempotency from a full payload without changing the caller payload' do
+      payload = { signers: [{ role_id: 'role', id: 'signer' }], idempotency_key: 'request-1' }
+      stub_request(:post, "#{base_url}/accounts/acc/templates/template/documents")
+        .with(body: { signers: payload[:signers] }, headers: { 'Idempotency-Key' => 'request-1' })
+        .to_return(api_envelope({ 'id' => 'doc' }))
+
+      expect(resource.create_from_template('template', payload)['id']).to eq('doc')
+      expect(payload[:idempotency_key]).to eq('request-1')
+    end
+
+    it 'lets options override an idempotency key in a full payload' do
+      payload = { 'signers' => [{ 'role_id' => 'role', 'id' => 'signer' }], 'idempotency_key' => 'old' }
+      stub_request(:post, "#{base_url}/accounts/acc/templates/template/documents")
+        .with(body: { signers: payload['signers'] }, headers: { 'Idempotency-Key' => 'new' })
+        .to_return(api_envelope({ 'id' => 'doc' }))
+
+      expect(resource.create_from_template('template', payload, idempotency_key: 'new')['id']).to eq('doc')
+    end
+
+    it 'accepts an email signer and sends idempotency as a header, with the credit ceiling in JSON' do
+      body = { 'signers' => [{ 'role_id' => 'role', 'email' => 'signer@example.com', 'name' => 'Example Signer',
+                              'embedded' => true }], 'max_total_credits' => 0 }
+      path = "#{base_url}/accounts/acc/templates/template/documents"
+      stub_request(:post, path).with(body: body, headers: { 'Idempotency-Key' => 'request-1' })
+                               .to_return(api_envelope({ 'id' => 'doc', 'status' => 'uploaded', 'assignment' => nil }))
+
+      result = resource.create_from_template('template', body, { idempotency_key: 'request-1' })
+      expect(result).to include('status' => 'uploaded', 'assignment' => nil)
+    end
+
+    it 'rejects malformed contact, editor value, credit ceiling and idempotency keys before sending' do
+      signer = { role_id: 'role', id: 'signer' }
+      expect { resource.create_from_template('template', [{ role_id: 'role', email: 'invalid' }]) }
+        .to raise_error(Assinafy::ValidationError)
+      expect { resource.create_from_template('template', [signer], max_total_credits: -1) }
+        .to raise_error(Assinafy::ValidationError)
+      expect { resource.create_from_template('template', [signer], idempotency_key: "bad\r\nkey") }
+        .to raise_error(Assinafy::ValidationError)
+      expect { resource.create_from_template('template', [signer], idempotency_key: false) }
+        .to raise_error(Assinafy::ValidationError)
+      expect { resource.create_from_template('template', [signer.merge(step: 0)]) }
+        .to raise_error(Assinafy::ValidationError, /positive Integer/)
+      expect do
+        resource.create_from_template('template', [signer], editor_fields: [{ field_id: 'field', value: '' }])
+      end.to raise_error(Assinafy::ValidationError)
+      expect(a_request(:post, %r{/templates/template/documents})).not_to have_been_made
+    end
+  end
+
+  describe 'envelope filters and expansion' do
+    it 'expands an envelope through both document readers' do
+      stub_request(:get, "#{base_url}/documents/doc-1")
+        .with(query: { 'expand' => 'envelope_id,envelope' })
+        .to_return(api_envelope({ 'id' => 'doc-1', 'envelope_id' => 'env',
+'envelope' => { 'id' => 'env', 'name' => 'Pack' } }))
+
+      expect(resource.details('doc-1', expand: %w[envelope_id envelope])['envelope_id']).to eq('env')
+      expect(resource.get('doc-1', expand: 'envelope_id,envelope')['envelope']).to eq('id' => 'env', 'name' => 'Pack')
+    end
+
+    it 'forwards the envelope filter through list and search' do
+      stub_request(:get, "#{base_url}/accounts/acc/documents")
+        .with(query: { 'envelope_id' => 'env' }).to_return(api_envelope([]))
+      stub_request(:get, "#{base_url}/accounts/acc/documents/search")
+        .with(query: { 'envelope_id' => 'env' }).to_return(api_envelope([]))
+
+      expect(resource.list(envelope_id: 'env')).to eq(data: [])
+      expect(resource.search(nil, envelope_id: 'env')).to eq(data: [])
+    end
+
+    it 'rejects invalid filters and expansion lists before a request' do
+      [false, [], %w[envelope secret], 'envelope,', ''].each do |value|
+        expect { resource.details('doc-1', expand: value) }.to raise_error(Assinafy::ValidationError)
+      end
+      expect { resource.list(envelope_id: []) }.to raise_error(Assinafy::ValidationError)
+      expect { resource.search(nil, envelope_id: 123) }.to raise_error(Assinafy::ValidationError)
+    end
+  end
+
+  describe 'signed page renders' do
+    it 'requests signed thumbnails and pages with workspace credentials' do
+      %W[#{base_url}/documents/doc-1/thumbnail #{base_url}/documents/doc-1/pages/page-1/download].each do |url|
+        stub_request(:get, url).with(query: { 'artifact' => 'certificated' }, headers: { 'X-Api-Key' => 'test-key' })
+                               .to_return(status: 200, body: 'PNG', headers: { 'Content-Type' => 'image/png' })
+      end
+
+      expect(resource.thumbnail('doc-1', artifact: 'certificated')).to eq('PNG')
+      expect(resource.download_page('doc-1', 'page-1', artifact: 'certificated')).to eq('PNG')
+      expect { resource.thumbnail('doc-1', artifact: false) }.to raise_error(Assinafy::ValidationError)
+    end
+
+    it 'preserves a rendering Retry-After failure without retrying' do
+      request = stub_request(:get, "#{base_url}/documents/doc-1/thumbnail")
+                .with(query: { 'artifact' => 'certificated' })
+                .to_return(json_response({ message: 'Rendering' }, status: 503, headers: { 'Retry-After' => '5' }))
+
+      expect { resource.thumbnail('doc-1', artifact: 'certificated') }
+        .to raise_error(Assinafy::ApiError) { |error| expect(error.retry_after).to eq(5) }
+      expect(request).to have_been_requested.once
+    end
+  end
+
+  describe '#activities_page' do
+    it 'retains pagination while activities keeps its Array return' do
+      response = { status: 200, data: [{ 'id' => 1, 'event' => 'document_uploaded' }] }
+      headers = { 'X-Pagination-Current-Page' => '2', 'X-Pagination-Per-Page' => '20',
+                  'X-Pagination-Total-Count' => '21', 'X-Pagination-Page-Count' => '2' }
+      stub_request(:get, "#{base_url}/documents/doc-1/activities")
+        .with(query: { 'sort' => 'id', 'page' => '2', 'per-page' => '20' })
+        .to_return(json_response(response, headers: headers))
+
+      result = resource.activities_page('doc-1', sort: 'id', page: 2, per_page: 20)
+      expect(result[:meta]).to eq(current_page: 2, per_page: 20, total: 21, last_page: 2)
+      expect(resource.activities('doc-1', sort: 'id', page: 2, per_page: 20)).to eq(response[:data])
+    end
+
+    it 'validates activity parameters before requesting' do
+      [nil, { sort: 'name' }, { page: 0 }, { per_page: 101 }, { page: '2' }].each do |params|
+        expect { resource.activities_page('doc-1', params) }.to raise_error(Assinafy::ValidationError)
+      end
     end
   end
 end

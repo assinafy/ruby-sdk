@@ -361,6 +361,7 @@ module Assinafy
       # Change a webhook endpoint. Only the fields sent are updated.
       # `signing_enabled: true` generates a secret when the endpoint has none
       # and keeps the current one otherwise; `false` discards the secret.
+      # Enabling signing returns the new secret once in this response.
       #
       # @param endpoint_id [String]
       # @param payload [Hash] any of `url`, `email`, `events`, `name`, `is_active`, `signing_enabled`
@@ -455,29 +456,60 @@ module Assinafy
         end
       end
 
-      # Replace an endpoint's signing secret. The old secret stops working
-      # immediately, so update the receiver right away. Not available to OAuth
-      # applications.
+      # Replace an endpoint's signing secret. By default the old secret stops immediately.
+      # `keep_previous: true` keeps it signing for 24 hours while receivers migrate.
+      # OAuth applications can rotate with the webhooks:write scope.
       #
       # @param endpoint_id [String]
       # @param account_id_override [String, nil]
-      # @return [Hash] `{ "secret" => "whsec_..." }` (the new secret)
+      # @return [Hash] the new `secret`, plus `previous_secret_expires_at` with keep_previous
       # @raise [Assinafy::ApiError] `400` when signing is disabled; `404` on an unknown ID
       # @raise [Assinafy::NetworkError] on transport or TLS failure
       # @raise [Assinafy::ValidationError] on invalid required input
+      # @param keep_previous [Boolean] keep the replaced secret signing for 24 hours
       # @see POST /accounts/{account_id}/webhooks/endpoints/{endpoint_id}/secret/rotate
       # @example Rotate the signing secret
       #   client.webhooks.rotate_endpoint_secret('webhook-endpoint-id')
       #   # POST /accounts/{account_id}/webhooks/endpoints/webhook-endpoint-id/secret/rotate  (no request body)
       #   # => { 'secret' => "whsec_new-secret-placeholder" }
-      def rotate_endpoint_secret(endpoint_id, account_id_override = nil)
+      def rotate_endpoint_secret(endpoint_id, account_id_override = nil, keep_previous: false)
+        require_boolean(keep_previous, 'keep_previous')
         path = endpoint_path(endpoint_id, account_id_override)
 
         @logger.info('Rotating webhook endpoint secret')
 
         call('Failed to rotate webhook endpoint secret') do
-          http_post("#{path}/secret/rotate")
+          http_post("#{path}/secret/rotate", keep_previous ? { keep_previous: true } : nil)
         end
+      end
+
+      # Send one webhook_test delivery now, even to a paused or inactive endpoint.
+      # The endpoint gets ten seconds to respond. Limited to ten tests per user per ten minutes;
+      # OAuth requires webhooks:write. The call does not change the endpoint's subscription or pause.
+      #
+      # @param endpoint_id [String]
+      # @param account_id_override [String, nil]
+      # @return [Hash] WebhookDispatch recording this attempt
+      # @raise [Assinafy::ValidationError] on an invalid endpoint or account ID
+      # @raise [Assinafy::ApiError] on failure, including 404 and 429
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @see POST /accounts/{accountId}/webhooks/endpoints/{endpointId}/test
+      # @example Send a test delivery
+      #   client.webhooks.test_endpoint('endpoint-id')
+      #   # Request: POST /accounts/{accountId}/webhooks/endpoints/endpoint-id/test (no body)
+      #   # => { 'resource' => 'activity_dispatching_history', 'id' => 'dispatch-id',
+      #   #      'event' => 'webhook_test', 'activity_id' => 123, 'endpoint_id' => 'endpoint-id',
+      #   #      'endpoint' => 'https://example.com/webhook', 'delivered' => true,
+      #   #      'payload' => { 'event' => 'webhook_test', 'account_id' => 'account-id',
+      #   #        'payload' => nil, 'origin' => nil,
+      #   #        'subject' => { 'id' => 'endpoint-id' }, 'object' => { 'id' => 'endpoint-id' } },
+      #   #      'webhook_id' => 'webhook-id', 'attempt' => 1, 'kind' => 'manual',
+      #   #      'will_retry' => false, 'duration_ms' => 184, 'http_status' => 200,
+      #   #      'response_body' => 'OK', 'error' => nil,
+      #   #      'created_at' => '2026-11-04T12:05:00Z', 'updated_at' => '2026-11-04T12:05:00Z' }
+      def test_endpoint(endpoint_id, account_id_override = nil)
+        path = endpoint_path(endpoint_id, account_id_override)
+        call('Failed to send webhook test') { http_post("#{path}/test") }
       end
 
       private

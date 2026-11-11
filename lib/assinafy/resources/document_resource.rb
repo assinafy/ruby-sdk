@@ -77,7 +77,7 @@ module Assinafy
 
       # List documents for an account.
       #
-      # @param params [Hash] query parameters (`status`, `method`, `search`, `sort`, `tags`, `page`, `per_page`).
+      # @param params [Hash] `status`, `method`, `search`, `sort`, `tags`, `envelope_id`, `page`, `per_page`.
       #   `tags` is a comma-separated String of tag IDs or an Array of them; documents must carry every tag.
       # @param account_id_override [String, nil]
       # @return [Hash{Symbol=>Array,Hash}] `{ data: [...], meta: { current_page:, per_page:, total:, last_page: } }`
@@ -124,6 +124,7 @@ module Assinafy
         acc_id = account_id(account_id_override)
         query  = require_payload(params, 'Query parameters').transform_keys(&:to_sym)
         query[:tags] = query[:tags].join(',') if query[:tags].is_a?(Array)
+        require_string(query[:envelope_id], 'Envelope ID') unless query[:envelope_id].nil?
 
         call_list('Failed to list documents') do
           http_get("accounts/#{acc_id}/documents", query)
@@ -166,7 +167,8 @@ module Assinafy
       #   }
       def search(query = nil, params = {}, account_id_override = nil)
         acc_id = account_id(account_id_override)
-        filters = require_payload(params, 'Document search parameters')
+        filters = require_payload(params, 'Document search parameters').transform_keys(&:to_sym)
+        require_string(filters[:envelope_id], 'Envelope ID') unless filters[:envelope_id].nil?
         require_string(query, 'Search query') unless query.nil?
 
         call_list('Failed to search documents') do
@@ -212,6 +214,7 @@ module Assinafy
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure
       # @raise [Assinafy::ValidationError] on invalid required input
+      # @param expand [String, Array<String>, nil] `envelope_id`, `envelope`, or both comma-separated
       # @see GET /documents/{document_id}
       # @example Fetch a document
       #   # Request: GET /documents/{document_id}
@@ -243,11 +246,12 @@ module Assinafy
       #     'created_at' => '2026-06-05T21:21:12Z',
       #     'updated_at' => '2026-06-05T21:21:15Z'
       #   }
-      def details(document_id)
+      def details(document_id, expand: nil)
         doc_id = require_id(document_id, 'Document ID')
+        expansions = document_expansions(expand)
 
         call('Failed to fetch document details') do
-          http_get("documents/#{doc_id}")
+          http_get("documents/#{doc_id}", { expand: expansions })
         end
       end
 
@@ -387,6 +391,9 @@ module Assinafy
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure
       # @raise [Assinafy::ValidationError] on invalid required input
+      # @param artifact [String, nil] `certificated` renders signatures and stamps; other values use the original
+      # @note Signed renders require a certificated document and workspace credentials. Rendering can answer
+      #   503 with Retry-After; the SDK does not retry. Do not cache signed renders.
       # @see GET /documents/{document_id}/thumbnail
       # @example Download the thumbnail and save it
       #   # Request: GET /documents/{document_id}/thumbnail
@@ -396,11 +403,12 @@ module Assinafy
       #   bytes.class               # => String
       #   bytes.byteslice(0, 4)     # => "\xFF\xD8\xFF\xE0" (JPEG magic bytes)
       #   File.binwrite('thumb.jpg', bytes)
-      def thumbnail(document_id)
+      def thumbnail(document_id, artifact: nil)
+        require_string(artifact, 'Artifact') unless artifact.nil?
         doc_id = require_id(document_id, 'Document ID')
 
         call_binary('Failed to download document thumbnail') do
-          http_get("documents/#{doc_id}/thumbnail")
+          http_get("documents/#{doc_id}/thumbnail", { artifact: artifact })
         end
       end
 
@@ -412,6 +420,10 @@ module Assinafy
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure
       # @raise [Assinafy::ValidationError] on invalid required input
+      # @param artifact [String, nil] `certificated` renders signatures and stamps; other values use the original
+      # @note Signed renders require a certificated document and workspace credentials. Rendering can answer
+      #   503 with Retry-After; the SDK does not retry. Certificate pages have no page ID.
+      #   Digital-certificate seals are visible only in the pades artifact. Do not cache signed renders.
       # @see GET /documents/{document_id}/pages/{page_id}/download
       # @example Download a single page image
       #   # Request: GET /documents/{document_id}/pages/{page_id}/download
@@ -421,22 +433,24 @@ module Assinafy
       #   # Response: raw image bytes (NOT a JSON envelope):
       #   bytes.class      # => String
       #   File.binwrite('page-1.png', bytes)
-      def download_page(document_id, page_id)
+      def download_page(document_id, page_id, artifact: nil)
+        require_string(artifact, 'Artifact') unless artifact.nil?
         doc_id = require_id(document_id, 'Document ID')
         pid    = require_id(page_id, 'Page ID')
 
         call_binary('Failed to download page') do
-          http_get("documents/#{doc_id}/pages/#{pid}/download")
+          http_get("documents/#{doc_id}/pages/#{pid}/download", { artifact: artifact })
         end
       end
 
-      # List the activity log for a document.
+      # Read one page of document activities as an Array. Use {#activities_page} for pagination metadata.
       #
       # @param document_id [String]
       # @return [Array<Hash>] newest-first activity entries (empty Array when there are none)
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure
       # @raise [Assinafy::ValidationError] on invalid required input
+      # @param params [Hash] `sort` (`id` or `-id`), `page`, `per_page`
       # @see GET /documents/{documentId}/activities
       # @example List a document's activity log
       #   # Request: GET /documents/{document_id}/activities
@@ -461,11 +475,30 @@ module Assinafy
       #       'created_at' => '2026-06-05T21:21:13Z'
       #     }
       #   ]
-      def activities(document_id)
-        doc_id = require_id(document_id, 'Document ID')
+      def activities(document_id, params = {})
+        activities_page(document_id, params).fetch(:data)
+      end
 
-        call_array('Failed to fetch document activities') do
-          http_get("documents/#{doc_id}/activities")
+      # Read document activities together with pagination metadata (20 entries per page by default).
+      #
+      # @param document_id [String]
+      # @param params [Hash] `sort` (`id` or `-id`), `page`, `per_page`
+      # @return [Hash] `{ data: [DocumentActivity, ...], meta: { current_page:, per_page:, total:, last_page: } }`
+      # @raise [Assinafy::ValidationError] on invalid document ID or query parameters
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @see GET /documents/{documentId}/activities
+      # @example Read the oldest activities and their pagination headers
+      #   client.documents.activities_page('document-id', sort: 'id', page: 1, per_page: 20)
+      #   # Request: GET /documents/document-id/activities?sort=id&page=1&per-page=20 (no body)
+      #   # => { data: [{ 'id' => 1, 'event' => 'document_uploaded', 'message' => 'Document created.',
+      #   #               'payload' => [], 'origin' => nil, 'created_at' => '2026-11-04T12:00:00Z' }],
+      #   #      meta: { current_page: 1, per_page: 20, total: 1, last_page: 1 } }
+      def activities_page(document_id, params = {})
+        doc_id = require_id(document_id, 'Document ID')
+        query = activity_params(params)
+        call_list('Failed to fetch document activities') do
+          http_get("documents/#{doc_id}/activities", query)
         end
       end
 
@@ -491,15 +524,21 @@ module Assinafy
         end
       end
 
-      # Create a document from a template, optionally creating its virtual assignment.
+      # Create a document from a template; its assignment is created asynchronously.
+      # Poll until pending_signature or failed. Placed signer fields use collect; DigitalCertificate
+      # requires a template without those fields. Editor roles are filled through editor_fields.
+      # The server validates signing-step relationships using the template's role types; copy receivers
+      # do not participate in signing steps.
       #
       # @param template_id          [String]
-      # @param signers_or_payload   [Array<Hash>, Hash] signer references (`role_id` + `id`)
+      # @param signers_or_payload   [Array<Hash>, Hash] signer references (`role_id` + `id` or `email`)
       #   or a full payload Hash. When a Hash is passed, `options` is merged into it.
       # @param options              [Hash] additional body fields (`name`, `message`,
-      #   `editor_fields`, `expires_at`, ...)
+      #   `editor_fields`, `expires_at`, `max_total_credits`, ...)
+      # @option options [String] :idempotency_key sent as Idempotency-Key, never in the JSON body;
+      #   also accepted in a full payload Hash, with options taking precedence
       # @param account_id_override  [String, nil]
-      # @return [Hash] document object with an embedded `assignment` (signers, items, signing_urls)
+      # @return [Hash] uploaded document with assignment: nil until background processing finishes
       #
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure
@@ -531,15 +570,7 @@ module Assinafy
       #     'template_id' => 'template-id',
       #     'name' => 'sample-contract.pdf',
       #     'status' => 'uploaded',
-      #     'assignment' => {
-      #       'id' => 'assignment-id',
-      #       'method' => 'virtual',
-      #       'signers' => [{ 'id' => 'fa8c140c...', 'full_name' => 'Suzana Cordeiro',
-      #                       'email' => 'signer@example.com', 'has_accepted_terms' => false }],
-      #       'summary' => { 'signer_count' => 1, 'completed_count' => 0, 'signers' => [] },
-      #       'signing_urls' => [{ 'signer_id' => 'customid1', 'url' => 'https://.../sign/...' }]
-      #       # ... (also items, copy_receivers, expires_at, message)
-      #     },
+      #     'assignment' => nil,
       #     'tags' => [{ 'id' => 'ab12cd34...', 'name' => 'Onboarding' }],
       #     'created_at' => '2024-07-23T15:05:17Z',
       #     'updated_at' => '2024-07-23T15:05:17Z'
@@ -548,12 +579,14 @@ module Assinafy
       def create_from_template(template_id, signers_or_payload, options = {}, account_id_override = nil)
         tmpl_id = require_id(template_id, 'Template ID')
         acc_id  = account_id(account_id_override)
+        options = require_payload(options, 'Template document options').transform_keys(&:to_s)
         body    = template_body(signers_or_payload, options, require_signer_id: true)
+        headers = idempotency_headers(body.delete('idempotency_key'))
 
         @logger.info("Creating document from template #{tmpl_id} for account #{acc_id}")
 
         call('Failed to create document from template') do
-          http_post("accounts/#{acc_id}/templates/#{tmpl_id}/documents", body)
+          http_post("accounts/#{acc_id}/templates/#{tmpl_id}/documents", body, headers: headers)
         end
       end
 
@@ -886,6 +919,34 @@ module Assinafy
 
       private
 
+      def document_expansions(expand)
+        return nil if expand.nil?
+
+        values = expand.is_a?(String) ? expand.split(',', -1) : expand
+        unless values.is_a?(Array) && !values.empty? && (values - %w[envelope_id envelope]).empty?
+          raise ValidationError.new('expand must contain envelope_id and/or envelope')
+        end
+
+        values.join(',')
+      end
+
+      def activity_params(params)
+        query = query_params(require_payload(params, 'Activity parameters'))
+        if query.key?('sort') && !%w[id -id].include?(query['sort'])
+          raise ValidationError.new('Activity sort must be id or -id')
+        end
+
+        %w[page per-page].each do |key|
+          next unless query.key?(key)
+
+          value = query[key]
+          unless value.is_a?(Integer) && value > 0 && (key != 'per-page' || value <= 100)
+            raise ValidationError.new("#{key} must be a positive Integer (per_page at most 100)")
+          end
+        end
+        query
+      end
+
       def uploaded_document_id(document)
         id = document['id'] if document.is_a?(Hash)
         require_id(id, 'Uploaded document ID')
@@ -919,8 +980,9 @@ module Assinafy
         body = body_params(body)
         validate_template_signers!(body['signers'], require_signer_id)
         normalised = AssignmentResource.build_payload(
-          { signers: body['signers'], expires_at: body['expires_at'], message: body['message'] },
-          allow_signers_without_id: !require_signer_id
+          { signers: body['signers'], expires_at: body['expires_at'], message: body['message'],
+            max_total_credits: body['max_total_credits'] },
+          allow_signers_without_id: true, validate_steps: false
         )
         body['signers'].zip(normalised['signers']).each { |signer, ref| signer.merge!(ref) }
         validate_editor_fields!(body['editor_fields']) if body.key?('editor_fields')
@@ -931,7 +993,13 @@ module Assinafy
         require_array(signers, 'Signers').each do |signer|
           require_payload(signer, 'Signer')
           require_id(signer['role_id'], 'Template role ID')
-          require_id(signer['id'], 'Signer ID') if require_signer_id
+          if signer.key?('id')
+            require_id(signer['id'], 'Signer ID')
+          elsif require_signer_id
+            Utils.require_email(signer['email'])
+            require_string(signer['name'], 'Signer name') if signer.key?('name')
+            require_string(signer['whatsapp_phone_number'], 'WhatsApp number') if signer.key?('whatsapp_phone_number')
+          end
         end
         %w[role_id id].each do |key|
           values = signers.filter_map { |signer| signer[key] }
@@ -945,7 +1013,7 @@ module Assinafy
         fields.each do |field|
           require_payload(field, 'Editor field')
           require_id(field['field_id'], 'Editor field ID')
-          raise ValidationError.new('Editor field value must be a String') unless field['value'].is_a?(String)
+          require_string(field['value'], 'Editor field value')
         end
       end
 

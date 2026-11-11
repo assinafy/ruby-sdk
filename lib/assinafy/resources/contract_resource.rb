@@ -156,6 +156,7 @@ module Assinafy
       # @raise [Assinafy::ApiError] on an unsuccessful response other than 404
       # @raise [Assinafy::NetworkError] on transport or TLS failure
       # @raise [Assinafy::ValidationError] on an invalid ID
+      # @param expand [String, nil] `document` embeds the root document, including its name
       # @see GET /accounts/{accountId}/documents/{documentId}/contract/related
       # @example Read a family from one of its amendments
       #   client.contracts.related('amendment-id')
@@ -169,9 +170,13 @@ module Assinafy
       #   #      'amendments' => [{ 'document_id' => 'amendment-id', 'relation_type' => 'amendment',
       #   #                          'number' => 1, 'status' => 'applied', 'terms' => { 'value' => 130000 } }],
       #   #      'created_at' => '2026-10-23T12:00:00Z', 'updated_at' => '2027-05-12T18:20:00Z' }
-      def related(document_id, account_id_override = nil)
+      def related(document_id, account_id_override = nil, expand: nil)
+        unless expand.nil? || expand == 'document'
+          raise ValidationError.new('expand must be document')
+        end
+
         call_optional('Failed to fetch related contracts') do
-          http_get("#{contract_path(document_id, account_id_override)}/related")
+          http_get("#{contract_path(document_id, account_id_override)}/related", { expand: expand })
         end
       end
 
@@ -230,7 +235,7 @@ module Assinafy
       def terminate(document_id, payload = {}, account_id_override = nil)
         body = contract_payload(payload, TERMINATE_FIELDS, 'Contract termination payload')
         validate_optional_string!(body, 'reason', 'Termination reason', max_length: 500)
-        validate_optional_string!(body, 'updated_at', 'updated_at')
+        validate_optional_timestamp!(body, 'updated_at')
 
         call('Failed to terminate contract') do
           http_post("#{contract_path(document_id, account_id_override)}/terminate", body)
@@ -315,8 +320,12 @@ module Assinafy
           validate_number!(body['value'], 'value', 0, 9_999_999_999_999.99)
         end
         validate_boolean!(body, 'auto_renew')
-        validate_integer!(body['renewal_term_months'], 'renewal_term_months', 1, 600) if body['renewal_term_months']
-        validate_integer!(body['notice_period_days'], 'notice_period_days', 0, 3650) if body['notice_period_days']
+        unless body['renewal_term_months'].nil?
+          validate_integer!(body['renewal_term_months'], 'renewal_term_months', 1, 600)
+        end
+        unless body['notice_period_days'].nil?
+          validate_integer!(body['notice_period_days'], 'notice_period_days', 0, 3650)
+        end
       end
 
       def validate_contract_collections!(body)

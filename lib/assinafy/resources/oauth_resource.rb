@@ -287,6 +287,8 @@ module Assinafy
       # @raise [Assinafy::NetworkError] on transport or TLS failure
       # @raise [Assinafy::ValidationError] on invalid required input
       def revoke(token:, client_id:, token_type_hint: nil, client_secret: nil)
+        require_string(client_secret, 'Client secret') unless client_secret.nil?
+
         if !token_type_hint.nil? && !TOKEN_TYPE_HINTS.include?(token_type_hint.to_s)
           raise ValidationError.new(
             "Token type hint must be one of: #{TOKEN_TYPE_HINTS.join(', ')}",
@@ -396,6 +398,10 @@ module Assinafy
       #   pass `"#{protected_resource_metadata['authorization_servers'].first}" \
       #   "/.well-known/oauth-authorization-server"` to follow discovery strictly
       # @return [Hash{String=>Object}] the bare metadata object
+      # @raise [Assinafy::OAuthError] on an unsuccessful metadata response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @raise [Assinafy::ValidationError] when the URL is not absolute HTTPS without userinfo or fragment
+      # @see GET https://auth.assinafy.com.br/.well-known/oauth-authorization-server
       #
       # @example Discover endpoints instead of hardcoding them
       #   metadata = client.oauth.authorization_server_metadata

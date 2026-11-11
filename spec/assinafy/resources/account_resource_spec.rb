@@ -150,4 +150,104 @@ RSpec.describe Assinafy::Resources::AccountResource do
       expect { resource.update(notification_sender_type: 'Signer') }.to raise_error(Assinafy::ValidationError)
     end
   end
+
+  describe 'signing features and usage' do
+    it 'expands signing features while retaining workspace credentials and account overrides' do
+      stub_request(:get, "#{base_url}/accounts/other")
+        .with(query: { 'expand' => 'signing_features' }, headers: { 'X-Api-Key' => 'test-key' })
+        .to_return(api_envelope({ 'signing_features' => { 'Embed' => true } }))
+
+      expect(resource.get('other', expand: 'signing_features')).to eq('signing_features' => { 'Embed' => true })
+      expect { resource.get(expand: 'billing') }.to raise_error(Assinafy::ValidationError)
+    end
+
+    it 'reads the workspace usage meter' do
+      usage = { 'plan' => 'Pro', 'balances' => { 'documents' => { 'balance' => nil, 'limit' => nil, 'spent' => 4 } } }
+      stub_request(:get, "#{base_url}/accounts/acc/usage")
+        .with(headers: { 'X-Api-Key' => 'test-key' }).to_return(api_envelope(usage))
+
+      expect(resource.usage).to eq(usage)
+      expect { resource.usage('../bad') }.to raise_error(Assinafy::ValidationError)
+    end
+  end
+
+  describe 'notification policy' do
+    let(:policy) { { 'editable' => true, 'owners_receive_all' => false, 'events' => { 'SignerViewed' => false } } }
+
+    it 'reads the workspace policy' do
+      stub_request(:get, "#{base_url}/accounts/acc/notification-policy")
+        .with(headers: { 'X-Api-Key' => 'test-key' }).to_return(api_envelope(policy))
+
+      expect(resource.notification_policy).to eq(policy)
+    end
+
+    it 'sends partial flags without dropping false' do
+      stub_request(:put, "#{base_url}/accounts/acc/notification-policy")
+        .with(body: { 'events' => { 'SignerViewed' => false }, 'owners_receive_all' => false })
+        .to_return(api_envelope(policy))
+
+      expect(resource.update_notification_policy(events: { SignerViewed: false }, owners_receive_all: false))
+        .to eq(policy)
+    end
+
+    it 'can change owner delivery with an empty partial event map' do
+      stub_request(:put, "#{base_url}/accounts/acc/notification-policy")
+        .with(body: { 'events' => {}, 'owners_receive_all' => false }).to_return(api_envelope(policy))
+
+      expect(resource.update_notification_policy(events: {}, owners_receive_all: false)).to eq(policy)
+    end
+
+    it 'rejects unknown, empty, and non-boolean policy values before the network' do
+      invalid = [{}, { unknown: true }, { owners_receive_all: nil }, { events: nil },
+                 { events: { Unknown: true } }, { events: { SignerViewed: nil } }]
+      invalid.each do |payload|
+        expect { resource.update_notification_policy(payload) }.to raise_error(Assinafy::ValidationError)
+      end
+      expect(a_request(:put, "#{base_url}/accounts/acc/notification-policy")).not_to have_been_made
+    end
+  end
+
+  describe 'embedding origins' do
+    let(:origin) { { 'id' => 'origin-id', 'origin' => 'https://app.example.com', 'created_at' => '2026-11-04T12:05:00Z' } }
+    let(:origins_url) { "#{base_url}/accounts/acc/embed-origins" }
+
+    it 'lists unpaginated origins with workspace credentials' do
+      stub_request(:get, origins_url).with(headers: { 'X-Api-Key' => 'test-key' }).to_return(api_envelope([origin]))
+
+      expect(resource.list_embed_origins).to eq([origin])
+    end
+
+    it 'creates and updates an exact origin and unwraps each result' do
+      stub_request(:post, origins_url).with(body: { 'origin' => origin['origin'] }).to_return(api_envelope(origin))
+      stub_request(:put, "#{origins_url}/origin-id").with(body: { 'origin' => origin['origin'] })
+                                                    .to_return(api_envelope(origin))
+
+      expect(resource.create_embed_origin(origin['origin'])).to eq(origin)
+      expect(resource.update_embed_origin('origin-id', origin['origin'])).to eq(origin)
+    end
+
+    it 'allows loopback HTTP and HTTPS ports with trailing slash for server normalization' do
+      %w[http://localhost:3000 http://127.0.0.1:8080 https://app.example.com:8443/].each do |value|
+        stub_request(:post, origins_url).with(body: { 'origin' => value }).to_return(api_envelope(origin))
+
+        expect(resource.create_embed_origin(value)).to eq(origin)
+      end
+    end
+
+    it 'deletes an origin and discards the empty success payload' do
+      stub_request(:delete, "#{origins_url}/origin-id").to_return(api_envelope([]))
+
+      expect(resource.delete_embed_origin('origin-id')).to be_nil
+    end
+
+    it 'rejects non-origins and unsafe IDs before any request' do
+      invalid = ['http://example.com', 'https://*.example.com', 'https://example.com/path',
+                 'https://user:pass@example.com', 'https://example.com?x=1', 'https://example.com#fragment',
+                 'https://example.com:65536', 'relative', nil]
+      invalid.each do |value|
+        expect { resource.create_embed_origin(value) }.to raise_error(Assinafy::ValidationError)
+      end
+      expect { resource.update_embed_origin('../id', origin['origin']) }.to raise_error(Assinafy::ValidationError)
+    end
+  end
 end

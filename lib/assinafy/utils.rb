@@ -12,6 +12,23 @@ module Assinafy
     EMAIL_PATTERN = /\A[^\s@]+@[^\s@]+\.[^\s@]+\z/
 
     class << self
+      # Validate a spending ceiling without changing the caller's numeric representation.
+      # @param value [Numeric, String, nil] a finite, nonnegative number of credits
+      # @return [Numeric, String, nil] the unchanged value
+      # @raise [ValidationError] on invalid credits
+      # @example
+      #   Assinafy::Utils.require_credit_ceiling('1.5') # => '1.5'
+      def require_credit_ceiling(value)
+        return nil if value.nil?
+
+        raw = value.to_s.strip if value.is_a?(Numeric) || value.is_a?(String)
+        decimal = /\A([+-]?)(\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\z/.match(raw.to_s)
+        return value if decimal && !(decimal[1] == '-' && decimal[2].match?(/[1-9]/)) &&
+                        Float(raw, exception: false)&.finite?
+
+        raise ValidationError.new('max_total_credits must be a finite nonnegative number')
+      end
+
       # Validate a contact address without exposing it in error metadata.
       # @param email [String]
       # @return [String] the unchanged address

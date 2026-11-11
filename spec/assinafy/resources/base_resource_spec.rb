@@ -94,6 +94,24 @@ RSpec.describe Assinafy::Resources::BaseResource do
   end
 
   describe 'error mapping' do
+    it 'preserves actionable refusal codes and structured field errors' do
+      fields = [{ 'field' => 'value', 'code' => 'TooSmall', 'message' => 'value must be no less than 0.' }]
+      body = { 'status' => 400, 'message' => fields.first['message'], 'errors' => fields }
+      stub_request(:get, "#{base_url}/items").to_return(json_response(body, status: 400))
+
+      expect { resource.list }.to raise_error(Assinafy::ApiError) { |error|
+        expect(error.response_data['errors']).to eq(fields)
+        expect(error.message).to eq(fields.first['message'])
+      }
+
+      body = { 'status' => 409, 'message' => 'The contract changed.', 'code' => 'ContractChanged' }
+      stub_request(:get, "#{base_url}/items").to_return(json_response(body, status: 409))
+
+      expect { resource.list }.to raise_error(
+        an_instance_of(Assinafy::ApiError).and(having_attributes(status_code: 409, error_code: 'ContractChanged'))
+      )
+    end
+
     # The challenge is the only thing that tells "reconnect with this scope
     # added" apart from a 403 for another workspace or the user's role.
     it 'keeps the WWW-Authenticate challenge naming a missing OAuth scope' do

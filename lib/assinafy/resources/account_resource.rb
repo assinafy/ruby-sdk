@@ -73,12 +73,14 @@ module Assinafy
       end
 
       # Fetch an account by ID (defaults to the client's account).
+      # Pass `expand: 'signing_features'` to include current plan gates for signing.
       #
       # @param account_id_override [String, nil]
       # @return [Hash] the account (envelope `data` unwrapped)
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure
       # @raise [Assinafy::ValidationError] on invalid required input
+      # @param expand [String, nil] `signing_features` adds five boolean feature flags
       # @see GET /accounts/{account_id}
       # @example Fetch the current account
       #   # Request: GET /accounts/{account_id}
@@ -93,11 +95,14 @@ module Assinafy
       #     'limits' => { 'webhook_endpoints' => 1 },
       #     'created_at' => '2026-05-12T18:05:11Z'
       #   }
-      def get(account_id_override = nil)
+      def get(account_id_override = nil, expand: nil)
         acc_id = account_id(account_id_override)
+        unless expand.nil? || expand == 'signing_features'
+          raise ValidationError.new('expand must be signing_features')
+        end
 
         call('Failed to fetch account') do
-          http_get("accounts/#{acc_id}")
+          http_get("accounts/#{acc_id}", { expand: expand })
         end
       end
 
@@ -303,7 +308,190 @@ module Assinafy
         end
       end
 
+      # Read the plan name, renewal date, document allowance and credit balance.
+      # Billing data is unavailable to third-party OAuth applications.
+      #
+      # @param account_id_override [String, nil]
+      # @return [Hash] AccountUsage
+      # @raise [Assinafy::ValidationError] on an invalid account ID
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @see GET /accounts/{accountId}/usage
+      # @example Read the workspace allowance
+      #   client.accounts.usage
+      #   # Request: GET /accounts/{accountId}/usage (no body)
+      #   # => { 'plan' => 'Pro', 'documents_renewal_date' => '2026-12-01',
+      #   #      'balances' => { 'documents' => { 'balance' => 90, 'limit' => 100, 'spent' => 10 },
+      #   #                      'credits' => { 'balance' => 40, 'limit' => nil, 'spent' => 5 } } }
+      def usage(account_id_override = nil)
+        acc_id = account_id(account_id_override)
+        call('Failed to fetch account usage') { http_get("accounts/#{acc_id}/usage") }
+      end
+
+      # Read workspace document-alert rules. `editable` identifies owners who can change them.
+      # Third-party OAuth applications cannot access this policy.
+      #
+      # @param account_id_override [String, nil]
+      # @return [Hash] NotificationPolicy with all event flags
+      # @raise [Assinafy::ValidationError] on an invalid account ID
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @see GET /accounts/{accountId}/notification-policy
+      # @example Read workspace notification rules
+      #   client.accounts.notification_policy
+      #   # Request: GET /accounts/{accountId}/notification-policy (no body)
+      #   # => { 'editable' => true, 'owners_receive_all' => false, 'events' => {
+      #   #   'DocumentCompleted' => true, 'SignerDeclined' => true, 'DocumentCancelled' => true,
+      #   #   'DocumentAboutToExpire' => true, 'DocumentExpired' => true, 'DocumentExpirationReset' => true,
+      #   #   'DocumentProcessingFailed' => true, 'TemplateProcessingFailed' => true,
+      #   #   'SignerWhatsappFailed' => true, 'ContractRenewalNotice' => true, 'ContractExpiring' => true,
+      #   #   'ContractExpired' => true, 'ContractRenewed' => true, 'SignerViewed' => false,
+      #   #   'SignerSigned' => true, 'SignerIdentityReviewRequired' => true } }
+      def notification_policy(account_id_override = nil)
+        acc_id = account_id(account_id_override)
+        call('Failed to fetch notification policy') { http_get("accounts/#{acc_id}/notification-policy") }
+      end
+
+      # Merge workspace notification rules. Only owners can write this policy.
+      # Disabling identity-review alerts stops push only; its email is always sent.
+      # Third-party OAuth applications cannot access this policy.
+      #
+      # @param payload [Hash] partial `events` map and/or boolean `owners_receive_all`
+      # @param account_id_override [String, nil]
+      # @return [Hash] the full NotificationPolicy shown by {#notification_policy}
+      # @raise [Assinafy::ValidationError] on empty, unknown or invalid fields
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @see PUT /accounts/{accountId}/notification-policy
+      # @example Stop signer-viewed alerts
+      #   client.accounts.update_notification_policy(events: { SignerViewed: false }, owners_receive_all: true)
+      #   # Request: PUT /accounts/{accountId}/notification-policy
+      #   # Body: { "events": { "SignerViewed": false }, "owners_receive_all": true }
+      #   # Response: the full policy from #notification_policy with owners_receive_all true.
+      def update_notification_policy(payload, account_id_override = nil)
+        acc_id = account_id(account_id_override)
+        raw = require_payload(payload, 'Notification policy').transform_keys(&:to_s)
+        validate_notification_policy!(raw)
+        call('Failed to update notification policy') do
+          http_put("accounts/#{acc_id}/notification-policy", body_params(raw))
+        end
+      end
+
+      # List allowed embedding origins, oldest first. Requires embedded signing on the plan;
+      # OAuth applications cannot manage origins.
+      #
+      # @param account_id_override [String, nil]
+      # @return [Array<Hash>] EmbedOrigin objects
+      # @raise [Assinafy::ValidationError] on an invalid account ID
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @see GET /accounts/{accountId}/embed-origins
+      # @example List embedding origins
+      #   client.accounts.list_embed_origins
+      #   # Request: GET /accounts/{accountId}/embed-origins (no body)
+      #   # => [{ 'id' => 'origin-id', 'origin' => 'https://app.example.com',
+      #   #       'created_at' => '2026-11-04T12:05:00Z' }]
+      def list_embed_origins(account_id_override = nil)
+        acc_id = account_id(account_id_override)
+        call_array('Failed to list embed origins') { http_get("accounts/#{acc_id}/embed-origins") }
+      end
+
+      # Allow an exact HTTPS origin to embed signing pages. HTTP is accepted only for localhost
+      # and 127.0.0.1. At most ten origins are allowed; requires the plan feature and non-OAuth auth.
+      #
+      # @param origin [String] scheme://host[:port], optionally with a trailing slash
+      # @param account_id_override [String, nil]
+      # @return [Hash] created EmbedOrigin
+      # @raise [Assinafy::ValidationError] on an invalid origin or account ID
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @see POST /accounts/{accountId}/embed-origins
+      # @example Allow the application's origin
+      #   client.accounts.create_embed_origin('https://app.example.com')
+      #   # Request: POST /accounts/{accountId}/embed-origins
+      #   # Body: { "origin": "https://app.example.com" }
+      #   # => { 'id' => 'origin-id', 'origin' => 'https://app.example.com',
+      #   #      'created_at' => '2026-11-04T12:05:00Z' }
+      def create_embed_origin(origin, account_id_override = nil)
+        acc_id = account_id(account_id_override)
+        validate_embed_origin!(origin)
+        call('Failed to create embed origin') do
+          http_post("accounts/#{acc_id}/embed-origins", body_params(origin: origin))
+        end
+      end
+
+      # Replace one allowed origin, retaining its ID. The same restrictions as {#create_embed_origin} apply.
+      #
+      # @param origin_id [String]
+      # @param origin [String] exact allowed origin
+      # @param account_id_override [String, nil]
+      # @return [Hash] updated EmbedOrigin
+      # @raise [Assinafy::ValidationError] on an invalid origin or ID
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @see PUT /accounts/{accountId}/embed-origins/{originId}
+      # @example Replace an embedding origin
+      #   client.accounts.update_embed_origin('origin-id', 'https://new.example.com')
+      #   # Request: PUT /accounts/{accountId}/embed-origins/origin-id
+      #   # Body: { "origin": "https://new.example.com" }
+      #   # => { 'id' => 'origin-id', 'origin' => 'https://new.example.com',
+      #   #      'created_at' => '2026-11-04T12:05:00Z' }
+      def update_embed_origin(origin_id, origin, account_id_override = nil)
+        acc_id = account_id(account_id_override)
+        oid = require_id(origin_id, 'Origin ID')
+        validate_embed_origin!(origin)
+        call('Failed to update embed origin') do
+          http_put("accounts/#{acc_id}/embed-origins/#{oid}", body_params(origin: origin))
+        end
+      end
+
+      # Remove an allowed origin. Removing the last origin prevents new embed sessions.
+      # Requires embedded signing on the plan; OAuth applications cannot manage origins.
+      #
+      # @param origin_id [String]
+      # @param account_id_override [String, nil]
+      # @return [nil] the empty success payload is discarded
+      # @raise [Assinafy::ValidationError] on an invalid ID
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @see DELETE /accounts/{accountId}/embed-origins/{originId}
+      # @example Stop allowing an origin
+      #   client.accounts.delete_embed_origin('origin-id')
+      #   # Request: DELETE /accounts/{accountId}/embed-origins/origin-id (no body)
+      #   # Response data: []; SDK return: nil
+      def delete_embed_origin(origin_id, account_id_override = nil)
+        acc_id = account_id(account_id_override)
+        oid = require_id(origin_id, 'Origin ID')
+        call_void('Failed to delete embed origin') { http_delete("accounts/#{acc_id}/embed-origins/#{oid}") }
+      end
+
       private
+
+      def validate_notification_policy!(body)
+        if body.empty? || (body.keys - %w[events owners_receive_all]).any?
+          raise ValidationError.new('Notification policy requires events and/or owners_receive_all')
+        end
+
+        require_boolean(body['owners_receive_all'], 'owners_receive_all') if body.key?('owners_receive_all')
+        return unless body.key?('events')
+
+        events = require_payload(body['events'], 'Notification policy events')
+        codes = UserResource::NOTIFICATION_PREFERENCE_CODES | UserResource::PUSH_PREFERENCE_CODES
+        require_preferences(events, codes, 'Notification policy events') unless events.empty?
+      end
+
+      def validate_embed_origin!(origin)
+        uri = URI.parse(require_string(origin, 'Embed origin'))
+        secure = uri.is_a?(URI::HTTPS) || (uri.is_a?(URI::HTTP) && %w[localhost
+                                                                      127.0.0.1].include?(uri.host.to_s.downcase))
+        valid = secure && uri.host && !uri.host.include?('*') && (1..65_535).cover?(uri.port) &&
+                ['', '/'].include?(uri.path) && !uri.userinfo && !uri.query && !uri.fragment
+        return if valid
+
+        raise ValidationError.new('Embed origin must be an exact HTTPS origin (HTTP is allowed only on localhost)')
+      rescue URI::InvalidURIError
+        raise ValidationError.new('Embed origin must be a valid origin URL')
+      end
 
       def validate_sender_type!(body)
         return unless body.key?('notification_sender_type')

@@ -525,4 +525,43 @@ RSpec.describe Assinafy::Resources::SignerResource do
       expect(resource.create(full_name: 'Signer', government_id: '52998224725')).to eq('id' => 'signer-1')
     end
   end
+
+  describe 'signer response contracts and branding' do
+    it 'returns the accepted-terms profile and the empty verification result' do
+      profile = { 'full_name' => 'Example Signer', 'email' => nil, 'has_accepted_terms' => true }
+      stub_request(:put, "#{base_url}/signers/accept-terms")
+        .with(query: { 'signer-access-code' => 'code' }).to_return(api_envelope(profile))
+      stub_request(:post, "#{base_url}/verify")
+        .with(query: { 'signer-access-code' => 'code' }).to_return(api_envelope([]))
+
+      expect(resource.accept_terms(signer_access_code: 'code')).to eq(profile)
+      expect(resource.verify_email(verification_code: '123456', signer_access_code: 'code')).to eq([])
+    end
+
+    it 'confirms WhatsApp contact and terms with the documented empty result' do
+      body = { 'whatsapp_phone_number' => '+15555550100', 'has_accepted_terms' => true }
+      stub_request(:put, "#{base_url}/documents/doc/signers/confirm-data")
+        .with(query: { 'signer-access-code' => 'code' }, body: body).to_return(api_envelope([]))
+
+      expect(resource.confirm_data('doc', body, signer_access_code: 'code')).to eq([])
+      expect { resource.confirm_data('doc', { has_accepted_terms: 'true' }, signer_access_code: 'code') }
+        .to raise_error(Assinafy::ValidationError)
+      expect { resource.confirm_data('doc', { whatsapp_phone_number: [] }, signer_access_code: 'code') }
+        .to raise_error(Assinafy::ValidationError)
+    end
+
+    it 'fetches theme and binary logo with signer-only authentication' do
+      stub_request(:get, "#{base_url}/sign/theme").with(query: { 'signer-access-code' => 'code' }) do |request|
+        workspace_auth_absent?(request)
+      end.to_return(api_envelope({ 'account_name' => 'Example Workspace', 'logo' => nil }))
+      stub_request(:get, "#{base_url}/sign/logo").with(query: { 'signer-access-code' => 'code' }) do |request|
+        workspace_auth_absent?(request)
+      end.to_return(status: 200, body: 'PNG', headers: { 'Content-Type' => 'image/png' })
+
+      expect(resource.theme(signer_access_code: 'code')).to include('account_name' => 'Example Workspace')
+      expect(resource.download_logo(signer_access_code: 'code')).to eq('PNG')
+      expect { resource.theme(signer_access_code: nil) }.to raise_error(Assinafy::ValidationError)
+      expect { resource.download_logo(signer_access_code: '') }.to raise_error(Assinafy::ValidationError)
+    end
+  end
 end

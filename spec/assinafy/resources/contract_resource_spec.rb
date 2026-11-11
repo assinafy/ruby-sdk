@@ -89,6 +89,7 @@ RSpec.describe Assinafy::Resources::ContractResource do
         {}, { unknown: true }, { status: 'closed' }, { currency: 'REAL' },
         { start_date: '2027-02-30' }, { start_date: '0999-12-31' }, { value: 1.234 },
         { renewal_term_months: 0 }, { auto_renew: 'yes' },
+        { renewal_term_months: false }, { notice_period_days: false },
         { updated_at: '2026-10-23' },
         { metadata: { invalid: 1 } }, { external_references: [{ system: 'bad value', id: '1' }] }
       ]
@@ -106,6 +107,17 @@ RSpec.describe Assinafy::Resources::ContractResource do
         .to_return(api_envelope(contract.merge('amendments' => [{ 'document_id' => 'amendment-1' }])))
 
       expect(resource.related('doc-1')['amendments'].first['document_id']).to eq('amendment-1')
+    end
+  end
+
+  describe '#related with expand' do
+    it 'requests the root document without dropping the account override' do
+      url = "#{base_url}/accounts/other/documents/doc-1/contract/related"
+      stub_request(:get, url).with(query: { 'expand' => 'document' })
+                             .to_return(api_envelope(contract.merge('document' => { 'name' => 'contract.pdf' })))
+
+      expect(resource.related('doc-1', 'other', expand: 'document')['document']).to eq('name' => 'contract.pdf')
+      expect { resource.related('doc-1', expand: 'assignment') }.to raise_error(Assinafy::ValidationError)
     end
   end
 
@@ -133,6 +145,11 @@ RSpec.describe Assinafy::Resources::ContractResource do
         .to_return(api_envelope(contract.merge('status' => 'terminated')))
 
       expect(resource.terminate('doc-1', reason: 'Supplier replaced')['status']).to eq('terminated')
+    end
+
+    it 'rejects malformed optimistic-lock timestamps before termination' do
+      expect { resource.terminate('doc-1', updated_at: 'yesterday') }.to raise_error(Assinafy::ValidationError)
+      expect(a_request(:post, "#{contract_url}/terminate")).not_to have_been_made
     end
 
     it 'allows an empty body but rejects an overlong reason' do

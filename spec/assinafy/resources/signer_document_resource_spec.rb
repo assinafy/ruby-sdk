@@ -230,57 +230,86 @@ RSpec.describe Assinafy::Resources::SignerDocumentResource do
   end
 
   describe '#download' do
-    it 'rejects unsupported artifact names' do
-      expect { resource.download('signer-1', 'doc-1', '../users') }.to raise_error(Assinafy::ValidationError)
+    it 'uses the signer access code and defaults to the original PDF' do
+      path = "#{base_url}/signers/signer-1/documents/doc-1/download/original"
+      stub_request(:get, path).with(query: { 'signer-access-code' => 'code' }) do |request|
+        without_workspace_auth?(request)
+      end.to_return(status: 200, body: 'PDF', headers: { 'Content-Type' => 'application/pdf' })
+
+      expect(resource.download('signer-1', 'doc-1', signer_access_code: 'code')).to eq('PDF')
     end
 
-    it 'calls the signer document download endpoint' do
-      stub_request(:get, "#{base_url}/signers/signer-1/documents/doc-1/download/original")
-        .with do |request|
-          without_workspace_auth?(request) && !request.uri.query.to_s.include?('signer-access-code')
-        end
-        .to_return(status: 200, body: 'PDF', headers: { 'Content-Type' => 'application/pdf' })
-
-      expect(resource.download('signer-1', 'doc-1', 'original', signer_access_code: 'code')).to eq('PDF')
+    it 'rejects missing credentials and invalid artifacts before sending' do
+      expect { resource.download('signer-1', 'doc-1') }.to raise_error(Assinafy::ValidationError, /Signer access code/)
+      expect { resource.download('signer-1', 'doc-1', '../users', signer_access_code: 'code') }
+        .to raise_error(Assinafy::ValidationError)
+      expect(a_request(:get, %r{/download/})).not_to have_been_made
     end
 
-    it 'works without a signer-access-code (public endpoint)' do
-      stub_request(:get, "#{base_url}/signers/signer-1/documents/doc-1/download/original")
-        .with { |request| without_workspace_auth?(request) }
-        .to_return(status: 200, body: 'PDF', headers: { 'Content-Type' => 'application/pdf' })
+    it 'retains explicit artifact names for servers supporting them' do
+      path = "#{base_url}/signers/signer-1/documents/doc-1/download/certificated"
+      stub_request(:get, path).with(query: { 'signer-access-code' => 'code' })
+                              .to_return(status: 200, body: 'PDF', headers: { 'Content-Type' => 'application/pdf' })
 
-      # No signer_access_code passed -> the query param is omitted entirely.
-      expect(resource.download('signer-1', 'doc-1', 'original')).to eq('PDF')
-      expect(
-        a_request(:get, "#{base_url}/signers/signer-1/documents/doc-1/download/original")
-      ).to have_been_made
+      expect(resource.download('signer-1', 'doc-1', 'certificated', signer_access_code: 'code')).to eq('PDF')
+    end
+  end
+
+  describe 'certified copies and envelope context' do
+    it 'expands envelope metadata on the current signer document' do
+      stub_request(:get, "#{base_url}/signers/signer/document")
+        .with(query: { 'signer-access-code' => 'code',
+                       'expand'             => 'envelope' }).to_return(api_envelope({ 'id' => 'doc' }))
+
+      expect(resource.current('signer', signer_access_code: 'code', expand: 'envelope')).to eq('id' => 'doc')
+      expect { resource.current('signer', signer_access_code: 'code', expand: 'secrets') }
+        .to raise_error(Assinafy::ValidationError)
     end
 
-    it 'rejects blank and non-String access codes before making a request' do
-      [' ', 123].each do |code|
-        expect do
-          resource.download('signer-1', 'doc-1', 'original', signer_access_code: code)
-        end.to raise_error(Assinafy::ValidationError, /Signer access code/)
+    it 'sends a certified copy using only the signer access code' do
+      result = { 'available' => true, 'notification_method' => 'Email', 'resends_left' => nil,
+                 'sent_to' => 's***@example.com' }
+      stub_request(:post, "#{base_url}/sign/certified-copy")
+        .with(query: { 'signer-access-code' => 'code' }, body: { 'document_id' => 'doc' }) do |request|
+          without_workspace_auth?(request)
+        end.to_return(api_envelope(result))
+
+      expect(resource.send_certified_copy(signer_access_code: 'code', document_id: 'doc')).to eq(result)
+      expect { resource.send_certified_copy(signer_access_code: '') }.to raise_error(Assinafy::ValidationError)
+      expect { resource.send_certified_copy(signer_access_code: 'code', document_id: []) }
+        .to raise_error(Assinafy::ValidationError)
+    end
+
+    it 'downloads both certified variants with only a link token' do
+      ['', '/pades'].each do |suffix|
+        stub_request(:get, "#{base_url}/signers/downloads/link-token#{suffix}") do |request|
+          without_workspace_auth?(request) && request.uri.query.nil?
+        end.to_return(status: 200, body: 'PDF', headers: { 'Content-Type' => 'application/pdf' })
       end
-      expect(
-        a_request(:get, "#{base_url}/signers/signer-1/documents/doc-1/download/original")
-      ).not_to have_been_made
+
+      expect(resource.download_certified_copy('link-token')).to eq('PDF')
+      expect(resource.download_certified_copy('link-token', pades: true)).to eq('PDF')
+      expect { resource.download_certified_copy('../token') }.to raise_error(Assinafy::ValidationError)
+      expect { resource.download_certified_copy('link-token', pades: 'true') }.to raise_error(Assinafy::ValidationError)
     end
 
-    it 'gets the artifact path and returns the raw binary body' do
-      stub_request(:get, "#{base_url}/signers/signer-1/documents/doc-1/download/certificated")
-        .with do |request|
-          without_workspace_auth?(request) && !request.uri.query.to_s.include?('signer-access-code')
-        end
-        .to_return(status: 200, body: 'PDFBYTES', headers: { 'Content-Type' => 'application/pdf' })
+    it 'surfaces an expired-link redirect without following it' do
+      path = "#{base_url}/signers/downloads/link-token"
+      stub_request(:get, path).to_return(status: 302, headers: { 'Location' => 'https://example.com/expired' })
 
-      result = resource.download('signer-1', 'doc-1', 'certificated', signer_access_code: 'code')
+      expect { resource.download_certified_copy('link-token') }.to raise_error(Assinafy::ApiError) do |error|
+        expect(error.status_code).to eq(302)
+      end
+      expect(a_request(:get, 'https://example.com/expired')).not_to have_been_made
+    end
 
-      expect(result).to eq('PDFBYTES')
-      expect(
-        a_request(:get, "#{base_url}/signers/signer-1/documents/doc-1/download/certificated")
-          .with { |request| !request.uri.query.to_s.include?('signer-access-code') }
-      ).to have_been_made
+    it 'resends from an expired link without workspace credentials' do
+      path = "#{base_url}/signers/downloads/link-token/resend"
+      stub_request(:post, path).with { |request| without_workspace_auth?(request) }
+                               .to_return(api_envelope({ 'available' => false, 'resends_left' => 0 }))
+
+      expect(resource.resend_certified_copy('link-token')).to include('resends_left' => 0)
+      expect { resource.resend_certified_copy('') }.to raise_error(Assinafy::ValidationError)
     end
   end
 end

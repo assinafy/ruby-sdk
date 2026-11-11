@@ -29,8 +29,9 @@ client = Assinafy::Client.new(
 )
 ```
 
-Use `https://sandbox.assinafy.com.br/v1` no sandbox. O SDK exige URL absoluta, usa TLS 1.2+ e aceita exatamente
-uma credencial por cliente: `api_key:` para a workspace ou `token:` para sessão/OAuth. Endpoints públicos e de
+Use `https://sandbox.assinafy.com.br/v1` no sandbox. O SDK exige URL absoluta, usa TLS 1.2+ e aceita
+credenciais por cliente: prefira `api_key:` para a workspace ou `token:` para sessão/OAuth; se ambas forem
+configuradas, a chave não vazia tem precedência. Endpoints públicos e de
 signatário removem essas credenciais e enviam apenas o código próprio da operação.
 
 ## OAuth 2.1 para marketplace
@@ -47,7 +48,7 @@ url = Assinafy::OAuth.authorization_url(
   redirect_uri:  'https://app.example.com/oauth/callback',
   code_verifier: verifier,
   state:         state,
-  scope:         %w[documents:read documents:write offline_access]
+  scope:         %w[openid profile email documents:read documents:write offline_access]
 )
 ```
 
@@ -104,7 +105,13 @@ assignment = client.assignments.create(document.fetch('id'), request)
 ```
 
 `Client#upload_and_request_signatures` executa upload, signatários e assignment numa chamada e valida todo o
-pedido antes da rede. Templates configurados usam `client.documents.create_from_template`.
+pedido antes da rede. Templates configurados usam `client.documents.create_from_template`; aguarde o estado
+`pending_signature` para ler o assignment gerado. `idempotency_key:` evita duplicar a criação após perda de resposta.
+
+Para vários documentos na mesma solicitação, use `client.envelopes.estimate_cost` e `create` com `name`,
+`signers` e `documents: [{ id: 'document-id', signer_ids: ['signer-id'] }]`. Cada documento mantém sua assinatura
+e artefatos; a criação aceita `idempotency_key:` e `max_total_credits` limita o gasto. A mesma proteção de custo
+existe em assignments e templates. Consulte uso e recursos do plano em `accounts.usage` e `accounts.get`.
 
 ### Verificação e notificação
 
@@ -122,12 +129,17 @@ sozinho na etapa. `expires_at` deve ter fuso e ficar pelo menos uma hora no futu
 Na biometria, `signers.start_identity_verification(consent: true, signer_access_code:)` devolve uma URL bearer:
 preserve o fragmento e não a armazene em logs ou browser storage. O revisor usa `assignments.identity_review`,
 `identity_review_image` e `decide_identity_review`. Evidências existem apenas durante `InReview` e não devem ser
-cacheadas. Uma rejeição cancela o documento. Certificados A1/A3 são concluídos no fluxo hospedado; o SDK não
+cacheadas; imagens e decisões exigem chave/sessão. OAuth pode ler o resumo com `documents:read`. Uma rejeição
+cancela o documento. Certificados A1/A3 são concluídos no fluxo hospedado; o SDK não
 inventa os endpoints de handshake ainda não publicados.
 
 Operações do signatário usam `signer_access_code:` sem chave/token da workspace. O fluxo inclui termos,
 confirmação de dados, OTP, identidade, imagem de assinatura, `assignments.sign`/`decline` e operações em lote em
 `signer_documents`.
+
+Assinatura embutida usa `embedded: true` em signatários Email/Whatsapp, origens cadastradas em `accounts` e
+`assignments.create_embed_session` no servidor. Exige recurso Embed e chave/sessão, sem OAuth de terceiros.
+Downloads de original exigem código do signatário; cópias certificadas usam links temporários autenticados.
 
 ## Webhooks e artefatos
 
@@ -149,7 +161,8 @@ event = verifier.extract_event(raw_body)
 ```
 
 Deduplicate por `webhook-id`. O timestamp tem tolerância padrão de 300 segundos. Aplicações OAuth precisam guardar
-o segredo da criação: leitura e rotação exigem chave de API ou sessão de usuário. Depois da certificação, use
+o segredo da criação: a leitura exige chave/sessão; OAuth com `webhooks:write` pode rotacionar e guardar o novo
+segredo. `keep_previous: true` mantém ambos por 24 horas. Depois da certificação, use
 `documents.download`, `thumbnail`, `download_page`, `activities` e `verify` conforme o artefato.
 
 ## Contratos, erros e recursos
@@ -164,7 +177,7 @@ Falhas da API levantam `Assinafy::ApiError`; OAuth usa `OAuthError < ApiError`; 
 `{ data:, meta: }`, listas simples devolvem `Array`, binários devolvem `String` e respostas vazias devolvem `nil`.
 
 Recursos: `accounts`, `auth`, `oauth`, `users`, `documents`, `contracts`, `signers`, `signer_documents`,
-`assignments`, `templates`, `tags`, `fields`, `webhooks` e `webhook_verifier`. As assinaturas RBS publicadas ficam em
+`assignments`, `envelopes`, `templates`, `tags`, `fields`, `webhooks` e `webhook_verifier`. As assinaturas RBS ficam em
 [`sig/assinafy.rbs`](sig/assinafy.rbs).
 
 ## Desenvolvimento

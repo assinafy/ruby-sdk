@@ -73,6 +73,21 @@ RSpec.describe Assinafy::Client, type: :coverage_matrix do
       ['DELETE', '/accounts/{account_id}/logo',
        'AccountResource#delete_logo'],
 
+      ['GET',    '/accounts/{account_id}/usage',
+       'AccountResource#usage'],
+      ['GET',    '/accounts/{account_id}/notification-policy',
+       'AccountResource#notification_policy'],
+      ['PUT',    '/accounts/{account_id}/notification-policy',
+       'AccountResource#update_notification_policy'],
+      ['GET',    '/accounts/{account_id}/embed-origins',
+       'AccountResource#list_embed_origins'],
+      ['POST',   '/accounts/{account_id}/embed-origins',
+       'AccountResource#create_embed_origin'],
+      ['PUT',    '/accounts/{account_id}/embed-origins/{origin_id}',
+       'AccountResource#update_embed_origin'],
+      ['DELETE', '/accounts/{account_id}/embed-origins/{origin_id}',
+       'AccountResource#delete_embed_origin'],
+
       # Users (self)
       ['GET',    '/users/self',
        'UserResource#me'],
@@ -82,6 +97,13 @@ RSpec.describe Assinafy::Client, type: :coverage_matrix do
        'UserResource#notification_preferences'],
       ['PUT',    '/users/self/notification-preferences',
        'UserResource#update_notification_preferences'],
+
+      ['GET',    '/users/self/push-preferences',
+       'UserResource#push_preferences'],
+      ['PUT',    '/users/self/push-preferences',
+       'UserResource#update_push_preferences'],
+      ['POST',   '/accounts/{account_id}/webhooks/endpoints/{endpoint_id}/test',
+       'WebhookResource#test_endpoint'],
 
       # Signers — workspace CRUD
       ['POST',   '/accounts/{account_id}/signers',
@@ -94,6 +116,17 @@ RSpec.describe Assinafy::Client, type: :coverage_matrix do
        'SignerResource#update'],
       ['DELETE', '/accounts/{account_id}/signers/{signer_id}',
        'SignerResource#delete'],
+
+      ['GET',    '/sign/theme',
+       'SignerResource#theme'],
+      ['GET',    '/sign/logo',
+       'SignerResource#download_logo'],
+      ['POST',   '/sign/certified-copy',
+       'SignerDocumentResource#send_certified_copy'],
+      ['GET',    '/signers/downloads/{token}',
+       'SignerDocumentResource#download_certified_copy'],
+      ['POST',   '/signers/downloads/{token}/resend',
+       'SignerDocumentResource#resend_certified_copy'],
 
       # Signer self-service
       ['GET',    '/signers/self',
@@ -157,6 +190,32 @@ RSpec.describe Assinafy::Client, type: :coverage_matrix do
       ['DELETE', '/accounts/{account_id}/documents/{document_id}/tags/{tag_id}',
        'DocumentResource#detach_tag'],
 
+      # Envelopes
+      ['GET', '/accounts/{accountId}/envelopes',
+       'EnvelopeResource#list'],
+      ['POST', '/accounts/{accountId}/envelopes',
+       'EnvelopeResource#create'],
+      ['POST', '/accounts/{accountId}/envelopes/estimate-cost',
+       'EnvelopeResource#estimate_cost'],
+      ['GET', '/accounts/{accountId}/envelopes/{envelopeId}',
+       'EnvelopeResource#get'],
+      ['PATCH', '/accounts/{accountId}/envelopes/{envelopeId}',
+       'EnvelopeResource#update'],
+      ['DELETE', '/accounts/{accountId}/envelopes/{envelopeId}',
+       'EnvelopeResource#delete'],
+      ['GET', '/accounts/{accountId}/envelopes/{envelopeId}/activities',
+       'EnvelopeResource#activities'],
+      ['GET', '/accounts/{accountId}/envelopes/{envelopeId}/download/{artifactName}',
+       'EnvelopeResource#download'],
+      ['PUT', '/accounts/{accountId}/envelopes/{envelopeId}/cancel',
+       'EnvelopeResource#cancel'],
+      ['PUT', '/accounts/{accountId}/envelopes/{envelopeId}/signers/{signerId}/resend',
+       'EnvelopeResource#resend_notification'],
+      ['POST', '/accounts/{accountId}/envelopes/{envelopeId}/documents',
+       'EnvelopeResource#add_document'],
+      ['DELETE', '/accounts/{accountId}/envelopes/{envelopeId}/documents/{documentId}',
+       'EnvelopeResource#remove_document'],
+
       # Contract tracking
       ['GET',    '/accounts/{account_id}/contracts',
        'ContractResource#list'],
@@ -194,6 +253,11 @@ RSpec.describe Assinafy::Client, type: :coverage_matrix do
        'TagResource#update'],
       ['DELETE', '/accounts/{account_id}/tags/{tag_id}',
        'TagResource#delete'],
+
+      ['POST',   '/documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/embed-sessions',
+       'AssignmentResource#create_embed_session'],
+      ['POST',   '/embed/sessions/{token}/exchange',
+       'AssignmentResource#exchange_embed_session'],
 
       # Assignments
       ['GET',    '/assignments',
@@ -291,7 +355,7 @@ RSpec.describe Assinafy::Client, type: :coverage_matrix do
   # convenience helpers (computed client-side) and documented aliases.
   let(:non_endpoint_methods) do
     {
-      'DocumentResource'       => %i[get fully_signed? signing_progress wait_until_ready],
+      'DocumentResource'       => %i[get fully_signed? signing_progress wait_until_ready activities_page],
       'SignerResource'         => %i[find_by_email validate_create!],
       # Workspace-credential variants of the signer document list/search routes.
       'SignerDocumentResource' => %i[document list_as_workspace search_as_workspace],

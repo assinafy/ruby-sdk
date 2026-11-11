@@ -2,6 +2,26 @@
 
 All notable changes to the `assinafy` Ruby gem are documented here.
 
+## [2.2.0] - 2026-11-11
+
+### Added
+
+- Envelope creation, estimates, document management, reminders, activities and ZIP downloads through `client.envelopes`.
+- Embedded signing origins and sessions, signer branding, and token-based certified-copy delivery and downloads.
+- Account usage and notification policies, user push preferences, and webhook test deliveries.
+- Credit ceilings for assignments, templates and envelopes; idempotency keys for template and envelope creation.
+- Document and contract expansions, signed page renders, and `documents.activities_page` pagination metadata.
+- Webhook secret rotation with a 24-hour overlap through `keep_previous: true`.
+
+### Fixed
+
+- Signer downloads require the signer access code and default to the original artifact.
+- Template creation supports email-based signer references and returns its asynchronous processing state.
+- Template copy receivers no longer interfere with signing-step validation.
+- Collect fields, credit ceilings, OAuth revocation secrets and contract inputs reject invalid values locally.
+- OAuth assignment listing can use the token's workspace without a separate account ID.
+- Signer confirmation and verification return the documented response shapes.
+
 ## [2.1.1] - 2026-11-02
 
 ### Fixed

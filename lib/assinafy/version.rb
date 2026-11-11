@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
 module Assinafy
-  VERSION = '2.1.1'
+  VERSION = '2.2.0'
   USER_AGENT = "Assinafy-Ruby-SDK/v#{VERSION}".freeze
 end

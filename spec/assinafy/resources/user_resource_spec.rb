@@ -113,4 +113,33 @@ RSpec.describe Assinafy::Resources::UserResource do
       expect(a_request(:get, "#{base_url}/users/self/stats")).not_to have_been_made
     end
   end
+
+  describe 'push preferences' do
+    let(:preferences) do
+      %w[SignerViewed SignerSigned DocumentCompleted SignerDeclined DocumentAboutToExpire
+         DocumentExpired SignerIdentityReviewRequired SignerWhatsappFailed].to_h { |code| [code, true] }
+    end
+
+    it 'reads the separate push preference map with workspace credentials' do
+      stub_request(:get, "#{base_url}/users/self/push-preferences")
+        .with(headers: { 'X-Api-Key' => 'test-key' }).to_return(api_envelope(preferences))
+
+      expect(resource.push_preferences).to eq(preferences)
+    end
+
+    it 'sends a partial map and preserves false' do
+      stub_request(:put, "#{base_url}/users/self/push-preferences")
+        .with(body: { 'SignerViewed' => false })
+        .to_return(api_envelope(preferences.merge('SignerViewed' => false)))
+
+      expect(resource.update_push_preferences(SignerViewed: false)).to eq(preferences.merge('SignerViewed' => false))
+    end
+
+    it 'rejects email-only, empty, unknown, and non-boolean preferences locally' do
+      [{}, { ContractRenewed: true }, { Unknown: true }, { SignerViewed: nil }, { SignerViewed: 1 }].each do |value|
+        expect { resource.update_push_preferences(value) }.to raise_error(Assinafy::ValidationError)
+      end
+      expect(a_request(:put, "#{base_url}/users/self/push-preferences")).not_to have_been_made
+    end
+  end
 end

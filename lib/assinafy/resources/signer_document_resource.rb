@@ -25,6 +25,7 @@ module Assinafy
       #
       # @param signer_id          [String]
       # @param signer_access_code [String]
+      # @param expand [String, Array<String>, nil] envelope to include its id and name
       # @return [Hash] the document (envelope `data` unwrapped)
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure
@@ -51,12 +52,14 @@ module Assinafy
       #   #   "assignment"     => { "id" => "1", "method" => "virtual", "items" => [{ ... }] }
       #   #   # ... (see docs for full shape)
       #   # }
-      def current(signer_id, signer_access_code:)
+      def current(signer_id, signer_access_code:, expand: nil)
         sid         = require_id(signer_id, 'Signer ID')
         access_code = require_signer_access_code(signer_access_code)
+        expansion = signing_expansion(expand)
 
         call('Failed to fetch signer document') do
-          http_get("signers/#{sid}/document", { signer_access_code: access_code }, workspace_auth: false)
+          http_get("signers/#{sid}/document", { signer_access_code: access_code, expand: expansion },
+                   workspace_auth: false)
         end
       end
 
@@ -252,30 +255,22 @@ module Assinafy
         end
       end
 
-      # Download an artifact for one of the signer's documents.
+      # Download a signer's original document. Certified copies use {#download_certified_copy}.
       #
-      # This endpoint is public (no auth required) — only the document and
-      # artifact IDs are needed — so `signer_access_code:` is optional and
-      # omitted from the query when nil.
-      #
-      # @param signer_id          [String]
-      # @param document_id        [String]
-      # @param artifact_name      [String] `original`, `certificated`, `certificate-page`, `pades`, or
-      #   `bundle`
-      # @param signer_access_code [String, nil] retained for call compatibility;
-      #   validated when present but never transmitted by this public endpoint
-      # @return [String] binary file body (ASCII-8BIT), e.g. the raw PDF bytes
-      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @param signer_id [String]
+      # @param document_id [String]
+      # @param artifact_name [String] original; other names are passed to the API for compatibility
+      # @param signer_access_code [String] required; no workspace credentials are transmitted
+      # @return [String] binary PDF bytes
+      # @raise [Assinafy::ValidationError] on invalid IDs, artifact or access code
+      # @raise [Assinafy::ApiError] on an unsuccessful response, including unavailable artifacts
       # @raise [Assinafy::NetworkError] on transport or TLS failure
-      # @raise [Assinafy::ValidationError] on invalid required input
-      # @see GET /signers/{signer_id}/documents/{document_id}/download/{artifact_name}
-      # @example Download the original PDF and write it to disk (no access code needed)
-      #   pdf = client.signer_documents.download('signer-id', 'document-id', 'original')
-      #
-      #   # Response is the raw artifact body (Content-Type: application/pdf):
-      #   #   => "%PDF-1.7\n..." (binary string)
-      #   File.binwrite('document.pdf', pdf)
-      def download(signer_id, document_id, artifact_name = 'certificated', signer_access_code: nil)
+      # @see GET /signers/{signerId}/documents/{documentId}/download/{artifactName}
+      # @example Download the original (no request body)
+      #   client.signer_documents.download('signer-id', 'document-id', signer_access_code: 'access-code')
+      #   # GET /signers/signer-id/documents/document-id/download/original?signer-access-code=access-code
+      #   # => "%PDF-1.7..." # binary String
+      def download(signer_id, document_id, artifact_name = 'original', signer_access_code: nil)
         sid = require_id(signer_id, 'Signer ID')
         did = require_id(document_id, 'Document ID')
         art = require_id(artifact_name, 'Artifact name')
@@ -283,10 +278,82 @@ module Assinafy
           raise ValidationError.new('Invalid artifact type', { artifact_name: artifact_name })
         end
 
-        require_signer_access_code(signer_access_code) unless signer_access_code.nil?
+        code = require_signer_access_code(signer_access_code)
 
         call_binary('Failed to download signer document') do
-          http_get("signers/#{sid}/documents/#{did}/download/#{art}", {}, workspace_auth: false)
+          http_get("signers/#{sid}/documents/#{did}/download/#{art}",
+                   { signer_access_code: code }, workspace_auth: false)
+        end
+      end
+
+      # Send the certified copy to the contact used during signing, including after the code closes.
+      # Email allows one resend per two minutes and ten per day; Whatsapp allows one per request.
+      #
+      # @param signer_access_code [String]
+      # @param document_id [String, nil] another document in the code's envelope
+      # @return [Hash] available, notification_method, nullable resends_left and masked sent_to
+      # @raise [Assinafy::ValidationError] on an invalid code or document ID
+      # @raise [Assinafy::ApiError] when unavailable or rate limited
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @see POST /sign/certified-copy
+      # @example Request a new 30-minute link with signer-only authentication
+      #   client.signer_documents.send_certified_copy(signer_access_code: 'access-code', document_id: 'document-id')
+      #   # POST /sign/certified-copy?signer-access-code=access-code
+      #   # Body: { 'document_id' => 'document-id' }
+      #   # => { 'available' => true, 'notification_method' => 'Email',
+      #   #      'resends_left' => nil, 'sent_to' => 's***@example.com' }
+      def send_certified_copy(signer_access_code:, document_id: nil)
+        code = require_signer_access_code(signer_access_code)
+        require_id(document_id, 'Document ID') unless document_id.nil?
+
+        call('Failed to send certified copy') do
+          http_post('sign/certified-copy', body_params(document_id: document_id),
+                    { signer_access_code: code }, workspace_auth: false)
+        end
+      end
+
+      # Download a certified PDF with the token from a completion or resend message.
+      # An expired link returns 302 as ApiError; redirects are never followed.
+      #
+      # @param token [String] download-link token
+      # @param pades [Boolean] request the PAdES variant, when available
+      # @return [String] binary PDF bytes
+      # @raise [Assinafy::ValidationError] on an invalid token or pades flag
+      # @raise [Assinafy::ApiError] on an expired link or unavailable artifact
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @see GET /signers/downloads/{token}
+      # @example Download using the link token alone (no request body)
+      #   client.signer_documents.download_certified_copy('download-token')
+      #   # GET /signers/downloads/download-token
+      #   # => "%PDF-1.7..." # binary String
+      def download_certified_copy(token, pades: false)
+        link_token = require_id(token, 'Download token')
+        require_boolean(pades, 'pades')
+        path = "signers/downloads/#{link_token}"
+        path += '/pades' if pades
+
+        call_binary('Failed to download certified copy') { http_get(path, {}, workspace_auth: false) }
+      end
+
+      # Send a fresh certified-copy link using a known expired download token.
+      # Uses the same contact and resend limits as {#send_certified_copy}.
+      #
+      # @param token [String] download-link token
+      # @return [Hash] available, notification_method, nullable resends_left and masked sent_to
+      # @raise [Assinafy::ValidationError] on an invalid token
+      # @raise [Assinafy::ApiError] on an unknown link, unavailable copy or rate limit
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @see POST /signers/downloads/{token}/resend
+      # @example Request a replacement link without workspace credentials (no body)
+      #   client.signer_documents.resend_certified_copy('download-token')
+      #   # POST /signers/downloads/download-token/resend
+      #   # => { 'available' => true, 'notification_method' => 'Email',
+      #   #      'resends_left' => nil, 'sent_to' => 's***@example.com' }
+      def resend_certified_copy(token)
+        link_token = require_id(token, 'Download token')
+
+        call('Failed to resend certified copy') do
+          http_post("signers/downloads/#{link_token}/resend", workspace_auth: false)
         end
       end
 

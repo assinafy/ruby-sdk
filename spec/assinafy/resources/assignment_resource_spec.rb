@@ -22,6 +22,15 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
       ).to have_been_made
     end
 
+    it 'allows OAuth to infer its workspace while API keys still need an account' do
+      expect { described_class.new(connection).list }.to raise_error(Assinafy::ValidationError, /Account ID/)
+      client = Assinafy::Client.new(token: 'oauth-token')
+      stub_request(:get, "#{base_url}/assignments")
+        .with(query: {}, headers: { 'Authorization' => 'Bearer oauth-token' }).to_return(api_envelope([]))
+
+      expect(client.assignments.list).to eq(data: [])
+    end
+
     it 'rejects non-Hash query parameters before making a request' do
       resource = described_class.new(connection, 'acc')
 
@@ -67,14 +76,29 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
       )
     end
 
-    it 'sends signers alongside entries in collect payloads' do
-      body = described_class.build_payload(
-        { method: 'collect', signers: %w[s1], entries: [{ page_id: 'p1', fields: [] }] }
-      )
-      expect(body).to eq(
-        'method' => 'collect', 'signers' => [{ 'id' => 's1' }],
-        'entries' => [{ 'page_id' => 'p1', 'fields' => [] }]
-      )
+    it 'sends validated signer field placements in collect payloads' do
+      display = { left: 0, top: 0, width: 100, height: 40, fontSize: 16 }
+      entries = [{ page_id: 'p1', fields: [{ signer_id: 's1', field_id: 'f1', display_settings: display }] }]
+      body = described_class.build_payload(method: 'collect', signers: ['s1'], entries: entries)
+
+      expect(body['signers']).to eq([{ 'id' => 's1' }])
+      expect(body['entries']).to eq(Assinafy::Utils.body_params({ entries: entries })['entries'])
+    end
+
+    it 'rejects malformed collect fields and missing signer placements before sending' do
+      display = { left: 0, top: 0, width: 100, height: 40, fontSize: 16 }
+      field = { signer_id: 's1', field_id: 'field', display_settings: display }
+      invalid = [nil, [], [{}], [{ page_id: 'page', fields: [] }],
+                 [{ page_id: 'page', fields: [field.merge(signer_id: 'other')] }],
+                 [{ page_id: 'page', fields: [field.merge(display_settings: display.merge(width: 0))] }]]
+      invalid.each do |entries|
+        expect { described_class.build_payload(method: 'collect', signers: ['s1'], entries: entries) }
+          .to raise_error(Assinafy::ValidationError)
+      end
+      expect do
+        described_class.build_payload(method: 'collect', signers: %w[s1 s2],
+                                      entries: [{ page_id: 'page', fields: [field] }])
+      end.to raise_error(Assinafy::ValidationError, /own at least one field/)
     end
 
     it 'normalises string signer ids into {id} hashes' do
@@ -340,14 +364,13 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
   end
 
   describe '#estimate_cost' do
-    it 'sends only the method when signers and entries are omitted' do
-      stub_request(:post, "#{base_url}/documents/doc-1/assignments/estimate-cost")
-        .with(body: { 'method' => 'collect' })
-        .to_return(api_envelope({ 'total_credits' => 0 }))
-
-      result = described_class.new(connection, 'acc').estimate_cost('doc-1', { method: 'collect' })
-
-      expect(result['total_credits']).to eq(0)
+    it 'requires the input used to price the chosen method before sending' do
+      resource = described_class.new(connection, 'acc')
+      expect { resource.estimate_cost('doc-1', { method: 'collect' }) }
+        .to raise_error(Assinafy::ValidationError, /entries/)
+      expect { resource.estimate_cost('doc-1', { method: 'virtual' }) }
+        .to raise_error(Assinafy::ValidationError, /signer/)
+      expect(a_request(:post, "#{base_url}/documents/doc-1/assignments/estimate-cost")).not_to have_been_made
     end
 
     it 'accepts signer descriptors without ids and sends correct body' do
@@ -369,7 +392,7 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
       expect do
         resource.estimate_cost(
           'doc-1',
-          method: 'collect', signers: [{ verification_method: 'DigitalCertificate' }]
+          method: 'collect', signers: [{ verification_method: 'DigitalCertificate' }], entries: [{}]
         )
       end.to raise_error(Assinafy::ValidationError) { |error|
         expect(error.errors).to include(
@@ -650,6 +673,69 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
       resource = described_class.new(connection, 'acc')
       expect { resource.reset_expiration('doc', 'assignment', 'bad') }
         .to raise_error(Assinafy::ValidationError, /expires_at/)
+    end
+  end
+
+  describe 'embedded signing and credit ceilings' do
+    it 'preserves embedded false and zero credit ceilings in the request' do
+      body = described_class.build_payload(signers: [{ id: 'signer', embedded: false }], max_total_credits: 0)
+      expect(body).to include('max_total_credits' => 0, 'signers' => [{ 'id' => 'signer', 'embedded' => false }])
+    end
+
+    it 'rejects non-boolean embedded flags and unsupported embedded verification' do
+      [nil, 'true', 1].each do |flag|
+        expect { described_class.build_payload(signers: [{ id: 'signer', embedded: flag }]) }
+          .to raise_error(Assinafy::ValidationError, /embedded/)
+      end
+      %w[DigitalCertificate IdDocumentFaceMatchBasic].each do |method|
+        expect do
+          described_class.build_payload(signers: [{ id: 'signer', embedded: true, verification_method: method }])
+        end.to raise_error(Assinafy::ValidationError, /Embedded signing/)
+      end
+      expect { described_class.build_payload(signers: ['signer'], max_total_credits: -1) }
+        .to raise_error(Assinafy::ValidationError, /max_total_credits/)
+    end
+
+    it 'creates an embed session with workspace authentication and no body' do
+      path = "#{base_url}/documents/doc/assignments/asg/signers/signer/embed-sessions"
+      result = { 'url' => 'https://app.assinafy.com.br/embed/token', 'expires_at' => '2099-01-01T00:00:00Z' }
+      stub_request(:post, path).with(headers: { 'X-Api-Key' => 'test-key' }, body: nil).to_return(api_envelope(result))
+      resource = described_class.new(connection)
+
+      expect(resource.create_embed_session('doc', 'asg', 'signer')).to eq(result)
+      expect { resource.create_embed_session('doc', '../asg', 'signer') }.to raise_error(Assinafy::ValidationError)
+    end
+
+    it 'exchanges the token once without workspace credentials and preserves the returned access code' do
+      path = "#{base_url}/embed/sessions/#{'a' * 64}/exchange"
+      stub_request(:post, path).with(body: { 'parent_origin' => 'https://app.example.com' }) do |request|
+        without_workspace_auth?(request)
+      end.to_return(api_envelope({ 'signer_access_code' => 'code', 'embed_origins' => ['https://app.example.com'] }))
+      resource = described_class.new(connection)
+
+      expect(resource.exchange_embed_session('a' * 64, parent_origin: 'https://app.example.com'))
+        .to include('signer_access_code' => 'code')
+      expect(a_request(:post, path)).to have_been_made.once
+      expect { resource.exchange_embed_session('short') }.to raise_error(Assinafy::ValidationError)
+    end
+
+    it 'never retries a refused single-use exchange' do
+      path = "#{base_url}/embed/sessions/#{'a' * 64}/exchange"
+      stub_request(:post, path).to_return(api_envelope(nil, status: 409))
+
+      expect { described_class.new(connection).exchange_embed_session('a' * 64) }.to raise_error(Assinafy::ApiError)
+      expect(a_request(:post, path)).to have_been_made.once
+    end
+
+    it 'opens another envelope document with the requested expansion' do
+      stub_request(:get, "#{base_url}/sign")
+        .with(query: { 'signer-access-code' => 'code', 'expand' => 'envelope', 'document_id' => 'doc' })
+        .to_return(api_envelope({ 'id' => 'doc', 'envelope' => { 'id' => 'env' } }))
+
+      result = described_class.new(connection).signer_document(
+        signer_access_code: 'code', expand: ['envelope'], document_id: 'doc'
+      )
+      expect(result['envelope']).to eq('id' => 'env')
     end
   end
 end

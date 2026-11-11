@@ -27,7 +27,7 @@ Layout/FirstHashElementIndentation:
 # Resource classes each wrap an entire API area (many endpoints, each with full
 # request/response YARD), so a higher ceiling is appropriate here.
 Metrics/ClassLength:
-  Max: 300
+  Max: 350
 
 Metrics/MethodLength:
   Max: 30

@@ -304,6 +304,44 @@ RSpec.describe Assinafy::Resources::WebhookResource do
       expect(resource.rotate_endpoint_secret('ep1')).to eq('secret' => 'whsec_new')
     end
 
+    it 'can preserve the previous secret during rotation' do
+      stub_request(:post, "#{endpoints_url}/ep1/secret/rotate")
+        .with(body: { 'keep_previous' => true }).to_return(api_envelope({ 'secret' => 'whsec_new' }))
+
+      expect(resource.rotate_endpoint_secret('ep1', keep_previous: true)).to eq('secret' => 'whsec_new')
+      expect { resource.rotate_endpoint_secret('ep1', keep_previous: 'true') }.to raise_error(Assinafy::ValidationError)
+    end
+
+    it 'rotates with OAuth credentials and returns the old-secret expiration' do
+      oauth_connection = build_test_connection(base_url, nil)
+      oauth_connection.headers['Authorization'] = 'Bearer oauth-token'
+      oauth_resource = described_class.new(oauth_connection, 'acc')
+      result = { 'secret' => 'whsec_new', 'previous_secret_expires_at' => '2026-11-12T12:00:00Z' }
+      stub_request(:post, "#{endpoints_url}/ep1/secret/rotate")
+        .with(body: { 'keep_previous' => true }, headers: { 'Authorization' => 'Bearer oauth-token' })
+        .to_return(api_envelope(result))
+
+      expect(oauth_resource.rotate_endpoint_secret('ep1', keep_previous: true)).to eq(result)
+    end
+
+    it 'sends one authenticated webhook test and returns its dispatch' do
+      dispatch = { 'event' => 'webhook_test', 'kind' => 'manual', 'delivered' => false, 'http_status' => 500 }
+      stub_request(:post, "#{endpoints_url}/ep1/test")
+        .with(headers: { 'X-Api-Key' => 'test-key' }).to_return(api_envelope(dispatch))
+
+      expect(resource.test_endpoint('ep1')).to eq(dispatch)
+      expect { resource.test_endpoint('../ep1') }.to raise_error(Assinafy::ValidationError)
+    end
+
+    it 'propagates a webhook test rate limit without retrying' do
+      request = stub_request(:post, "#{endpoints_url}/ep1/test")
+                .to_return(json_response({ message: 'Too many tests' }, status:  429,
+                                                                        headers: { 'Retry-After' => '60' }))
+
+      expect { resource.test_endpoint('ep1') }.to raise_error(Assinafy::ApiError) { |error| expect(error.retry_after).to eq(60) }
+      expect(request).to have_been_requested.once
+    end
+
     it 'filters deliveries by endpoint' do
       stub_request(:get, "#{base_url}/accounts/acc/webhooks").with(query: { 'endpoint_id' => 'ep1' })
                                                              .to_return(api_envelope([]))

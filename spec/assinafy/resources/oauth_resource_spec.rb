@@ -289,6 +289,25 @@ RSpec.describe Assinafy::Resources::OAuthResource do
       expect(a_request(:post, "#{base_url}/oauth/revoke")).not_to have_been_made
     end
 
+    it 'rejects blank or non-String client secrets before sending anything' do
+      ['', '  ', false, 123, { secret: 'value' }].each do |secret|
+        expect { resource.revoke(token: 't', client_id: 'i', client_secret: secret) }
+          .to raise_error(Assinafy::ValidationError, /Client secret/)
+      end
+
+      expect(a_request(:post, "#{base_url}/oauth/revoke")).not_to have_been_made
+    end
+
+    it 'form-encodes a confidential client secret without workspace credentials' do
+      request = stub_request(:post, "#{base_url}/oauth/revoke")
+                .with(headers: form_encoded, body: { 'token' => 't', 'client_id' => 'i', 'client_secret' => 's+&=' },
+                      &unauthenticated_request)
+                .to_return(status: 200, body: '')
+
+      expect(resource.revoke(token: 't', client_id: 'i', client_secret: 's+&=')).to be_nil
+      expect(request).to have_been_requested.once
+    end
+
     it 'omits token_type_hint when it was not supplied' do
       stub_request(:post, "#{base_url}/oauth/revoke").to_return(status: 200, body: '')
 

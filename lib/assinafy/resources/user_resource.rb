@@ -22,6 +22,11 @@ module Assinafy
         ContractRenewed
       ].freeze
 
+      PUSH_PREFERENCE_CODES = %w[
+        SignerViewed SignerSigned DocumentCompleted SignerDeclined DocumentAboutToExpire
+        DocumentExpired SignerIdentityReviewRequired SignerWhatsappFailed
+      ].freeze
+
       # Fetch the authenticated user's profile. The current OpenAPI response is
       # an `AuthUser` directly, while the deployed API returns the login-like
       # `{ 'user' => AuthUser, 'accounts' => [...] }` shape. The SDK does not reshape
@@ -189,21 +194,50 @@ module Assinafy
       #     'ContractRenewed' => true
       #   }
       def update_notification_preferences(preferences)
-        preferences = require_payload(preferences, 'Notification preferences')
-        raise ValidationError.new('At least one notification preference is required') if preferences.empty?
-
-        preferences.each do |code, enabled|
-          code = code.to_s
-          unless NOTIFICATION_PREFERENCE_CODES.include?(code)
-            raise ValidationError.new("Unknown notification preference: #{code}")
-          end
-          unless [true, false].include?(enabled)
-            raise ValidationError.new("Notification preference #{code} must be boolean")
-          end
-        end
+        require_preferences(preferences, NOTIFICATION_PREFERENCE_CODES)
 
         call('Failed to update notification preferences') do
           http_put('users/self/notification-preferences', body_params(preferences))
+        end
+      end
+
+      # Read phone push preferences, independently of email preferences.
+      # Third-party OAuth applications cannot access these personal settings.
+      #
+      # @return [Hash{String=>Boolean}] all eight push preference codes
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @see GET /users/self/push-preferences
+      # @example Read push preferences
+      #   client.users.push_preferences
+      #   # Request: GET /users/self/push-preferences (no body)
+      #   # => { 'SignerViewed' => true, 'SignerSigned' => true, 'DocumentCompleted' => true,
+      #   #      'SignerDeclined' => true, 'DocumentAboutToExpire' => true, 'DocumentExpired' => true,
+      #   #      'SignerIdentityReviewRequired' => true, 'SignerWhatsappFailed' => true }
+      def push_preferences
+        call('Failed to fetch push preferences') { http_get('users/self/push-preferences') }
+      end
+
+      # Merge phone push preferences; omitted codes keep their current value.
+      # Third-party OAuth applications cannot access these personal settings.
+      #
+      # @param preferences [Hash{String,Symbol=>Boolean}] non-empty partial map
+      # @return [Hash{String=>Boolean}] all eight push preference codes
+      # @raise [Assinafy::ValidationError] on empty, unknown or non-boolean preferences
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @see PUT /users/self/push-preferences
+      # @example Disable signer-viewed pushes
+      #   client.users.update_push_preferences(SignerViewed: false)
+      #   # Request: PUT /users/self/push-preferences
+      #   # Body: { "SignerViewed": false }
+      #   # => { 'SignerViewed' => false, 'SignerSigned' => true, 'DocumentCompleted' => true,
+      #   #      'SignerDeclined' => true, 'DocumentAboutToExpire' => true, 'DocumentExpired' => true,
+      #   #      'SignerIdentityReviewRequired' => true, 'SignerWhatsappFailed' => true }
+      def update_push_preferences(preferences)
+        require_preferences(preferences, PUSH_PREFERENCE_CODES)
+        call('Failed to update push preferences') do
+          http_put('users/self/push-preferences', body_params(preferences))
         end
       end
     end

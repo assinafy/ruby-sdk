@@ -203,9 +203,8 @@ module Assinafy
 
       # Validate a single value against a field definition.
       #
-      # The OpenAPI declares workspace Authorization, which is used when
-      # `signer_access_code:` is omitted. The deployed API also accepts the signer
-      # access code: when the keyword is given it must be a non-blank code, and
+      # Workspace authorization is used when `signer_access_code:` is omitted.
+      # When the keyword is given it must be a non-blank code, and
       # only the code is sent (never the workspace credentials).
       #
       # @param field_id             [String]

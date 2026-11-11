@@ -1,6 +1,21 @@
 # frozen_string_literal: true
 
 RSpec.describe Assinafy::Utils do
+  describe '.require_credit_ceiling' do
+    it 'preserves finite nonnegative numbers and numeric text, including zero' do
+      [nil, 0, 1.5, '0', '1.5', '1e2', '-0.0', ' 1.5 '].each do |value|
+        expect(described_class.require_credit_ceiling(value)).to eq(value)
+      end
+    end
+
+    it 'rejects invalid types, negative amounts and nonfinite numbers' do
+      [false, true, {}, [], '', 'no', -1, '-1', Float::INFINITY, Float::NAN,
+       Complex(1, 0), Rational(1, 2), '0x10', '1_000', '-1e-999'].each do |value|
+        expect { described_class.require_credit_ceiling(value) }.to raise_error(Assinafy::ValidationError)
+      end
+    end
+  end
+
   describe '.handle_assinafy_response' do
     it 'returns data on a 2xx envelope' do
       result = described_class.handle_assinafy_response({ 'status' => 200, 'data' => { 'id' => '123' } })

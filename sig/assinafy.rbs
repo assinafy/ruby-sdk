@@ -104,6 +104,7 @@ module Assinafy
   end
 
   module Utils
+    def self.require_credit_ceiling: (Numeric | String | nil value) -> (Numeric | String | nil)
     MAX_NORMALIZATION_DEPTH: Integer
     EMAIL_PATTERN: Regexp
 
@@ -215,7 +216,7 @@ module Assinafy
     class AccountResource < BaseResource
       def list: () -> list_result
       def create: (params payload) -> api_object
-      def get: (?String? account_id_override) -> api_object
+      def get: (?String? account_id_override, ?expand: String?) -> api_object
       def update: (params payload, ?String? account_id_override) -> api_object
       def delete: (?force: bool, ?account_id_override: String?) -> nil
       def theme: (?String? account_id_override) -> api_object
@@ -223,15 +224,25 @@ module Assinafy
       def download_logo: (?String? account_id_override) -> String
       def upload_logo: (upload_source source, ?String? account_id_override) -> api_object?
       def delete_logo: (?String? account_id_override) -> nil
+      def usage: (?String? account_id_override) -> api_object
+      def notification_policy: (?String? account_id_override) -> api_object
+      def update_notification_policy: (params payload, ?String? account_id_override) -> api_object
+      def list_embed_origins: (?String? account_id_override) -> Array[api_object]
+      def create_embed_origin: (String origin, ?String? account_id_override) -> api_object
+      def update_embed_origin: (String origin_id, String origin, ?String? account_id_override) -> api_object
+      def delete_embed_origin: (String origin_id, ?String? account_id_override) -> nil
     end
 
     class UserResource < BaseResource
       NOTIFICATION_PREFERENCE_CODES: Array[String]
+      PUSH_PREFERENCE_CODES: Array[String]
 
       def me: () -> api_object
       def stats: (?granularity: String?, ?month: String?) -> Array[api_object]
       def notification_preferences: () -> Hash[String, bool]
       def update_notification_preferences: (Hash[String | Symbol, bool] preferences) -> Hash[String, bool]
+      def push_preferences: () -> Hash[String, bool]
+      def update_push_preferences: (Hash[String | Symbol, bool] preferences) -> Hash[String, bool]
     end
 
     class DocumentResource < BaseResource
@@ -243,8 +254,8 @@ module Assinafy
       def list: (?params params, ?String? account_id_override) -> list_result
       def search: (?String? query, ?params params, ?String? account_id_override) -> list_result
       def statuses: () -> Array[api_object]
-      def details: (String document_id) -> api_object
-      def get: (String document_id) -> api_object
+      def details: (String document_id, ?expand: String | Array[String] | nil) -> api_object
+      def get: (String document_id, ?expand: String | Array[String] | nil) -> api_object
       def rename: (String document_id, String name) -> api_object
       def wait_until_ready: (
         String document_id,
@@ -252,9 +263,10 @@ module Assinafy
         ?poll_interval_seconds: Numeric
       ) -> api_object
       def download: (String document_id, ?String artifact_name) -> String
-      def thumbnail: (String document_id) -> String
-      def download_page: (String document_id, String page_id) -> String
-      def activities: (String document_id) -> Array[api_object]
+      def thumbnail: (String document_id, ?artifact: String?) -> String
+      def download_page: (String document_id, String page_id, ?artifact: String?) -> String
+      def activities: (String document_id, ?params params) -> Array[api_object]
+      def activities_page: (String document_id, ?params params) -> list_result
       def delete: (String document_id) -> nil
       def create_from_template: (
         String template_id,
@@ -283,6 +295,22 @@ module Assinafy
       def signing_progress: (String document_id) -> signing_progress
     end
 
+    class EnvelopeResource < BaseResource
+      ARTIFACTS: Array[String]
+      def list: (?params params, ?String? account_id_override) -> list_result
+      def create: (params payload, ?String? account_id_override, ?idempotency_key: String?) -> api_object
+      def estimate_cost: (params payload, ?String? account_id_override) -> api_object
+      def get: (String envelope_id, ?String? account_id_override) -> api_object
+      def update: (String envelope_id, params payload, ?String? account_id_override) -> api_object
+      def delete: (String envelope_id, ?String? account_id_override) -> nil
+      def activities: (String envelope_id, ?params params, ?String? account_id_override) -> list_result
+      def download: (String envelope_id, ?String artifact, ?String? account_id_override) -> String
+      def cancel: (String envelope_id, ?String? account_id_override) -> Array[api_object]
+      def resend_notification: (String envelope_id, String signer_id, ?String? account_id_override) -> api_object
+      def add_document: (String envelope_id, params payload, ?String? account_id_override) -> api_object
+      def remove_document: (String envelope_id, String document_id, ?String? account_id_override) -> api_object
+    end
+
     class ContractResource < BaseResource
       STATUSES: Array[String]
       RELATION_TYPES: Array[String]
@@ -295,7 +323,7 @@ module Assinafy
       def list: (?params params, ?String? account_id_override) -> list_result
       def get: (String document_id, ?String? account_id_override) -> api_object?
       def update: (String document_id, params payload, ?String? account_id_override) -> api_object
-      def related: (String document_id, ?String? account_id_override) -> api_object?
+      def related: (String document_id, ?String? account_id_override, ?expand: String?) -> api_object?
       def renew: (String document_id, params payload, ?String? account_id_override) -> api_object
       def terminate: (String document_id, ?params payload, ?String? account_id_override) -> api_object
     end
@@ -314,9 +342,9 @@ module Assinafy
       def self_data: (signer_access_code: String) -> api_object
       def identity_verification: (signer_access_code: String) -> api_object
       def start_identity_verification: (consent: bool, signer_access_code: String) -> api_object
-      def accept_terms: (signer_access_code: String) -> nil
-      def verify_email: (verification_code: String, signer_access_code: String) -> nil
-      def confirm_data: (String document_id, params payload, signer_access_code: String) -> api_object
+      def accept_terms: (signer_access_code: String) -> api_object?
+      def verify_email: (verification_code: String, signer_access_code: String) -> Array[untyped]?
+      def confirm_data: (String document_id, params payload, signer_access_code: String) -> Array[untyped]
       def upload_signature: (
         String content,
         signer_access_code: String,
@@ -325,11 +353,16 @@ module Assinafy
         ?reuse: bool?
       ) -> (nil | Array[untyped])
       def download_signature: (signer_access_code: String, ?type: String) -> String
+      def theme: (signer_access_code: String) -> api_object
+      def download_logo: (signer_access_code: String) -> String
     end
 
     class SignerDocumentResource < BaseResource
-      def current: (String signer_id, signer_access_code: String) -> api_object
-      def document: (String signer_id, signer_access_code: String) -> api_object
+      def send_certified_copy: (signer_access_code: String, ?document_id: String?) -> api_object
+      def download_certified_copy: (String token, ?pades: bool) -> String
+      def resend_certified_copy: (String token) -> api_object
+      def current: (String signer_id, signer_access_code: String, ?expand: String | Array[String] | nil) -> api_object
+      def document: (String signer_id, signer_access_code: String, ?expand: String | Array[String] | nil) -> api_object
       def list: (String signer_id, ?params params, ?signer_access_code: String?) -> list_result
       def list_as_workspace: (String signer_id, ?params params) -> list_result
       def search: (String signer_id, ?String? query, ?params params, ?signer_access_code: String?) -> list_result
@@ -373,7 +406,14 @@ module Assinafy
         decision: String,
         ?note: String?
       ) -> api_object
-      def signer_document: (signer_access_code: String, ?has_accepted_terms: bool?) -> api_object
+      def create_embed_session: (String document_id, String assignment_id, String signer_id) -> api_object
+      def exchange_embed_session: (String token, ?parent_origin: String?) -> api_object
+      def signer_document: (
+        signer_access_code: String,
+        ?has_accepted_terms: bool?,
+        ?expand: String | Array[String] | nil,
+        ?document_id: String?
+      ) -> api_object
       def sign: (String document_id, String assignment_id, Array[params] items, signer_access_code: String) -> api_object
       def decline: (
         String document_id,
@@ -399,7 +439,8 @@ module Assinafy
       def delete_endpoint: (String endpoint_id, ?String? account_id_override) -> nil
       def delete_endpoint_by_url: (String url, ?String? account_id_override) -> nil
       def endpoint_secret: (String endpoint_id, ?String? account_id_override) -> api_object
-      def rotate_endpoint_secret: (String endpoint_id, ?String? account_id_override) -> api_object
+      def rotate_endpoint_secret: (String endpoint_id, ?String? account_id_override, ?keep_previous: bool) -> api_object
+      def test_endpoint: (String endpoint_id, ?String? account_id_override) -> api_object
     end
 
     class TemplateResource < BaseResource
@@ -462,6 +503,7 @@ module Assinafy
     attr_reader accounts: Resources::AccountResource
     attr_reader users: Resources::UserResource
     attr_reader documents: Resources::DocumentResource
+    attr_reader envelopes: Resources::EnvelopeResource
     attr_reader contracts: Resources::ContractResource
     attr_reader signers: Resources::SignerResource
     attr_reader signer_documents: Resources::SignerDocumentResource

@@ -334,7 +334,7 @@ module Assinafy
       # other signer-authenticated endpoint. This operation has no request body.
       #
       # @param signer_access_code [String]
-      # @return [nil] the documented success envelope has no `data` payload
+      # @return [Hash] full_name, email and has_accepted_terms
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure
       # @raise [Assinafy::ValidationError] on invalid required input
@@ -345,8 +345,8 @@ module Assinafy
       #   # Request: PUT /signers/accept-terms?signer-access-code=signer-access-code
       #   # Body: none
       #
-      #   # Response: { "status": 200, "message": "Terms accepted" }
-      #   # => nil
+      #   # => { "full_name" => "Example Signer", "email" => "signer@example.com",
+      #   #      "has_accepted_terms" => true }
       def accept_terms(signer_access_code:)
         code = require_signer_access_code(signer_access_code)
 
@@ -355,11 +355,11 @@ module Assinafy
         end
       end
 
-      # Verify the signer's email with a one-time verification code.
+      # Verify the signer's Email or Whatsapp one-time code.
       #
       # @param verification_code  [String]
       # @param signer_access_code [String]
-      # @return [nil] the documented success envelope has no `data` payload
+      # @return [Array, nil] empty Array; nil for older no-data responses
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure
       # @raise [Assinafy::ValidationError] on invalid required input
@@ -373,8 +373,8 @@ module Assinafy
       #   # Request: POST /verify?signer-access-code=signer-access-code
       #   # Body: { "verification-code": "123456" }
       #
-      #   # Response: { "status": 200, "message": "Code verified successfully" }
-      #   # => nil
+      #   # Response: { "status": 200, "data": [], "message": "Code verified successfully" }
+      #   # => []
       def verify_email(verification_code:, signer_access_code:)
         verification = require_string(verification_code, 'Verification code')
         code         = require_signer_access_code(signer_access_code)
@@ -389,33 +389,23 @@ module Assinafy
         end
       end
 
-      # Confirm signer data before signing a virtual assignment. The documented
-      # body fields are `full_name`, `email`, and `government_id`; the payload is
-      # passed through unchanged, so any additional fields the API accepts can be
-      # supplied as well.
+      # Confirm the contact used by the assignment and optionally accept terms. Certificate signers
+      # must do both before opening GET /sign. Existing additional payload fields are passed through.
       #
-      # @param document_id        [String]
-      # @param payload            [Hash] `:full_name`, `:email`, `:government_id`
+      # @param document_id [String]
+      # @param payload [Hash] email, whatsapp_phone_number and has_accepted_terms
       # @param signer_access_code [String]
-      # @return [Hash] the updated signer object (envelope `data` unwrapped)
+      # @return [Array] empty Array on success
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure
       # @raise [Assinafy::ValidationError] on invalid required input
       # @see PUT /documents/{documentId}/signers/confirm-data
-      # @example Confirm the signer's data
-      #   result = client.signers.confirm_data(
-      #     'document-id',
-      #     { full_name: 'Signer Name', email: 'signer@example.com', government_id: '00000000000' },
-      #     signer_access_code: 'signer-access-code'
-      #   )
-      #
-      #   # signer-access-code is sent as a query param; the JSON body the SDK sends:
-      #   #   { "full_name": "Signer Name", "email": "signer@example.com", "government_id": "00000000000" }
-      #
-      #   # => {
-      #   #   "resource" => "signer", "id" => "signer-id", "full_name" => "Signer Name",
-      #   #   "email" => "signer@example.com", "whatsapp_phone_number" => nil, "has_accepted_terms" => false
-      #   # }
+      # @example Confirm contact and terms using only the signer access code
+      #   client.signers.confirm_data('document-id',
+      #     { email: 'signer@example.com', has_accepted_terms: true }, signer_access_code: 'access-code')
+      #   # PUT /documents/document-id/signers/confirm-data?signer-access-code=access-code
+      #   # Body: { 'email' => 'signer@example.com', 'has_accepted_terms' => true }
+      #   # => []
       def confirm_data(document_id, payload, signer_access_code:)
         doc_id = require_id(document_id, 'Document ID')
         body   = body_params(require_payload(payload))
@@ -423,6 +413,8 @@ module Assinafy
         require_string(body['full_name'], 'Full name') if body.key?('full_name')
         Utils.require_email(body['email']) if body.key?('email')
         require_string(body['government_id'], 'Government ID') if body.key?('government_id')
+        require_string(body['whatsapp_phone_number'], 'WhatsApp number') if body.key?('whatsapp_phone_number')
+        require_boolean(body['has_accepted_terms'], 'has_accepted_terms') if body.key?('has_accepted_terms')
 
         call('Failed to confirm signer data') do
           http_put("documents/#{doc_id}/signers/confirm-data", body,
@@ -438,8 +430,7 @@ module Assinafy
       # @param content_type       [String] must be `image/png`
       # @param reuse              [Boolean, nil] when true, marks the signature as
       #   reusable for future documents (documented `reuse` query flag)
-      # @return [nil, Array] `nil` for the OpenAPI's no-data envelope; some deployed
-      #   versions return `data: []`, which the SDK passes through as an empty Array
+      # @return [Array, nil] empty Array; nil for older no-data responses
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure
       # @raise [Assinafy::ValidationError] on invalid required input
@@ -456,8 +447,7 @@ module Assinafy
       #   # The SDK sends the RAW image bytes as the body, with
       #   # Content-Type: image/png and ?signer-access-code=...&type=signature query params.
       #
-      #   # => nil # documented no-data envelope
-      #   # => []  # when a deployed API version returns data: []
+      #   # => []
       def upload_signature(content, signer_access_code:, type: 'signature', content_type: 'image/png', reuse: nil)
         unless content.is_a?(String) && !content.empty?
           raise ValidationError.new('Signature content must be a non-empty String')
@@ -508,6 +498,47 @@ module Assinafy
 
         call_binary('Failed to download signer signature') do
           http_get("signature/#{sig_type}", { signer_access_code: code }, workspace_auth: false)
+        end
+      end
+
+      # Read the signing workspace's brand using the signer's access code.
+      #
+      # @param signer_access_code [String]
+      # @return [Hash] account_name, primary_color, secondary_color and nullable logo URL
+      # @raise [Assinafy::ValidationError] on an invalid access code
+      # @raise [Assinafy::ApiError] on an unsuccessful API response
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @see GET /sign/theme
+      # @example Read branding (no body, no workspace credentials)
+      #   client.signers.theme(signer_access_code: 'access-code')
+      #   # GET /sign/theme?signer-access-code=access-code
+      #   # => { 'account_name' => 'Example Workspace', 'primary_color' => 'aabbcc',
+      #   #      'secondary_color' => 'ffffff', 'logo' => 'https://api.assinafy.com.br/v1/sign/logo' }
+      def theme(signer_access_code:)
+        code = require_signer_access_code(signer_access_code)
+
+        call('Failed to read signing theme') do
+          http_get('sign/theme', { signer_access_code: code }, workspace_auth: false)
+        end
+      end
+
+      # Download the signing workspace's logo with signer-only authentication.
+      #
+      # @param signer_access_code [String]
+      # @return [String] binary image bytes
+      # @raise [Assinafy::ValidationError] on an invalid access code
+      # @raise [Assinafy::ApiError] on an unsuccessful API response, including 404 without a logo
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @see GET /sign/logo
+      # @example Download branding (no request body)
+      #   client.signers.download_logo(signer_access_code: 'access-code')
+      #   # GET /sign/logo?signer-access-code=access-code
+      #   # => "PNG image bytes" # binary String
+      def download_logo(signer_access_code:)
+        code = require_signer_access_code(signer_access_code)
+
+        call_binary('Failed to download signing logo') do
+          http_get('sign/logo', { signer_access_code: code }, workspace_auth: false)
         end
       end
 

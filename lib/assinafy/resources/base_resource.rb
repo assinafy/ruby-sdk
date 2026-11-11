@@ -83,6 +83,20 @@ module Assinafy
         raise ValidationError.new("#{name} must be a non-empty Array")
       end
 
+      def require_preferences(value, allowed, name = 'Notification preferences')
+        preferences = require_payload(value, name)
+        raise ValidationError.new("#{name} must not be empty") if preferences.empty?
+
+        preferences.each do |code, enabled|
+          unless allowed.include?(code.to_s)
+            raise ValidationError.new("Unknown notification preference: #{code}")
+          end
+
+          require_boolean(enabled, "Notification preference #{code}")
+        end
+        preferences
+      end
+
       def require_signer_access_code(value)
         require_string(value, 'Signer access code')
       end
@@ -194,11 +208,28 @@ module Assinafy
         end
       end
 
-      def http_post(path, body = nil, params = {}, workspace_auth: true)
+      def http_post(path, body = nil, params = {}, workspace_auth: true, headers: {})
         @connection.post(path) do |request|
+          request.headers.update(headers)
           prepare_request(request, params, workspace_auth: workspace_auth)
           request.body = body unless body.nil?
         end
+      end
+
+      def idempotency_headers(key)
+        return {} if key.nil?
+
+        require_string(key, 'Idempotency key')
+        raise ValidationError.new('Idempotency key contains invalid characters') if key.match?(/[\r\n]/)
+
+        { 'Idempotency-Key' => key }
+      end
+
+      def signing_expansion(value)
+        return nil if value.nil?
+        return 'envelope' if ['envelope', ['envelope']].include?(value)
+
+        raise ValidationError.new('expand must be envelope')
       end
 
       # RFC 6749 §4.1.3/§6 and RFC 7009 §2.1 define token and revocation

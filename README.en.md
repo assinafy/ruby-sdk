@@ -7,6 +7,9 @@
 
 Ruby SDK for the [Assinafy API v1](https://api.assinafy.com.br/v1/docs).
 
+Run this SDK on your server. Mobile and browser clients call your backend; keep API keys, OAuth client secrets,
+refresh tokens and signer access codes out of application bundles, logs and browser storage.
+
 The SDK exposes every Assinafy API v1 operation — including OAuth 2.1, two-factor authentication, webhook
 endpoints with native signatures, and the complete supported template lifecycle. The checked-in
 [`spec/api_coverage_spec.rb`](spec/api_coverage_spec.rb) validates that each route maps uniquely to a public SDK
@@ -157,8 +160,9 @@ client.auth.reset_password(email: 'user@example.com', new_password: 'new', token
 ## OAuth 2.1
 
 Use OAuth when an application acts **on behalf of a user**, with that user's permission. Unlike an API key, the
-token is scoped to one workspace and carries only the scopes the user approved. It never reaches billing, account
-lifecycle, credential management, webhook signing secrets, or admin surfaces, whatever scopes it holds.
+token is scoped to one workspace and carries only the scopes the user approved. Third-party OAuth tokens cannot
+reach billing, account lifecycle, credential management, webhook-secret reads, embed-session creation,
+biometric review images/decisions, or admin surfaces, whatever scopes they hold.
 
 The flow is authorization-code with **mandatory PKCE**; the authorization server accepts `S256` only.
 
@@ -191,7 +195,7 @@ redirect_to Assinafy::OAuth.authorization_url(
   redirect_uri:  'https://app.example.com/oauth/callback',
   code_verifier: verifier,
   state:         state,
-  scope:         %w[documents:read documents:write offline_access]
+  scope:         %w[documents:read documents:write openid profile email offline_access]
 )
 ```
 
@@ -206,8 +210,11 @@ that are not yours. The code is single-use and expires 60 seconds after approval
 same `redirect_uri`, and never retry.
 
 ```ruby
-unless params[:state] == session.delete(:assinafy_state) &&
-       params[:iss] == session.delete(:assinafy_issuer)
+expected_state  = session.delete(:assinafy_state)
+expected_issuer = session.delete(:assinafy_issuer)
+unless expected_state.is_a?(String) && !expected_state.empty? &&
+       expected_issuer.is_a?(String) && !expected_issuer.empty? &&
+       params[:state] == expected_state && params[:iss] == expected_issuer
   raise 'authorization response is not ours'
 end
 raise "authorization not granted: #{params[:error]}" if params[:error] # access_denied, invalid_scope, ...
@@ -219,7 +226,7 @@ tokens = Assinafy::Client.new.oauth.exchange_code(
   redirect_uri:  'https://app.example.com/oauth/callback'
 )
 # => { 'access_token' => ..., 'token_type' => 'Bearer', 'expires_in' => 3600,
-#      'refresh_token' => ..., 'scope' => 'documents:read documents:write' }
+#      'refresh_token' => ..., 'scope' => 'documents:read documents:write openid profile email' }
 ```
 
 The SDK checks the `code_verifier` grammar locally, because the server reports a malformed verifier as
@@ -441,7 +448,7 @@ all-or-none, positive, and contiguous from 1; equal steps sign in parallel, and 
 previous one finishes. A certificate signer is alone in its step. Deadlines are zoned ISO 8601 and at least one
 hour ahead.
 
-For a template, bind one distinct existing signer to each role and create the document and assignment together:
+For a template, bind one distinct signer to each role; processing creates the document's assignment:
 
 ```ruby
 role_signer = {
@@ -454,9 +461,18 @@ role_signer = {
 client.documents.estimate_cost_from_template(template.fetch('id'), [role_signer])
 template_document = client.documents.create_from_template(
   template.fetch('id'), [role_signer],
-  name: 'customer-agreement.pdf', message: 'Please review and sign.'
+  name: 'customer-agreement.pdf', message: 'Please review and sign.',
+  idempotency_key: 'template-request-id'
 )
+# Initial response: status "uploaded", assignment nil; processing creates the assignment afterward.
+# Follow document status/webhooks until pending_signature or failed.
+# wait_until_ready waits for metadata and can return before the template assignment exists.
 ```
+
+Template creation also accepts `email` and `name` for a role instead of an existing signer `id`; the server reuses
+or creates the signer. Keep the same `idempotency_key` after a lost response to avoid duplicate documents and
+charges. `max_total_credits` can cap creation costs; a higher actual price returns `409` with
+`error_code == 'CreditCeilingExceeded'`, creating and charging nothing.
 
 **Shortcut.** `Client#upload_and_request_signatures` bundles upload, waiting, signer creation (including
 `government_id`), and a virtual assignment, validating the whole payload before anything is uploaded:
@@ -477,8 +493,11 @@ created so you can clean up.
 
 ### 6. The signer experience
 
-The signer receives an access link through the notification channel. Signer-facing calls use the one-time
-`signer-access-code` (a query parameter), not workspace credentials.
+The signer receives an access link through the notification channel. Signer-facing calls use
+`signer-access-code` as a query parameter, with workspace credentials removed. The code remains usable during
+signing and closes 30 minutes after that signer is done; an envelope code closes after all their documents are
+done. After closure, document reads return only signer status, theme/logo and certified-copy delivery remain
+available, and other signer calls return `410`.
 
 ```ruby
 signing = Assinafy::Client.new(base_url: ENV.fetch('ASSINAFY_BASE_URL'))
@@ -489,7 +508,7 @@ signing.signers.accept_terms(signer_access_code: access_code) unless signer_data
 
 signing_document = signing.assignments.signer_document(signer_access_code: access_code, has_accepted_terms: true)
 signing.signers.confirm_data(
-  signing_document.fetch('id'), { full_name: 'Example Signer', government_id: '00000000000' },
+  signing_document.fetch('id'), { email: 'signer@example.com', has_accepted_terms: true },
   signer_access_code: access_code
 )
 signing.signers.verify_email(                      # the OTP from email or WhatsApp
@@ -543,7 +562,7 @@ before any session or after Expired; restarting an Expired session costs nothing
 requires a new document and assignment.
 
 InReview lets the signer view, confirm data and sign while account review holds certification. After all signers
-sign, the document can be `pending_identity_review`. The account reviewer uses workspace credentials:
+sign, the document can be `pending_identity_review`. The account reviewer uses an API key or user session:
 
 ```ruby
 review = client.assignments.identity_review(document.fetch('id'), assignment.fetch('id'), signer.fetch('id'))
@@ -562,6 +581,9 @@ client.assignments.decide_identity_review(
 most 2000 characters, goes to activities and the provider, and is never shown to the signer. Images exist only
 during InReview. Observe signer_identity_review_required, signer_identity_review_approved,
 signer_identity_review_rejected, signer_identity_verified and signer_identity_verification_failed events.
+Third-party OAuth apps can read the review summary with `documents:read`; they cannot fetch evidence images or
+submit the human review decision. For envelopes, one biometric check covers the signer's documents; rejection
+cancels the whole envelope and notifies each recipient once.
 
 **A1/A3 certificate signers** complete their signature in Assinafy's hosted signing flow, opened from
 `assignment['signing_urls']`: they accept the terms, confirm their data, and sign with their A1 or A3 certificate
@@ -592,17 +614,22 @@ secret = endpoint.fetch('secret') # returned once on creation; store it immediat
 - Creating one past the plan limit answers `403`; a URL another endpoint already uses answers `400`.
 - `update_endpoint(id, payload)` changes only the fields sent. `signing_enabled: true` creates a secret when the
   endpoint has none and keeps the current one otherwise; `false` discards it.
-- `rotate_endpoint_secret(id)` returns a new secret; the old one stops working immediately.
-- Reading and rotating secrets is not available to OAuth applications — use an API key or a user session token.
-  Both answer `400` when signing is disabled. An OAuth app that loses its secret must delete and recreate the endpoint.
+- `rotate_endpoint_secret(id)` returns a new secret; the old one stops working immediately. Pass
+  `keep_previous: true` for 24 hours of signatures from both secrets while receivers switch.
+- Reading a secret requires an API key or user session. Rotation is available to OAuth apps with
+  `webhooks:write`, including recovery of a lost secret. Both methods answer `400` when signing is disabled.
+- Enabling signing with `update_endpoint` returns the new secret once. Store it before using the endpoint.
 - `list_endpoints(url: registered_url)` filters by exact URL; `delete_endpoint_by_url(registered_url)` removes
   that endpoint and returns `nil` (`404` when no endpoint matches).
 
 **Delivery contract.** Each delivery is a `POST` with an `application/json` body and the headers `webhook-id`
 (identical on every attempt of the same event to the same endpoint — deduplicate on it), `webhook-timestamp`
-(Unix seconds), and, when signing is enabled, `webhook-signature`. Any `2xx` is success. Each event gets up to 2
-attempts, 3 seconds apart; after 10 consecutive failed events the endpoint's deliveries pause and only a sample is
-probed until one succeeds. Force a redelivery with `retry_dispatch`.
+(Unix seconds), and, when signing is enabled, `webhook-signature`. Any `2xx` is success. Network failures,
+timeouts, `408`, `429` and `5xx` get up to six attempts about ten minutes apart; other statuses are final.
+After ten failed deliveries in a row the endpoint pauses. Probes follow after 3, 15 and 60 minutes, then every
+six hours; success releases queued events oldest first. Updating its URL or setting `is_active: true` also lifts
+the pause. `retry_dispatch` sends now; `test_endpoint` sends a separate `webhook_test` without changing the pause.
+Delivery history is retained for seven days and captures the first 2000 response-body characters.
 
 **Verifying signatures.** Signatures follow [Standard Webhooks](https://www.standardwebhooks.com): space-separated
 `v1,<base64 HMAC-SHA256>` entries over `"{webhook-id}.{webhook-timestamp}.{raw body}"`, keyed with the
@@ -641,6 +668,9 @@ subject, object, account_id }`. `subject` and `object` carry a `type` (`User`, `
 `verify(raw_body, hex_signature)` remains only for receivers whose own gateway signs bodies with a hex
 HMAC-SHA256 shared secret.
 
+Give the webhook event table a unique index on `webhook_id`, process events idempotently, and arrange durable
+job delivery before acknowledging the request so concurrent retries or a failed enqueue cannot lose an event.
+
 ### 8. Track progress, download, and verify
 
 ```ruby
@@ -648,7 +678,8 @@ document_id = document.fetch('id')
 
 client.documents.signing_progress(document_id)  # => { signed: 1, total: 2, pending: 1, percentage: 50.0 }
 client.documents.fully_signed?(document_id)
-client.documents.activities(document_id)        # => Array<DocumentActivity>
+client.documents.activities(document_id)        # => one page of Array<DocumentActivity>
+client.documents.activities_page(document_id, page: 1, per_page: 20) # => { data:, meta: }
 
 signed_pdf = client.documents.download(document_id, 'certificated')
 # also 'original', 'certificate-page', 'bundle' (zip), and 'pades' for certificate-signed documents
@@ -691,7 +722,7 @@ See [Errors](#errors) for the full hierarchy.
 
 ## Resource reference
 
-`Assinafy::Client` exposes fourteen accessors — thirteen API resources plus the local `webhook_verifier` helper:
+`Assinafy::Client` exposes the API resources below plus the local `webhook_verifier` helper:
 
 | Accessor                    | What it covers                                                     |
 | --------------------------- | ------------------------------------------------------------------ |
@@ -700,6 +731,7 @@ See [Errors](#errors) for the full hierarchy.
 | `client.accounts`           | Account CRUD, theme, KPI stats, brand logo                         |
 | `client.users`              | User profile, notification preferences, cross-account KPIs         |
 | `client.documents`          | Upload, list, search, rename, download, delete, verify, tags       |
+| `client.envelopes`          | Send several documents together, estimate, reorder, cancel and download |
 | `client.contracts`          | Contract terms, amendments, renewals, terminations                 |
 | `client.signers`            | Workspace signer CRUD + signer self-service endpoints              |
 | `client.signer_documents`   | Signer-authenticated multi-document operations + search            |
@@ -715,6 +747,7 @@ See [Errors](#errors) for the full hierarchy.
 ```ruby
 client.accounts.list                                  # { data: [...] } — no pagination meta
 client.accounts.get                                   # the current account (or pass an id)
+client.accounts.get(expand: 'signing_features')        # includes available signing features
 client.accounts.create(name: 'Acme Inc.')
 client.accounts.update({ name: 'Acme Renamed' })
 client.accounts.delete(force: true, account_id_override: 'account-id')
@@ -723,7 +756,14 @@ client.accounts.stats(granularity: 'monthly', month: '2026-06')  # account KPI r
 client.accounts.upload_logo({ file_path: './logo.png' })
 client.accounts.download_logo                          # raw bytes; raises ApiError on HTTP 404 when unset
 client.accounts.delete_logo
+client.accounts.usage # { 'plan' => ..., 'documents_renewal_date' => ..., 'balances' => { ... } }
+client.accounts.notification_policy # { 'editable' => true, 'owners_receive_all' => false, 'events' => { ... } }
+client.accounts.update_notification_policy(events: { SignerViewed: false }, owners_receive_all: true)
 ```
+
+Usage and notification policy are unavailable to third-party OAuth applications. Policy writes require an owner;
+they merge only supplied event flags. A disabled workspace event suppresses it across channels even when a
+member enables it. `SignerIdentityReviewRequired: false` disables only push; its email is always sent.
 
 ### Users
 
@@ -732,7 +772,12 @@ client.users.me
 client.users.stats(granularity: 'daily', month: '2026-06')  # cross-account KPI rows
 client.users.notification_preferences                 # returns all thirteen owner-email preferences
 client.users.update_notification_preferences(SignerDeclined: false) # partial request; returns all thirteen
+client.users.push_preferences                        # eight phone-push preferences; separate from email
+client.users.update_push_preferences(SignerViewed: false) # partial request; returns the full push map
 ```
+
+Email and push preferences apply to the user across workspaces. They accept boolean values and reject unknown
+keys or an empty update. These personal settings are unavailable to third-party OAuth applications.
 
 Both stats methods validate `granularity` (`monthly` or `daily`) and `month` (`YYYY-MM`) locally; daily statistics
 require `month`. They return rows
@@ -749,17 +794,22 @@ with `period`, `documents_uploaded`, `documents_sent`, `signature_requests`,
 client.documents.statuses                                    # GET /documents/statuses
 client.documents.list(page: 1, per_page: 20, status: 'pending_signature')
 client.documents.list(tags: ['tag-id-1', 'tag-id-2'])        # documents carrying every listed tag
+client.documents.list(envelope_id: 'envelope-id')             # documents in an envelope
 client.documents.search('contract')                          # lightweight GET .../documents/search
 client.documents.upload({ file_path: './contract.pdf' })     # named after the file
 client.documents.upload({ buffer: pdf_bytes, file_name: 'contract.pdf' })
 client.documents.rename('document-id', 'renamed.pdf')        # PATCH /documents/{id}
 client.documents.get('document-id')                          # alias of .details
+client.documents.details('document-id', expand: ['envelope_id', 'envelope'])
 client.documents.wait_until_ready('document-id', max_wait_seconds: 60)
 client.documents.activities('document-id')
+client.documents.activities_page('document-id', sort: '-id', page: 1, per_page: 20)
 client.documents.thumbnail('document-id')                    # binary PNG/JPEG
+client.documents.thumbnail('document-id', artifact: 'certificated') # rendered signed content
 client.documents.download('document-id', 'certificated')     # binary PDF
 client.documents.download('document-id', 'pades')            # signed PAdES artifact
 client.documents.download_page('document-id', 'page-id')
+client.documents.download_page('document-id', 'page-id', artifact: 'certificated')
 client.documents.delete('document-id')
 client.documents.verify('signature-hash')
 client.documents.public_info('document-id')
@@ -783,6 +833,83 @@ client.documents.signing_progress('document-id')   # => { signed: 1, total: 2, p
 An Array `tags` filter is sent as comma-separated tag IDs. The tag arrays of `replace_tags`/`append_tags` take tag
 IDs.
 
+Activities default to twenty per page. `activities` preserves the Array return; `activities_page` exposes the
+pagination headers so callers can traverse every event. Signed thumbnails/pages use `artifact: 'certificated'`
+with workspace credentials. The first render can wait up to thirty seconds, then return `503` with `Retry-After`;
+the SDK does not retry. These renders carry `Cache-Control: no-store`. Certificate pages have no document page
+IDs, and the qualified certificate seal is available in the `pades` artifact.
+
+### Envelopes
+
+Send up to 20 prepared documents to up to 20 existing signers in one invitation. Each document retains its own
+assignment, status and artifacts. All envelope signers sign in parallel; no `step` is accepted.
+
+```ruby
+request = {
+  name: 'Agreement and annex',
+  signers: [{ id: 'signer-id', verification_method: 'Email', notification_methods: ['Email'] }],
+  documents: [
+    { id: 'agreement-id', signer_ids: ['signer-id'] },
+    { id: 'annex-id', signer_ids: ['signer-id'] }
+  ]
+}
+estimate = client.envelopes.estimate_cost(request)
+envelope = client.envelopes.create(
+  request.merge(max_total_credits: estimate.fetch('total_credits')), idempotency_key: 'envelope-request-id'
+)
+# => { 'id' => 'envelope-id', 'name' => 'Agreement and annex', 'message' => nil,
+#      'documents' => [...], 'counts' => { 'pending_signature' => 2 },
+#      'signing_urls' => [...], 'created_at' => '2026-11-11T12:00:00Z' }
+
+client.envelopes.list(status: 'open') # { data: [...], meta: { ... } }
+client.envelopes.get(envelope.fetch('id'))
+client.envelopes.update(envelope.fetch('id'), document_ids: %w[annex-id agreement-id], message: nil)
+client.envelopes.activities(envelope.fetch('id')) # paginated events with document_id/document_name
+client.envelopes.resend_notification(envelope.fetch('id'), 'signer-id') # { 'is_sent' => true, ... }
+client.envelopes.add_document(envelope.fetch('id'), id: 'extra-document-id', signer_ids: ['signer-id'])
+client.envelopes.remove_document(envelope.fetch('id'), 'extra-document-id') # cancels and removes that open document
+archive = client.envelopes.download(envelope.fetch('id'), 'original') # ZIP bytes in envelope order
+client.envelopes.cancel(envelope.fetch('id')) # [{ 'id' => ..., 'status' => ..., 'cancelled' => true }]
+client.envelopes.delete(envelope.fetch('id')) # nil; closed envelopes only, documents remain
+```
+
+`collect` documents add positioned `entries` whose field signers exactly match `signer_ids`. Every envelope
+signer must appear on a document. A certificate signer signs alone on each virtual document and is charged per
+document; a biometric signer verifies once for the envelope. Preserve the creation idempotency key after an
+ambiguous response. `max_total_credits` prevents creating or charging an envelope above the approved cost.
+
+### Embedded signing
+
+Requires the account's Embed feature and an API key or user session; third-party OAuth cannot create sessions.
+Register exact allowed origins, then mark the signer `embedded: true` with Email or Whatsapp verification:
+
+```ruby
+origin = client.accounts.create_embed_origin('https://app.example.com')
+# => { 'id' => 'origin-id', 'origin' => 'https://app.example.com', 'created_at' => '2026-11-11T12:00:00Z' }
+client.accounts.list_embed_origins
+client.accounts.update_embed_origin(origin.fetch('id'), 'https://sign.example.com')
+
+assignment = client.assignments.create(
+  'document-id', method: 'virtual',
+  signers: [{ id: 'signer-id', verification_method: 'Email', notification_methods: ['Email'], embedded: true }]
+)
+session = client.assignments.create_embed_session('document-id', assignment.fetch('id'), 'signer-id')
+# => { 'url' => 'https://app.assinafy.com.br/embed/session-token', 'expires_at' => '2026-11-11T12:05:00Z' }
+# Pass session['url'] only to the intended signer's page and load it in an iframe.
+client.accounts.delete_embed_origin(origin.fetch('id')) # nil; removes that embedding permission
+```
+
+Origins have no path, query, fragment or wildcard; HTTPS is required except HTTP localhost/127.0.0.1.
+At most ten origins are allowed. Mint a fresh single-use URL for each frame display; it expires after five
+minutes. `signing_urls` contains `url: nil, embedded: true` for embedded signers; invitations still deliver their
+code. Follow the live [Embedded Signing Guide](https://api.assinafy.com.br/v1/docs) for the `assinafy:hello`
+handshake and validate both `postMessage` origin and iframe window. Confirm completion through a webhook or
+document read; frame events alone do not authorize application actions.
+
+`assignments.exchange_embed_session(token, parent_origin:)` is the token-only operation used by the Assinafy
+embed page. An ordinary integration loads the session URL; it does not exchange the token itself or expose the
+returned signer access code. Resend the code through `assignments.resend_notification` from your backend.
+
 ### Contracts
 
 ```ruby
@@ -796,6 +923,7 @@ contract = client.contracts.update(
 client.contracts.get('document-id')
 client.contracts.list(status: ['active'], ending_within_days: 30)
 client.contracts.related('document-id')
+client.contracts.related('document-id', expand: 'document') # also includes the parent document
 client.contracts.renew('document-id', term: contract['term'], updated_at: contract['updated_at'])
 client.contracts.terminate('document-id', reason: 'Ended by the parties')
 ```
@@ -824,9 +952,11 @@ client.signers.find_by_email('alice@example.com')   # case-insensitive; nil when
 client.signers.self_data(signer_access_code: 'code') # includes has_signature, has_initial, is_signature_reusable
 client.signers.accept_terms(signer_access_code: 'code')
 client.signers.verify_email(verification_code: '123456', signer_access_code: 'code')
-client.signers.confirm_data('document-id', { full_name: 'Alice Silva', email: 'alice@example.com', government_id: '00000000000' }, signer_access_code: 'code')
+client.signers.confirm_data('document-id', { email: 'alice@example.com', has_accepted_terms: true }, signer_access_code: 'code')
 client.signers.upload_signature(png_bytes, signer_access_code: 'code', type: 'signature', content_type: 'image/png')
 client.signers.download_signature(signer_access_code: 'code', type: 'signature')
+client.signers.theme(signer_access_code: 'code') # account_name, primary_color, secondary_color, logo
+client.signers.download_logo(signer_access_code: 'code') # binary image; 404 when unset
 ```
 
 ### Assignments
@@ -882,8 +1012,18 @@ client.signer_documents.list_as_workspace('signer-id')                 # same ro
 client.signer_documents.search_as_workspace('signer-id', 'contract')
 client.signer_documents.sign_multiple(%w[document-id-1 document-id-2], signer_access_code: 'code')
 client.signer_documents.decline_multiple(%w[document-id-1 document-id-2], decline_reason: 'No', signer_access_code: 'code')
-client.signer_documents.download('signer-id', 'document-id', 'pades') # public: no access code needed
+client.signer_documents.download('signer-id', 'document-id', signer_access_code: 'code') # original PDF only
+client.signer_documents.send_certified_copy(signer_access_code: 'code', document_id: 'document-id')
+# => { 'available' => true, 'notification_method' => 'Email', 'resends_left' => 2, 'sent_to' => 'a***@example.com' }
+client.signer_documents.download_certified_copy('download-token', pades: false) # binary PDF, token only
+client.signer_documents.resend_certified_copy('download-token') # delivery metadata as above
 ```
+
+Signer downloads require the access code and serve only `original`; use the workspace download API for other
+artifacts. Certified copies are delivered by email or WhatsApp with their own download token. An expired token's
+`302` is exposed as `ApiError`; the SDK does not follow it. For an envelope, pass `document_id` when selecting a
+document or requesting its copy; `assignments.signer_document(expand: 'envelope', signer_access_code: 'code')`
+includes the envelope's remaining documents.
 
 ### Templates
 
@@ -899,8 +1039,8 @@ client.templates.download_page('template-id', 'page-id')   # binary image bytes
 
 `get`, `create`, `update`, `delete`, and `download_page` are supported by the deployed API beyond the OpenAPI
 document. `create` requires a source file; the template name defaults to the file's name. Template generation
-needs one entry per role, each with a distinct existing signer ID; `role_id` comes from the template's `roles`.
-Cost estimation requires `role_id` but can omit the signer ID.
+needs one entry per role, using a distinct existing signer ID or an `email`/`name` pair;
+`role_id` comes from the template's `roles`. Cost estimation requires `role_id` but can omit the signer ID.
 
 ### Tags
 
@@ -942,6 +1082,8 @@ client.webhooks.update_endpoint('webhook-endpoint-id', is_active: false)
 client.webhooks.delete_endpoint('webhook-endpoint-id')       # => nil
 client.webhooks.endpoint_secret('webhook-endpoint-id')       # => { 'secret' => 'whsec_...' }
 client.webhooks.rotate_endpoint_secret('webhook-endpoint-id')
+client.webhooks.rotate_endpoint_secret('webhook-endpoint-id', keep_previous: true) # 24-hour overlap
+client.webhooks.test_endpoint('webhook-endpoint-id') # one manual delivery; returns its dispatch entry
 
 client.webhooks.list_dispatches(endpoint_id: 'webhook-endpoint-id', delivered: false, per_page: 50)
 client.webhooks.retry_dispatch('dispatch-id')
@@ -1000,12 +1142,17 @@ The SDK raises one of:
 
 All inherit a `#context` Hash with debugging metadata.
 
+Use `ApiError#error_code` for actionable refusals such as `PlanRestricted`, `InsufficientScope`,
+`ContractChanged`, or `CreditCeilingExceeded`. Field validation details remain in `response_data['errors']`,
+an array of `{ 'field' => ..., 'code' => ..., 'message' => ... }`; localized messages are for display, not branching.
+
 ## Tests
 
 ```bash
 bundle exec rake spec               # RSpec, including a coverage matrix
-bundle exec rubocop                 # Linting
-bundle exec bundler-audit check     # Dependency CVEs
+bundle exec rubocop --cache false   # Linting
+bundle exec bundler-audit check --update # Dependency CVEs
+rbs -I sig validate                # Published signatures (install rbs outside the bundle)
 ruby scripts/check_api_contract.rb --file path/to/openapi.json # validate a local contract document
 ```
 

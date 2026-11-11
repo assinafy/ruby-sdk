@@ -9,7 +9,7 @@ module Assinafy
     # See https://api.assinafy.com.br/v1/docs#assignment for the full
     # documentation of these endpoints.
     class AssignmentResource < BaseResource
-      OPTIONAL_FIELDS   = %i[message expires_at copy_receivers].freeze
+      OPTIONAL_FIELDS   = %i[message expires_at copy_receivers max_total_credits].freeze
       METHODS           = %w[virtual collect].freeze
       DIGITAL_CERTIFICATE_REQUIRES_VIRTUAL = 'digital_certificate_requires_virtual'
 
@@ -57,13 +57,14 @@ module Assinafy
         # - Legacy `signer_ids:`/`signerIds:` arrays of IDs
         #
         # @note Creation requires top-level `signers` for both methods, and `collect` additionally
-        #   requires positioned `entries`; both are optional in estimate-cost payloads.
+        #   requires positioned `entries`. Estimates need signers for virtual and entries for collect.
         # @param payload [Hash]
         # @param options [Hash]
         # @option options [Boolean] :allow_signers_without_id allow estimate-cost
         #   payloads where method-only signer descriptors carry no id
-        # @option options [Boolean] :require_signers (true) false for estimate-cost payloads, where
-        #   `signers` and `entries` are optional; an empty `signers` list is then omitted
+        # @option options [Boolean] :require_signers (true) false for collect estimates without signer IDs
+        # @option options [Boolean] :validate_steps (true) false when template role metadata is needed
+        #   to distinguish signers from copy receivers; individual steps are always validated
         # @return [Hash] string-keyed body suitable for {#create} / {#estimate_cost}
         # @raise [Assinafy::ValidationError] on missing required fields
         # @example Bare signer IDs are normalised into { id: } hashes (virtual method)
@@ -126,7 +127,8 @@ module Assinafy
           result = { method: method }
           normalised = signers.map { |ref| normalise_signer_ref(ref, options) }
           validate_certificate_method!(method, normalised)
-          validate_signing_steps!(normalised)
+          validate_signing_steps!(normalised, options)
+          validate_collect_entries!(entries, normalised) if method == 'collect' && options.fetch(:require_signers, true)
           result[:signers] = normalised unless normalised.empty?
           OPTIONAL_FIELDS.each { |key| result[key] = p[key] if p[key] }
           result[:entries] = entries if entries
@@ -139,10 +141,7 @@ module Assinafy
           unless METHODS.include?(method)
             raise ValidationError.new("Assignment method must be one of: #{METHODS.join(', ')}")
           end
-          return unless require_signers
-
-          # Creation needs `signers` for both methods; positioned fields do not replace this list.
-          if signers.empty?
+          if signers.empty? && (require_signers || method == 'virtual')
             raise ValidationError.new(
               'At least one signer is required',
               { signers: payload[:signers] || payload[:signer_ids] || payload[:signerIds] }
@@ -165,6 +164,7 @@ module Assinafy
             raise ValidationError.new("#{key} must be a String", { key => value })
           end
           Utils.require_expiration(payload[:expires_at])
+          Utils.require_credit_ceiling(payload[:max_total_credits])
 
           receivers = payload[:copy_receivers]
           return if receivers.nil?
@@ -175,6 +175,57 @@ module Assinafy
               { copy_receivers: receivers }
             )
           end
+        end
+
+        def validate_collect_entries!(entries, signers)
+          signer_ids = signers.map { |signer| signer[:id] }
+          if signer_ids.uniq != signer_ids
+            raise ValidationError.new('Collect signers must be distinct')
+          end
+
+          assigned = entries.flat_map do |entry|
+            unless entry.is_a?(Hash)
+              raise ValidationError.new('Collect entry must be a Hash')
+            end
+
+            page = Utils.body_params(entry)
+            require_payload_id!(page['page_id'], 'Collect page ID')
+            fields = page['fields']
+            unless fields.is_a?(Array) && !fields.empty?
+              raise ValidationError.new('Collect fields must be a non-empty Array')
+            end
+
+            fields.map { |field| validate_collect_field!(field, signer_ids) }
+          end
+          unless (signer_ids - assigned).empty?
+            raise ValidationError.new('Every collect signer must own at least one field')
+          end
+        end
+
+        def validate_collect_field!(field, signer_ids)
+          raise ValidationError.new('Collect field must be a Hash') unless field.is_a?(Hash)
+
+          require_payload_id!(field['field_id'], 'Collect field ID')
+          unless signer_ids.include?(field['signer_id'])
+            raise ValidationError.new('Collect field signer must appear in signers')
+          end
+
+          display = field['display_settings']
+          raise ValidationError.new('display_settings must be a Hash') unless display.is_a?(Hash)
+
+          %w[left top width height fontSize].each do |key|
+            value = display[key]
+            valid = value.is_a?(Numeric) && value.real? && value.finite?
+            valid &&= %w[left top].include?(key) ? value >= 0 : value > 0
+            raise ValidationError.new("Invalid display_settings #{key}") unless valid
+          end
+          field['signer_id']
+        end
+
+        def require_payload_id!(value, name)
+          return if value.is_a?(String) && !value.strip.empty?
+
+          raise ValidationError.new("#{name} must be a non-empty String")
         end
 
         def extract_signer_refs(payload)
@@ -206,6 +257,7 @@ module Assinafy
           normalised[:verification_method]  = verification_method!(r)             unless r[:verification_method].nil?
           normalised[:notification_methods] = notification_methods!(r)            unless r[:notification_methods].nil?
           normalised[:step]                 = signer_step!(r[:step])              unless r[:step].nil?
+          normalised[:embedded]             = embedded_signer!(r) if r.key?(:embedded)
           validate_method_pair!(normalised)
 
           return normalised if id.is_a?(String) && !id.strip.empty?
@@ -240,6 +292,16 @@ module Assinafy
           )
         end
 
+        def embedded_signer!(ref)
+          value = ref[:embedded]
+          raise ValidationError.new('embedded must be true or false') unless [true, false].include?(value)
+          if value && %w[DigitalCertificate IdDocumentFaceMatchBasic].include?(ref[:verification_method])
+            raise ValidationError.new('Embedded signing requires Email or Whatsapp verification')
+          end
+
+          value
+        end
+
         def signer_step!(step)
           return step if step.is_a?(Integer) && step > 0
 
@@ -266,13 +328,19 @@ module Assinafy
           )
         end
 
-        def validate_signing_steps!(signers)
+        def validate_signing_steps!(signers, options)
+          return unless options.fetch(:validate_steps, true)
+
           steps = signers.map { |signer| signer[:step] }
           contiguous = steps.compact.uniq.sort.each_with_index.all? { |step, index| step == index + 1 }
           if steps.any? && (steps.any?(nil) || !contiguous)
             raise ValidationError.new('Signing steps must be supplied for every signer and be contiguous from 1')
           end
 
+          validate_certificate_steps!(signers)
+        end
+
+        def validate_certificate_steps!(signers)
           step_counts = signers.map { |signer| signer[:step] || 1 }.tally
           signers.each do |signer|
             next unless signer[:verification_method] == 'DigitalCertificate'
@@ -283,9 +351,7 @@ module Assinafy
         end
       end
 
-      # List assignments for an account. The API requires an account context,
-      # supplied as the `accountId` query parameter — note the camelCase, which
-      # is unusual for this otherwise snake_case API (verified live).
+      # List assignments for an account. API keys need accountId; OAuth tokens can infer their workspace.
       #
       # @param params [Hash] documented `page` and `per_page` query parameters
       # @param account_id_override [String, nil]
@@ -318,8 +384,11 @@ module Assinafy
       #     ]
       #   }
       def list(params = {}, account_id_override = nil)
-        acc_id = account_id(account_id_override)
-        query  = require_payload(params, 'Assignment query parameters')
+        acc_id = account_id_override.nil? ? @default_account_id : account_id_override
+        unless acc_id.nil? && @connection.headers['Authorization'].to_s.start_with?('Bearer ')
+          acc_id = account_id(acc_id)
+        end
+        query = require_payload(params, 'Assignment query parameters')
 
         call_list('Failed to list assignments') do
           http_get('assignments', query.merge(accountId: acc_id))
@@ -378,7 +447,7 @@ module Assinafy
       # `id`. An empty descriptor (`{}`) defaults both methods to `Email`.
       #
       # @param document_id [String]
-      # @param payload     [Hash] `method`, and optional `signers` (method-only descriptors) and `entries`
+      # @param payload     [Hash] method with signers for virtual or entries for collect
       # @return [Hash] cost breakdown (documents, credits, needs_extra_document, extra_document_cost,
       #   total_credits, breakdown[], document_balance, credit_balance, has_sufficient_resources,
       #   blocking_reason, message)
@@ -592,10 +661,64 @@ module Assinafy
         end
       end
 
+      # Create a single-use iframe URL for a signer marked embedded. Open it within five minutes.
+      #
+      # @param document_id [String]
+      # @param assignment_id [String]
+      # @param signer_id [String]
+      # @return [Hash] url and expires_at
+      # @raise [Assinafy::ValidationError] on invalid IDs
+      # @raise [Assinafy::ApiError] on a plan restriction, unavailable document or exhausted session limit
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @see POST /documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/embed-sessions
+      # @example Create a session with workspace credentials (no request body)
+      #   client.assignments.create_embed_session('document-id', 'assignment-id', 'signer-id')
+      #   # => { 'url' => 'https://app.assinafy.com.br/embed/session-token',
+      #   #      'expires_at' => '2026-11-11T12:05:00Z' }
+      def create_embed_session(document_id, assignment_id, signer_id)
+        doc_id = require_id(document_id, 'Document ID')
+        asg_id = require_id(assignment_id, 'Assignment ID')
+        sid = require_id(signer_id, 'Signer ID')
+
+        call('Failed to create embed session') do
+          http_post("documents/#{doc_id}/assignments/#{asg_id}/signers/#{sid}/embed-sessions")
+        end
+      end
+
+      # Exchange the token on Assinafy's embed page. Integrations normally load the session URL instead.
+      # The token is spent even on 409; never retry this operation automatically.
+      #
+      # @param token [String] 64-character session token
+      # @param parent_origin [String, nil] origin of the page hosting the iframe
+      # @return [Hash] signer_access_code, signer_id, document_id, verification_method and embed_origins
+      # @raise [Assinafy::ValidationError] on an invalid token or parent origin
+      # @raise [Assinafy::ApiError] on an unavailable document or expired/used token
+      # @raise [Assinafy::NetworkError] on transport or TLS failure
+      # @see POST /embed/sessions/{token}/exchange
+      # @example Exchange with the token as the only credential
+      #   client.assignments.exchange_embed_session('a' * 64, parent_origin: 'https://app.example.com')
+      #   # Body: { 'parent_origin' => 'https://app.example.com' }
+      #   # => { 'signer_access_code' => 'access-code', 'signer_id' => 'signer-id',
+      #   #      'document_id' => 'document-id', 'verification_method' => 'Email',
+      #   #      'embed_origins' => ['https://app.example.com'] }
+      def exchange_embed_session(token, parent_origin: nil)
+        session_token = require_id(token, 'Embed session token')
+        raise ValidationError.new('Embed session token must contain 64 characters') unless session_token.length == 64
+
+        require_string(parent_origin, 'Parent origin') unless parent_origin.nil?
+
+        call('Failed to exchange embed session') do
+          http_post("embed/sessions/#{session_token}/exchange", body_params(parent_origin: parent_origin),
+                    workspace_auth: false)
+        end
+      end
+
       # Fetch the document a signer is being asked to sign (signer-access-code auth).
       #
       # @param signer_access_code  [String]
       # @param has_accepted_terms  [Boolean, nil]
+      # @param expand [String, Array<String>, nil] envelope to include its id and name
+      # @param document_id [String, nil] another document in the access code's envelope
       # @return [Hash] the document (id, account_id, name, status, artifacts, signing_url, ...) with an
       #   embedded current_signer and assignment (items filtered to the current signer); no pages array
       # @raise [Assinafy::ApiError] on an unsuccessful API response
@@ -618,13 +741,16 @@ module Assinafy
       #   #   "assignment" => { "id" => "1", "method" => "virtual", "expires_at" => nil,
       #   #     "items" => [{ "id" => "assignment-item-id", "field" => { "type" => "virtual" }, ... }] }
       #   # } # ... (see docs for full shape)
-      def signer_document(signer_access_code:, has_accepted_terms: nil)
+      def signer_document(signer_access_code:, has_accepted_terms: nil, expand: nil, document_id: nil)
         access_code = require_signer_access_code(signer_access_code)
         accepted = has_accepted_terms.nil? ? nil : require_boolean(has_accepted_terms, 'has_accepted_terms')
+        require_id(document_id, 'Document ID') unless document_id.nil?
+        expansion = signing_expansion(expand)
 
         call('Failed to fetch signer assignment document') do
           http_get('sign',
-                   { signer_access_code: access_code, has_accepted_terms: accepted },
+                   { signer_access_code: access_code, has_accepted_terms: accepted, expand: expansion,
+                     document_id: document_id },
                    workspace_auth: false)
         end
       end
@@ -639,9 +765,7 @@ module Assinafy
       # @param assignment_id      [String]
       # @param items              [Array<Hash>]
       # @param signer_access_code [String]
-      # @return [Hash] empty Hash `{}` on success per the API reference. Signing
-      #   requires an emailed OTP, so this exact shape is not independently
-      #   verifiable with a workspace API key.
+      # @return [Hash] empty Hash `{}` on success
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure
       # @raise [Assinafy::ValidationError] on invalid required input
@@ -654,7 +778,7 @@ module Assinafy
       #   # Request body the SDK sends (snake_case keys mapped to camelCase):
       #   # [{ "itemId" => "assignment-item-id", "fieldId" => "field-id",
       #   #    "pageId" => "page-id", "value" => "Signed by Example Signer" }]
-      #   # => {} # per the API reference (unverified via workspace key)
+      #   # => {}
       def sign(document_id, assignment_id, items, signer_access_code:)
         doc_id = require_id(document_id, 'Document ID')
         asg_id = require_id(assignment_id, 'Assignment ID')
