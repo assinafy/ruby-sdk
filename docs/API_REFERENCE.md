@@ -1,8 +1,9 @@
 # Assinafy Ruby SDK API Reference
 
-> Contract source: Assinafy API v1 OpenAPI 3.1.0, retrieved 2026-11-11 from
+> Contract source: Assinafy API v1 OpenAPI 3.1.0, retrieved 2026-11-24 from
 > `https://api.assinafy.com.br/v1/docs/openapi.json` (112 paths, 147 operations, 62 schemas).
-> `scripts/check_api_contract.rb` validates contract compatibility weekly.
+> Staging: `https://api.angry-pisco.stage.assinafy.com.br/v1/docs/openapi.json` (120 paths, 157 operations, 63 schemas).
+> `scripts/check_api_contract.rb` validates production contract compatibility weekly.
 
 This is the SDK-facing contract reference. Paths below are wire paths; Ruby methods return the unwrapped
 `data` member for Assinafy response envelopes, pagination helpers return `{ data:, meta: }`, binary methods
@@ -56,13 +57,13 @@ Required parameters and object properties are marked with `*`.
 | POST | `/v1/accounts` | `AccountResource#create` | Bearer token or `X-Api-Key` | None | required; `application/json` object { `name*`: string; `notification_sender_type`: string (`"User"`, `"Account"`) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Account`](#account) } |
 | GET | `/v1/documents/{documentId}/activities` | `DocumentResource#activities` | Bearer token or `X-Api-Key` | path `documentId*`: string<br>query `sort`: string<br>query `page`: integer (min: 1)<br>query `per-page`: integer (min: 1) (max: 50) | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`DocumentActivity`](#documentactivity)> } |
 | GET | `/v1/assignments` | `AssignmentResource#list` | Bearer token or `X-Api-Key` | query `accountId`: string<br>query `sort`: string<br>query `page`: integer (min: 1)<br>query `per-page`: integer (min: 1) (max: 50) | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`Assignment`](#assignment)> } |
-| POST | `/v1/documents/{documentId}/assignments` | `AssignmentResource#create` | Bearer token or `X-Api-Key` | path `documentId*`: string | required; `application/json` object { `method*`: string (`"virtual"`, `"collect"`); `signers*`: Array<object { `id*`: string; `verification_method`: string (`"Email"`, `"Whatsapp"`, `"DigitalCertificate"`, `"IdDocumentFaceMatchBasic"`); `notification_methods`: Array<string (`"Email"`, `"Whatsapp"`)>; `embedded`: boolean; `step`: integer }>; `entries`: Array<object { `page_id`: string; `fields`: Array<object { `signer_id`: string; `field_id`: string; `display_settings`: [`DisplaySettings`](#displaysettings) }> }>; `message`: string; `expires_at`: string (format: date-time); `copy_receivers`: Array<string>; `max_total_credits`: number } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Assignment`](#assignment) } |
-| POST | `/v1/documents/{documentId}/assignments/estimate-cost` | `AssignmentResource#estimate_cost` | Bearer token or `X-Api-Key` | path `documentId*`: string | required; `application/json` object { `method`: string (`"virtual"`, `"collect"`); `signers`: Array<object { `verification_method`: string (`"Email"`, `"Whatsapp"`, `"DigitalCertificate"`, `"IdDocumentFaceMatchBasic"`); `notification_methods`: Array<string (`"Email"`, `"Whatsapp"`)> }>; `entries`: Array<object> } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`CostEstimate`](#costestimate) } |
+| POST | `/v1/documents/{documentId}/assignments` | `AssignmentResource#create` | Bearer token or `X-Api-Key` | path `documentId*`: string | required; `application/json` object { `method*`: string (`"virtual"`, `"collect"`); `signers*`: Array<object { `id*`: string; `verification_method`: string (`"Email"`, `"Whatsapp"`, `"DigitalCertificate"`, `"IdDocumentFaceMatchBasic"`); `notification_methods`: Array<string (`"Email"`, `"Whatsapp"`)>; `embedded`: boolean; `step`: integer; `sign_as`: string or null (`"Sign"`, `"Approve"`, `"Acknowledge"`, `"Party"`, `"Witness"`, `"Intervening"`, `"Receipt"`, `"IssuerEndorserGuarantor"`, `"IssuerEndorserGuarantorSurety"`, `"Surety"`, `"PartySurety"`, `"JointDebtor"`, `"PartyJointDebtor"`, `"ContractingParty"`, `"ContractedParty"`, `"Landlord"`, `"Tenant"`, `"Buyer"`, `"Seller"`, `"AttorneyInFact"`, `"LegalRepresentative"`, `"Employer"`, `"Employee"`, `null`) }>; `entries`: Array<object { `page_id`: string; `fields`: Array<object { `signer_id`: string; `field_id`: string; `display_settings`: [`DisplaySettings`](#displaysettings) }> }>; `message`: string; `expires_at`: string (format: date-time); `copy_receivers`: Array<string>; `max_total_credits`: number } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Assignment`](#assignment) } |
+| POST | `/v1/documents/{documentId}/assignments/estimate-cost` | `AssignmentResource#estimate_cost` | Bearer token or `X-Api-Key` | path `documentId*`: string | required; `application/json` object { `method`: string (`"virtual"`, `"collect"`); `signers`: Array<object { `verification_method`: string (`"Email"`, `"Whatsapp"`, `"DigitalCertificate"`, `"IdDocumentFaceMatchBasic"`); `sign_as`: string or null (`"Sign"`, `"Approve"`, `"Acknowledge"`, `"Party"`, `"Witness"`, `"Intervening"`, `"Receipt"`, `"IssuerEndorserGuarantor"`, `"IssuerEndorserGuarantorSurety"`, `"Surety"`, `"PartySurety"`, `"JointDebtor"`, `"PartyJointDebtor"`, `"ContractingParty"`, `"ContractedParty"`, `"Landlord"`, `"Tenant"`, `"Buyer"`, `"Seller"`, `"AttorneyInFact"`, `"LegalRepresentative"`, `"Employer"`, `"Employee"`, `null`); `notification_methods`: Array<string (`"Email"`, `"Whatsapp"`)> }>; `entries`: Array<object> } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`CostEstimate`](#costestimate) } |
 | PUT | `/v1/documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/resend` | `AssignmentResource#resend_notification` | Bearer token or `X-Api-Key` | path `documentId*`: string<br>path `assignmentId*`: string<br>path `signerId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `is_sent`: boolean; `document_id`: string; `signer_id`: string } } |
 | POST | `/v1/documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/estimate-resend-cost` | `AssignmentResource#estimate_resend_cost` | Bearer token or `X-Api-Key` | path `documentId*`: string<br>path `assignmentId*`: string<br>path `signerId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`ResendCostEstimate`](#resendcostestimate) } |
 | PUT | `/v1/documents/{documentId}/assignments/{assignmentId}/reset-expiration` | `AssignmentResource#reset_expiration` | Bearer token or `X-Api-Key` | path `documentId*`: string<br>path `assignmentId*`: string | required; `application/json` object { `expires_at*`: string or null (format: date-time) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Assignment`](#assignment) } |
 | GET | `/v1/documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/identity-verification` | `AssignmentResource#identity_review` | Bearer token or `X-Api-Key` | path `documentId*`: string<br>path `assignmentId*`: string<br>path `signerId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`SignerIdentityReview`](#signeridentityreview) } |
-| GET | `/v1/documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/identity-verification/images/{name}` | `AssignmentResource#identity_review_image` | Bearer token or `X-Api-Key` | path `documentId*`: string<br>path `assignmentId*`: string<br>path `signerId*`: string<br>path `name*`: string (`"document_front"`, `"document_back"`, `"document_pdf"`, `"face"`) | None | `200` `image/jpeg` string (format: binary)<br>`image/png` string (format: binary)<br>`application/pdf` string (format: binary) |
+| GET | `/v1/documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/identity-verification/images/{name}` | `AssignmentResource#identity_review_image` | Bearer token or `X-Api-Key` | path `documentId*`: string<br>path `assignmentId*`: string<br>path `signerId*`: string<br>path `name*`: string (`"document_front"`, `"document_back"`, `"document_pdf"`, `"face"`) | None | `200` `image/jpeg` string (format: binary); `image/png` string (format: binary); `application/pdf` string (format: binary) |
 | POST | `/v1/documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/identity-verification/review` | `AssignmentResource#decide_identity_review` | Bearer token or `X-Api-Key` | path `documentId*`: string<br>path `assignmentId*`: string<br>path `signerId*`: string | required; `application/json` object { `decision*`: string (`"Approved"`, `"Rejected"`); `note`: string or null (max length: 2000) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`SignerIdentityReview`](#signeridentityreview) } |
 | POST | `/v1/login` | `AuthResource#login` | Public | None | required; `application/json` object { `email*`: string (format: email); `password*`: string (format: password) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`AuthSession`](#authsession) } |
 | PUT | `/v1/authentication/request-password-reset` | `AuthResource#request_password_reset` | Public | None | required; `application/json` object { `email*`: string (format: email) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `email`: string (format: email) } } |
@@ -79,10 +80,10 @@ Required parameters and object properties are marked with `*`.
 | POST | `/v1/accounts/{accountId}/documents` | `DocumentResource#upload` | Bearer token or `X-Api-Key` | path `accountId*`: string | required; `multipart/form-data` object { `file*`: string (format: binary) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Document`](#document) } |
 | GET | `/v1/accounts/{accountId}/documents/search` | `DocumentResource#search` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>query `search`: string<br>query `status`: string<br>query `envelope_id`: string<br>query `sort`: string<br>query `page`: integer (min: 1)<br>query `per-page`: integer (min: 1) (max: 50) | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`Document`](#document)> } |
 | GET | `/v1/documents/statuses` | `DocumentResource#statuses` | Bearer token or `X-Api-Key` | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`DocumentStatus`](#documentstatus)> } |
-| GET | `/v1/documents/{documentId}` | `DocumentResource#details` | Bearer token or `X-Api-Key` or `signer-access-code` query | path `documentId*`: string<br>query `expand`: Array<string (`"envelope_id"`, `"envelope"`)> | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Document`](#document) } |
+| GET | `/v1/documents/{documentId}` | `DocumentResource#details` | Bearer token or `X-Api-Key` or signer access code | path `documentId*`: string<br>query `expand`: Array<string (`"envelope_id"`, `"envelope"`)> | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Document`](#document) } |
 | DELETE | `/v1/documents/{documentId}` | `DocumentResource#delete` | Bearer token or `X-Api-Key` | path `documentId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<any> } |
 | PATCH | `/v1/documents/{documentId}` | `DocumentResource#rename` | Bearer token or `X-Api-Key` | path `documentId*`: string | required; `application/json` object { `name*`: string (max length: 255) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Document`](#document) } |
-| GET | `/v1/documents/{documentId}/download/{artifactName}` | `DocumentResource#download` | Bearer token or `X-Api-Key` or `signer-access-code` query | path `documentId*`: string<br>path `artifactName*`: string (`"original"`, `"certificated"`, `"certificate-page"`, `"pades"`, `"bundle"`) | None | `200` `application/pdf` string (format: binary) |
+| GET | `/v1/documents/{documentId}/download/{artifactName}` | `DocumentResource#download` | Bearer token or `X-Api-Key` or signer access code | path `documentId*`: string<br>path `artifactName*`: string (`"original"`, `"certificated"`, `"certificate-page"`, `"pades"`, `"bundle"`) | None | `200` `application/pdf` string (format: binary) |
 | GET | `/v1/documents/{documentSignatureHash}/verify` | `DocumentResource#verify` | Public | path `documentSignatureHash*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`DocumentVerification`](#documentverification) } |
 | GET | `/v1/accounts/{accountId}/documents/{documentId}/tags` | `DocumentResource#list_tags` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `documentId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`Tag`](#tag)> } |
 | PUT | `/v1/accounts/{accountId}/documents/{documentId}/tags` | `DocumentResource#replace_tags` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `documentId*`: string | required; `application/json` object { `tags`: Array<string> } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`Tag`](#tag)> } |
@@ -99,7 +100,7 @@ Required parameters and object properties are marked with `*`.
 | POST | `/v1/accounts/{accountId}/envelopes/estimate-cost` | `EnvelopeResource#estimate_cost` | Bearer token or `X-Api-Key` | path `accountId*`: string | required; `application/json` [`EnvelopeCreateRequest`](#envelopecreaterequest) | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`CostEstimate`](#costestimate) } |
 | GET | `/v1/accounts/{accountId}/envelopes/{envelopeId}` | `EnvelopeResource#get` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `envelopeId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`DocumentEnvelope`](#documentenvelope) } |
 | DELETE | `/v1/accounts/{accountId}/envelopes/{envelopeId}` | `EnvelopeResource#delete` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `envelopeId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<any> } |
-| PATCH | `/v1/accounts/{accountId}/envelopes/{envelopeId}` | `EnvelopeResource#update` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `envelopeId*`: string | required; `application/json` object { `name`: string (min length: 1) (max length: 255); `message`: string or null; `document_ids`: Array<string> (min items: 1) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`DocumentEnvelope`](#documentenvelope) } |
+| PATCH | `/v1/accounts/{accountId}/envelopes/{envelopeId}` | `EnvelopeResource#update` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `envelopeId*`: string | required; `application/json` object { `name`: string (min length: 1) (max length: 255); `message`: string or null; `document_ids`: Array<string> } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`DocumentEnvelope`](#documentenvelope) } |
 | GET | `/v1/accounts/{accountId}/envelopes/{envelopeId}/activities` | `EnvelopeResource#activities` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `envelopeId*`: string<br>query `sort`: string<br>query `page`: integer (min: 1)<br>query `per-page`: integer (min: 1) (max: 50) | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`EnvelopeActivity`](#envelopeactivity)> } |
 | GET | `/v1/accounts/{accountId}/envelopes/{envelopeId}/download/{artifactName}` | `EnvelopeResource#download` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `envelopeId*`: string<br>path `artifactName*`: string (`"original"`, `"certificated"`, `"certificate-page"`, `"pades"`, `"bundle"`) | None | `200` `application/zip` string (format: binary) |
 | PUT | `/v1/accounts/{accountId}/envelopes/{envelopeId}/cancel` | `EnvelopeResource#cancel` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `envelopeId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<object { `id*`: string; `status*`: string; `cancelled*`: boolean }> } |
@@ -111,8 +112,8 @@ Required parameters and object properties are marked with `*`.
 | GET | `/v1/accounts/{accountId}/fields/{fieldId}` | `FieldResource#get` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `fieldId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Field`](#field) } |
 | PUT | `/v1/accounts/{accountId}/fields/{fieldId}` | `FieldResource#update` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `fieldId*`: string | required; `application/json` object { `name`: string; `regex`: string or null; `is_active`: boolean } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Field`](#field) } |
 | DELETE | `/v1/accounts/{accountId}/fields/{fieldId}` | `FieldResource#delete` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `fieldId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<any> } |
-| POST | `/v1/accounts/{accountId}/fields/{fieldId}/validate` | `FieldResource#validate` | Bearer token or `X-Api-Key` or `signer-access-code` query | path `accountId*`: string<br>path `fieldId*`: string | required; `application/json` object { `value*`: any } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`FieldValidation`](#fieldvalidation) } |
-| POST | `/v1/accounts/{accountId}/fields/validate-multiple` | `FieldResource#validate_multiple` | Bearer token or `X-Api-Key` or `signer-access-code` query | path `accountId*`: string | required; `application/json` Array<object { `field_id*`: string; `value*`: any }> | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`FieldValidationResult`](#fieldvalidationresult)> } |
+| POST | `/v1/accounts/{accountId}/fields/{fieldId}/validate` | `FieldResource#validate` | Bearer token or `X-Api-Key` or signer access code | path `accountId*`: string<br>path `fieldId*`: string | required; `application/json` object { `value*`: any } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`FieldValidation`](#fieldvalidation) } |
+| POST | `/v1/accounts/{accountId}/fields/validate-multiple` | `FieldResource#validate_multiple` | Bearer token or `X-Api-Key` or signer access code | path `accountId*`: string | required; `application/json` Array<object { `field_id*`: string; `value*`: any }> | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`FieldValidationResult`](#fieldvalidationresult)> } |
 | GET | `/v1/field-types` | `FieldResource#types` | Bearer token or `X-Api-Key` | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`FieldType`](#fieldtype)> } |
 | GET | `/v1/users/self/mfa` | `AuthResource#mfa_methods` | Bearer token or `X-Api-Key` | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `methods`: Array<object { `id`: string; `type`: string; `label`: string; `confirmed_at`: string (format: date-time); `last_used_at`: string (format: date-time) }>; `recovery_codes_remaining`: integer } } |
 | POST | `/v1/users/self/mfa/totp` | `AuthResource#start_totp_enrollment` | Bearer token or `X-Api-Key` | None | optional; `application/json` object { `label`: string } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `id`: string; `secret`: string; `provisioning_uri`: string } } |
@@ -123,11 +124,11 @@ Required parameters and object properties are marked with `*`.
 | PUT | `/v1/accounts/{accountId}/notification-policy` | `AccountResource#update_notification_policy` | Bearer token or `X-Api-Key` | path `accountId*`: string | required; `application/json` object { `events`: [`NotificationPolicyEvents`](#notificationpolicyevents); `owners_receive_all`: boolean } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`NotificationPolicy`](#notificationpolicy) } |
 | GET | `/v1/users/self/notification-preferences` | `UserResource#notification_preferences` | Bearer token or `X-Api-Key` | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`NotificationPreferences`](#notificationpreferences) } |
 | PUT | `/v1/users/self/notification-preferences` | `UserResource#update_notification_preferences` | Bearer token or `X-Api-Key` | None | required; `application/json` [`NotificationPreferences`](#notificationpreferences) | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`NotificationPreferences`](#notificationpreferences) } |
-| POST | `/v1/oauth/token` | `OAuthResource#token` | Public | None | required; `application/x-www-form-urlencoded` [`OAuthTokenRequest`](#oauthtokenrequest)<br>`application/json` [`OAuthTokenRequest`](#oauthtokenrequest) | `200` `application/json` object { `access_token`: string; `issued_token_type`: string; `token_type`: string; `expires_in`: integer; `refresh_token`: string or null; `scope`: string; `id_token`: string or null } |
-| POST | `/v1/oauth/revoke` | `OAuthResource#revoke` | Public | None | required; `application/x-www-form-urlencoded` [`OAuthRevokeRequest`](#oauthrevokerequest)<br>`application/json` [`OAuthRevokeRequest`](#oauthrevokerequest) | `200` Revoked |
+| POST | `/v1/oauth/token` | `OAuthResource#token` | Public | None | required; `application/x-www-form-urlencoded` [`OAuthTokenRequest`](#oauthtokenrequest); `application/json` [`OAuthTokenRequest`](#oauthtokenrequest) | `200` `application/json` object { `access_token`: string; `issued_token_type`: string; `token_type`: string; `expires_in`: integer; `refresh_token`: string or null; `scope`: string; `id_token`: string or null } |
+| POST | `/v1/oauth/revoke` | `OAuthResource#revoke` | Public | None | required; `application/x-www-form-urlencoded` [`OAuthRevokeRequest`](#oauthrevokerequest); `application/json` [`OAuthRevokeRequest`](#oauthrevokerequest) | `200` No body |
 | GET | `/v1/oauth/userinfo` | `OAuthResource#userinfo` | Bearer token or `X-Api-Key` | None | None | `200` `application/json` object { `sub`: string; `name`: string or null; `email`: string or null (format: email); `email_verified`: boolean or null } |
-| GET | `/v1/documents/{documentId}/thumbnail` | `DocumentResource#thumbnail` | Bearer token or `X-Api-Key` or `signer-access-code` query | path `documentId*`: string<br>query `artifact`: string | None | `200` `image/*` string (format: binary) |
-| GET | `/v1/documents/{documentId}/pages/{pageId}/download` | `DocumentResource#download_page` | Bearer token or `X-Api-Key` or `signer-access-code` query | path `documentId*`: string<br>path `pageId*`: string<br>query `artifact`: string | None | `200` `image/*` string (format: binary) |
+| GET | `/v1/documents/{documentId}/thumbnail` | `DocumentResource#thumbnail` | Bearer token or `X-Api-Key` or signer access code | path `documentId*`: string<br>query `artifact`: string | None | `200` `image/*` string (format: binary) |
+| GET | `/v1/documents/{documentId}/pages/{pageId}/download` | `DocumentResource#download_page` | Bearer token or `X-Api-Key` or signer access code | path `documentId*`: string<br>path `pageId*`: string<br>query `artifact`: string | None | `200` `image/*` string (format: binary) |
 | GET | `/v1/public/documents/{documentId}` | `DocumentResource#public_info` | Public | path `documentId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Document`](#document) } |
 | PUT | `/v1/public/documents/{documentId}/send-token` | `DocumentResource#send_token` | Public | path `documentId*`: string | required; `application/json` object { `channel*`: string (`"email"`); `recipient*`: string } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `document`: object { `resource`: string; `id`: string; `name`: string; `page_count`: integer; `created_by`: string }; `channel`: string; `recipient`: string } } |
 | GET | `/v1/users/self/push-preferences` | `UserResource#push_preferences` | Bearer token or `X-Api-Key` | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`PushPreferences`](#pushpreferences) } |
@@ -137,26 +138,26 @@ Required parameters and object properties are marked with `*`.
 | GET | `/v1/accounts/{accountId}/signers/{signerId}` | `SignerResource#get` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `signerId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Signer`](#signer) } |
 | PUT | `/v1/accounts/{accountId}/signers/{signerId}` | `SignerResource#update` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `signerId*`: string | required; `application/json` object { `full_name`: string; `email`: string (format: email); `whatsapp_phone_number`: string; `government_id`: string } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`Signer`](#signer) } |
 | DELETE | `/v1/accounts/{accountId}/signers/{signerId}` | `SignerResource#delete` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `signerId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<any> } |
-| GET | `/v1/signers/self` | `SignerResource#self_data` | `signer-access-code` query | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`SignerSelf`](#signerself) } |
-| GET | `/v1/sign/theme` | `SignerResource#theme` | `signer-access-code` query | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`AccountTheme`](#accounttheme) } |
-| GET | `/v1/sign/logo` | `SignerResource#download_logo` | `signer-access-code` query | None | None | `200` `image/*` string (format: binary) |
-| GET | `/v1/signers/identity-verification` | `SignerResource#identity_verification` | `signer-access-code` query | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `can_start`: boolean; `status`: string or null; `url`: string or null; `expires_at`: string or null (format: date-time); `completed_at`: string or null (format: date-time) } } |
-| POST | `/v1/signers/identity-verification` | `SignerResource#start_identity_verification` | `signer-access-code` query | None | required; `application/json` object { `consent*`: boolean } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `id`: string; `url`: string; `expires_at`: string or null (format: date-time) } } |
-| GET | `/v1/signers/{signerId}/document` | `SignerDocumentResource#current` | `signer-access-code` query | path `signerId*`: string<br>query `expand`: Array<string (`"envelope"`)> | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`SigningDocument`](#signingdocument) } |
-| GET | `/v1/sign` | `AssignmentResource#signer_document` | `signer-access-code` query | query `has_accepted_terms`: boolean<br>query `expand`: Array<string (`"envelope"`)><br>query `document_id`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`SigningDocument`](#signingdocument) } |
-| POST | `/v1/documents/{documentId}/assignments/{assignmentId}` | `AssignmentResource#sign` | `signer-access-code` query | path `documentId*`: string<br>path `assignmentId*`: string | required; `application/json` Array<object { `itemId*`: string; `fieldId*`: string; `pageId*`: string; `value*`: string }> | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object } |
-| PUT | `/v1/documents/{documentId}/assignments/{assignmentId}/reject` | `AssignmentResource#decline` | `signer-access-code` query | path `documentId*`: string<br>path `assignmentId*`: string | required; `application/json` object { `decline_reason*`: string (max length: 2000) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<any> } |
-| PUT | `/v1/signers/documents/sign-multiple` | `SignerDocumentResource#sign_multiple` | `signer-access-code` query | None | required; `application/json` object { `document_ids*`: Array<string> } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<any> } |
-| PUT | `/v1/signers/documents/decline-multiple` | `SignerDocumentResource#decline_multiple` | `signer-access-code` query | None | required; `application/json` object { `document_ids*`: Array<string>; `decline_reason*`: string (max length: 2000) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<any> } |
-| POST | `/v1/verify` | `SignerResource#verify_email` | `signer-access-code` query | None | required; `application/json` object { `verification-code*`: string } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<any> } |
-| PUT | `/v1/documents/{documentId}/signers/confirm-data` | `SignerResource#confirm_data` | `signer-access-code` query | path `documentId*`: string | required; `application/json` object { `email`: string (format: email); `whatsapp_phone_number`: string; `has_accepted_terms`: boolean } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<any> } |
-| PUT | `/v1/signers/accept-terms` | `SignerResource#accept_terms` | `signer-access-code` query | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `full_name*`: string; `email*`: string or null (format: email); `has_accepted_terms*`: boolean } } |
-| POST | `/v1/signature` | `SignerResource#upload_signature` | `signer-access-code` query | query `type`: string<br>query `reuse`: boolean | required; `image/png` string (format: binary) | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<any> } |
-| GET | `/v1/signature/{signatureType}` | `SignerResource#download_signature` | `signer-access-code` query | path `signatureType*`: string | None | `200` `image/*` string (format: binary) |
-| GET | `/v1/signers/{signerId}/documents` | `SignerDocumentResource#list` | `signer-access-code` query or Bearer token or `X-Api-Key` | path `signerId*`: string<br>query `envelope_id`: string<br>query `page`: integer (min: 1)<br>query `per-page`: integer (min: 1) (max: 50) | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`Document`](#document)> } |
-| GET | `/v1/signers/{signerId}/documents/search` | `SignerDocumentResource#search` | `signer-access-code` query or Bearer token or `X-Api-Key` | path `signerId*`: string<br>query `envelope_id`: string<br>query `search`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`Document`](#document)> } |
-| GET | `/v1/signers/{signerId}/documents/{documentId}/download/{artifactName}` | `SignerDocumentResource#download` | `signer-access-code` query | path `signerId*`: string<br>path `documentId*`: string<br>path `artifactName*`: string (`"original"`) | None | `200` `application/pdf` string (format: binary) |
-| POST | `/v1/sign/certified-copy` | `SignerDocumentResource#send_certified_copy` | `signer-access-code` query | None | optional; `application/json` object { `document_id`: string } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `available`: boolean; `notification_method`: string (`"Email"`, `"Whatsapp"`); `resends_left`: integer or null; `sent_to`: string } } |
+| GET | `/v1/signers/self` | `SignerResource#self_data` | signer access code | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`SignerSelf`](#signerself) } |
+| GET | `/v1/sign/theme` | `SignerResource#theme` | signer access code | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`AccountTheme`](#accounttheme) } |
+| GET | `/v1/sign/logo` | `SignerResource#download_logo` | signer access code | None | None | `200` `image/*` string (format: binary) |
+| GET | `/v1/signers/identity-verification` | `SignerResource#identity_verification` | signer access code | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `can_start`: boolean; `status`: string or null; `url`: string or null; `expires_at`: string or null (format: date-time); `completed_at`: string or null (format: date-time) } } |
+| POST | `/v1/signers/identity-verification` | `SignerResource#start_identity_verification` | signer access code | None | required; `application/json` object { `consent*`: boolean } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `id`: string; `url`: string; `expires_at`: string or null (format: date-time) } } |
+| GET | `/v1/signers/{signerId}/document` | `SignerDocumentResource#current` | signer access code | path `signerId*`: string<br>query `expand`: Array<string (`"envelope"`)> | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`SigningDocument`](#signingdocument) } |
+| GET | `/v1/sign` | `AssignmentResource#signer_document` | signer access code | query `has_accepted_terms`: boolean<br>query `expand`: Array<string (`"envelope"`)><br>query `document_id`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`SigningDocument`](#signingdocument) } |
+| POST | `/v1/documents/{documentId}/assignments/{assignmentId}` | `AssignmentResource#sign` | signer access code | path `documentId*`: string<br>path `assignmentId*`: string | required; `application/json` Array<object { `itemId*`: string; `fieldId*`: string; `pageId*`: string; `value*`: string }> | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object } |
+| PUT | `/v1/documents/{documentId}/assignments/{assignmentId}/reject` | `AssignmentResource#decline` | signer access code | path `documentId*`: string<br>path `assignmentId*`: string | required; `application/json` object { `decline_reason*`: string (max length: 2000) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<any> } |
+| PUT | `/v1/signers/documents/sign-multiple` | `SignerDocumentResource#sign_multiple` | signer access code | None | required; `application/json` object { `document_ids*`: Array<string> } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<any> } |
+| PUT | `/v1/signers/documents/decline-multiple` | `SignerDocumentResource#decline_multiple` | signer access code | None | required; `application/json` object { `document_ids*`: Array<string>; `decline_reason*`: string (max length: 2000) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<any> } |
+| POST | `/v1/verify` | `SignerResource#verify_email` | signer access code | None | required; `application/json` object { `verification-code*`: string } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<any> } |
+| PUT | `/v1/documents/{documentId}/signers/confirm-data` | `SignerResource#confirm_data` | signer access code | path `documentId*`: string | required; `application/json` object { `email`: string (format: email); `whatsapp_phone_number`: string; `has_accepted_terms`: boolean } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<any> } |
+| PUT | `/v1/signers/accept-terms` | `SignerResource#accept_terms` | signer access code | None | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `full_name*`: string; `email*`: string or null (format: email); `has_accepted_terms*`: boolean } } |
+| POST | `/v1/signature` | `SignerResource#upload_signature` | signer access code | query `type`: string (`"signature"`, `"initial"`)<br>query `reuse`: boolean | required; `image/png` string (format: binary); `image/jpeg` string (format: binary) | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<any> } |
+| GET | `/v1/signature/{signatureType}` | `SignerResource#download_signature` | signer access code | path `signatureType*`: string | None | `200` `image/*` string (format: binary) |
+| GET | `/v1/signers/{signerId}/documents` | `SignerDocumentResource#list` | signer access code or Bearer token or `X-Api-Key` | path `signerId*`: string<br>query `envelope_id`: string<br>query `page`: integer (min: 1)<br>query `per-page`: integer (min: 1) (max: 50) | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`Document`](#document)> } |
+| GET | `/v1/signers/{signerId}/documents/search` | `SignerDocumentResource#search` | signer access code or Bearer token or `X-Api-Key` | path `signerId*`: string<br>query `envelope_id`: string<br>query `search`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`Document`](#document)> } |
+| GET | `/v1/signers/{signerId}/documents/{documentId}/download/{artifactName}` | `SignerDocumentResource#download` | signer access code | path `signerId*`: string<br>path `documentId*`: string<br>path `artifactName*`: string (`"original"`) | None | `200` `application/pdf` string (format: binary) |
+| POST | `/v1/sign/certified-copy` | `SignerDocumentResource#send_certified_copy` | signer access code | None | optional; `application/json` object { `document_id`: string } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `available`: boolean; `notification_method`: string (`"Email"`, `"Whatsapp"`); `resends_left`: integer or null; `sent_to`: string } } |
 | GET | `/v1/signers/downloads/{token}` | `SignerDocumentResource#download_certified_copy` | Public | path `token*`: string | None | `200` `application/pdf` string (format: binary) |
 | POST | `/v1/signers/downloads/{token}/resend` | `SignerDocumentResource#resend_certified_copy` | Public | path `token*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: object { `available`: boolean; `notification_method`: string (`"Email"`, `"Whatsapp"`); `resends_left`: integer or null; `sent_to`: string } } |
 | POST | `/v1/authentication/social-login` | `AuthResource#social_login` | Public | None | required; `application/json` object { `provider*`: string (`"google"`); `token*`: string; `has_accepted_terms*`: boolean } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`AuthSession`](#authsession) } |
@@ -191,6 +192,24 @@ Required parameters and object properties are marked with `*`.
 | POST | `/v1/accounts/{accountId}/webhooks/endpoints/{endpointId}/test` | `WebhookResource#test_endpoint` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `endpointId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`WebhookDispatch`](#webhookdispatch) } |
 | GET | `/.well-known/oauth-protected-resource` | `OAuthResource#protected_resource_metadata` | Public | None | None | `200` `application/json` object { `resource`: string (format: uri); `authorization_servers`: Array<string (format: uri)>; `scopes_supported`: Array<string>; `bearer_methods_supported`: Array<string> } |
 | GET | `/v1/documents/{documentId}/assignments/{assignmentId}/whatsapp-notifications` | `AssignmentResource#whatsapp_notifications` | Bearer token or `X-Api-Key` | path `documentId*`: string<br>path `assignmentId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`WhatsappNotification`](#whatsappnotification)> } |
+
+### Staging operations
+
+These operations are published by `https://api.angry-pisco.stage.assinafy.com.br/v1/docs` and are not yet
+published in production. Configure that staging base URL for these calls; production can return 404.
+
+| Method | Path | Ruby SDK method | Authentication | Parameters | Request body | Success wire response |
+| --- | --- | --- | --- | --- | --- | --- |
+| GET | `/v1/documents/{documentId}/signer-capacities` | `DocumentResource#signer_capacities` | Bearer token or `X-Api-Key` | path `documentId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<object { `signer_id*`: string; `sign_as*`: string (`"Sign"`, `"Approve"`, `"Acknowledge"`, `"Party"`, `"Witness"`, `"Intervening"`, `"Receipt"`, `"IssuerEndorserGuarantor"`, `"IssuerEndorserGuarantorSurety"`, `"Surety"`, `"PartySurety"`, `"JointDebtor"`, `"PartyJointDebtor"`, `"ContractingParty"`, `"ContractedParty"`, `"Landlord"`, `"Tenant"`, `"Buyer"`, `"Seller"`, `"AttorneyInFact"`, `"LegalRepresentative"`, `"Employer"`, `"Employee"`) }> } |
+| GET | `/v1/documents/{documentId}/watchers` | `DocumentResource#watchers` | Bearer token or `X-Api-Key` | path `documentId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`Signer`](#signer)> } |
+| PUT | `/v1/documents/{documentId}/watchers` | `DocumentResource#set_watchers` | Bearer token or `X-Api-Key` | path `documentId*`: string | required; `application/json` object { `watcher_ids*`: Array<string (min length: 1)> (max items: 10) } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`Signer`](#signer)> } |
+| POST | `/v1/accounts/{accountId}/envelopes/{envelopeId}/signers/{signerId}/estimate-resend-cost` | `EnvelopeResource#estimate_resend_cost` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `envelopeId*`: string<br>path `signerId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`ResendCostEstimate`](#resendcostestimate) } |
+| GET | `/v1/documents/{documentId}/notification-history` | `DocumentResource#notification_history` | Bearer token or `X-Api-Key` | path `documentId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<object { `signer_id*`: string; `notification_history*`: Array<[`NotificationHistoryEntry`](#notificationhistoryentry) plus object { `delivered_at`: string or null (format: date-time); `opened_at`: string or null (format: date-time) }> }> } |
+| POST | `/v1/documents/{documentId}/scheduled-sends` | `AssignmentResource#schedule` | Bearer token or `X-Api-Key` | path `documentId*`: string | required; `application/json` object { `send_at*`: string (format: date-time) or integer; `method`: string (`"virtual"`, `"collect"`); `signers*`: Array<object>; `expires_at`: string (format: date-time) or integer or null } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`ScheduledSend`](#scheduledsend) } |
+| GET | `/v1/accounts/{accountId}/scheduled-sends` | `ScheduledSendResource#list` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>query `page`: integer (min: 1)<br>query `per-page`: integer (min: 1) (max: 50)<br>query `document_id`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: Array<[`ScheduledSend`](#scheduledsend)> } |
+| POST | `/v1/accounts/{accountId}/scheduled-sends` | `EnvelopeResource#schedule` | Bearer token or `X-Api-Key` | path `accountId*`: string | required; `application/json` [`EnvelopeCreateRequest`](#envelopecreaterequest) plus object { `send_at*`: string (format: date-time) or integer } | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`ScheduledSend`](#scheduledsend) } |
+| PUT | `/v1/accounts/{accountId}/scheduled-sends/{scheduledSendId}/cancel` | `ScheduledSendResource#cancel` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `scheduledSendId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`ScheduledSend`](#scheduledsend) } |
+| PUT | `/v1/accounts/{accountId}/scheduled-sends/{scheduledSendId}/send` | `ScheduledSendResource#send_now` | Bearer token or `X-Api-Key` | path `accountId*`: string<br>path `scheduledSendId*`: string | None | `200` `application/json` [`Envelope`](#envelope) plus object { `data`: [`ScheduledSend`](#scheduledsend) } |
 
 ## Error responses
 
@@ -481,6 +500,59 @@ email preferences. `accounts.notification_policy` reads workspace event rules; o
 Document activities accept sort/page/per_page; `activities` preserves the Array return, and `activities_page`
 returns pagination metadata. Envelope activities are always paginated.
 
+### Scheduled sends, capacities and watchers
+
+Staging exposes `assignments.schedule(document_id, payload, send_at:)` and
+`envelopes.schedule(payload, send_at:)`. Both reuse the corresponding creation payload validators and return
+`ScheduledSend` without sending or charging now. `send_at` is ISO 8601 (no offset means UTC) or Unix seconds,
+from one hour to 90 days ahead; every explicit document deadline must be at least two hours after it.
+A document can have only one pending/processing send. The worker runs about every five minutes and applies
+the original member's permissions, balance, plan and credit ceiling at delivery time. Failure leaves a `failed`
+record and emails that member, or active owners if the member left. Scheduling does not reserve balances or
+prevent immediate assignment creation, and does not support an idempotency key.
+
+`scheduled_sends.list(document_id:, page:, per_page:)` returns all states, newest first; all scheduled-send
+operations require `documents:write`, including listing. `cancel(id)` cancels only pending sends;
+`send_now(id)` creates the assignment/envelope immediately. A refused send-now remains pending, so cancel it
+if a later attempt is unwanted. Repeating send/cancel after a terminal state raises `ApiError` with 409.
+
+Assignments accept `sign_as` on each signer, defaulting to `Sign` when omitted or nil. The exact supported
+values are `AssignmentResource::SIGNER_CAPACITIES`; they identify the sender's stated signing capacity,
+printed on the certificate only. They are immutable after creation and read through
+`documents.signer_capacities(id)`, not ordinary assignment reads or webhooks. Envelope/template signer
+schemas do not publish this field.
+
+`documents.set_watchers(id, watcher_ids)` replaces up to ten workspace contacts with email addresses;
+`[]` clears them. `documents.watchers(id)` reads them in order. Watchers receive a completion, decline or
+expiry email with the document name and sender, without a link/file, independent of workspace notification
+policy. Change them only while the document is open. A signer who is also a watcher receives both emails.
+
+`documents.notification_history(id)` adds nullable delivery/open timestamps to each signer's records.
+Opens can come from link scanners or mail clients and are not proof of human reading. Envelope reminders
+have `envelopes.estimate_resend_cost(id, signer_id)`; one reminder covers the whole envelope and returns
+`ResendCostEstimate` (`total`, not `total_credits`). An estimate does not check timing eligibility. Staging
+reminders refuse expired requests, repeats within two minutes, or more than ten reminders in 24 hours;
+reminders through the envelope and its documents share that limit.
+
+### Signing and explicit empty values
+
+Use `assignments.sign(document_id, assignment_id, [], signer_access_code:)` for virtual assignments after
+terms, contact confirmation and OTP verification. For collect assignments, store both `signature` and
+`initial` PNG images first, even if no initial field is placed. Supply the required item values; omitted
+read-only dates are filled by the server, optional fields may remain empty, and an omitted required field
+fails. Image fields use stored images and `signatureDate` uses the server's signing timestamp. The SDK passes
+empty String values through; the API still rejects them for required fields, including signature fields.
+Staging returns the signer's assignment, without signing URLs, with only their items and other parties' contact
+details and government IDs null. A completed request may be repeated safely according to staging's contract,
+but the SDK never retries it automatically.
+
+`signers.update` preserves explicit nil or empty String for email, WhatsApp number and government ID, so
+callers can clear them. Omitted fields remain unchanged; full_name cannot be cleared. Verified contact
+channels on unfinished requests cannot be changed, and changes to unverified channels invalidate old links.
+`signers.confirm_data` only changes email, WhatsApp number and accepted terms; use workspace signer updates
+for name and government ID. Field validation sends an explicit nil as JSON null and leaves required/optional
+validation to the API; zero remains a value. A missing batch `value` key is rejected locally.
+
 ## SDK-only helpers and aliases
 
 These public functions do not map one-to-one to an API operation. Their source comments provide parameter,
@@ -493,7 +565,7 @@ return-value, and usage details.
 | `Assinafy::Client.from_config`, `.from_hash` | Construct a client from string- or symbol-keyed configuration. | [`client.rb`](../lib/assinafy/client.rb) |
 | `Client#faraday_connection` | Return the configured Faraday connection for advanced integration. | [`client.rb`](../lib/assinafy/client.rb) |
 | `Client#upload_and_request_signatures` | Upload, optionally wait, create signers, and create a virtual assignment. | [`client.rb`](../lib/assinafy/client.rb) |
-| `Client#auth`, `#oauth`, `#accounts`, `#users`, `#documents`, `#contracts`, `#signers`, `#signer_documents`, `#assignments`, `#envelopes`, `#webhooks`, `#templates`, `#fields`, `#tags`, `#webhook_verifier` | Return the client's resource and helper instances. | [`client.rb`](../lib/assinafy/client.rb) |
+| `Client#auth`, `#oauth`, `#accounts`, `#users`, `#documents`, `#contracts`, `#signers`, `#signer_documents`, `#assignments`, `#envelopes`, `#scheduled_sends`, `#webhooks`, `#templates`, `#fields`, `#tags`, `#webhook_verifier` | Return the client's resource and helper instances. | [`client.rb`](../lib/assinafy/client.rb) |
 | `Assinafy::Configuration.new`, `.from_hash` | Build configuration directly or from string/symbol keys. | [`configuration.rb`](../lib/assinafy/configuration.rb) |
 | `Configuration#auth_headers` | Return the selected API-key, bearer, or empty authentication header set. | [`configuration.rb`](../lib/assinafy/configuration.rb) |
 | Configuration readers/writers: `api_key`, `token`, `account_id`, `base_url`, `webhook_secret`, `timeout`, `logger` | Read or update configuration values; `base_url=` and `timeout=` validate like the constructor. Construct a new client to apply changes. | [`configuration.rb`](../lib/assinafy/configuration.rb) |
@@ -519,10 +591,14 @@ return-value, and usage details.
 | `Assinafy::OAuth.generate_code_verifier`, `.code_challenge`, `.generate_state`, `.normalize_scope`, `.validate_code_verifier!`, `.authorization_url` | Build the PKCE pair, CSRF state, and authorization URL for the browser half of the OAuth flow. No network request. | [`oauth.rb`](../lib/assinafy/oauth.rb) |
 | `Assinafy::OAuth::AUTHORIZATION_SERVER`, `::AUTHORIZATION_SERVER_METADATA_URL`, `::AUTHORIZATION_ENDPOINT`, `::CODE_CHALLENGE_METHOD`, `::SCOPES` | Published authorization-server endpoints and scopes. | [`oauth.rb`](../lib/assinafy/oauth.rb) |
 | `AssignmentResource::VERIFICATION_METHODS`, `::NOTIFICATION_METHODS` | The signer verification (`Email`, `Whatsapp`, `DigitalCertificate`, `IdDocumentFaceMatchBasic`) and notification (`Email`, `Whatsapp`) enums, validated locally by `build_payload`. | [`assignment_resource.rb`](../lib/assinafy/resources/assignment_resource.rb) |
-| `Assinafy::Utils.handle_assinafy_response`, `.clean_params`, `.query_params`, `.body_params`, `.require_email`, `.require_expiration`, `.require_credit_ceiling`, `.require_credit_ceiling` | Internal public helpers used by resources for envelope and parameter normalization; applications should prefer resource methods. | [`utils.rb`](../lib/assinafy/utils.rb) |
+| `Assinafy::Utils.handle_assinafy_response`, `.clean_params`, `.query_params`, `.body_params`, `.require_email`, `.require_expiration`, `.require_credit_ceiling` | Internal public helpers used by resources for envelope and parameter normalization; applications should prefer resource methods. | [`utils.rb`](../lib/assinafy/utils.rb) |
 | `Assinafy::NullLogger#debug`, `#info`, `#warn`, `#error`, `#fatal`, `#unknown` | Internal no-op logger methods used when no logger is configured. | [`null_logger.rb`](../lib/assinafy/null_logger.rb) |
 | `Assinafy::VERSION` | Published SDK version constant. | [`version.rb`](../lib/assinafy/version.rb) |
 | `Assinafy::USER_AGENT` | Version-derived `Assinafy-Ruby-SDK/v[VERSION]` request identifier. | [`version.rb`](../lib/assinafy/version.rb) |
+
+`ScheduledSendResource.require_send_at` validates the delivery window and returns a Time;
+`.scheduled_expiration` validates a deadline against it and returns zoned ISO 8601. Resources use these helpers
+before scheduling; callers normally use `assignments.schedule` or `envelopes.schedule`.
 
 ## Request and response examples
 
@@ -531,7 +607,7 @@ The schema catalog below describes the published response objects and their nest
 
 ## Schema catalog
 
-All 62 published schemas are listed below. `*` marks required properties. Nested fields are listed with dot notation; links identify reusable schemas. Examples use placeholder contacts.
+All 63 published schemas (including staging ScheduledSend) are listed below. `*` marks required properties. Nested fields are listed with dot notation; links identify reusable schemas. Examples use placeholder contacts.
 
 ### Account
 
@@ -764,7 +840,7 @@ A document and its current lifecycle state.
 | `verification_url` | string or null (format: uri) | The public verification page for this document. `null` until the document is `certificated`. Example: `"https://www.assinafy.com.br/verificador/a3f1c9e07b2d4e8f9a6c5b1d0e7f3a2c9b8d4e6f"`. |
 | `decline_reason` | string or null |  Example: `null`. |
 | `declined_by` | [`Signer`](#signer) or null |  |
-| `tags` | Array<object { `id`: string; `name`: string; `color`: string or null }> |  |
+| `tags` | Array<object { `id`: string; `name`: string; `color`: string or null }> | The workspace's labels on the document. Always empty when the signer reads it with their code.
 | `tags[].id` | string |  |
 | `tags[].name` | string |  |
 | `tags[].color` | string or null | 6-char hex without leading #. Example: `"ff8800"`. |
@@ -1073,7 +1149,7 @@ A reusable field definition.
 | `type` | string |  Example: `"signature"`. |
 | `regex` | string or null |  |
 | `is_pre_defined` | boolean |  |
-| `is_active` | boolean |  |
+| `is_active` | boolean | Whether the field is offered for new placements: the field list leaves an inactive one out unless `include_inactive` is set. Documents and templates already using an inactive field keep working: its values are still validated and signed.
 | `is_required` | boolean |  |
 | `is_standard` | boolean |  |
 | `is_read_only` | boolean |  |
@@ -1243,7 +1319,7 @@ A signing party belonging to a workspace account.
 | `id` | string |  Example: `"62d6ee35c7741ca4006b9e11"`. |
 | `full_name` | string |  Example: `"John Signer"`. |
 | `email` | string or null (format: email) |  Example: `"signer@example.com"`. |
-| `whatsapp_phone_number` | string or null | E.164 format; normalized on save. Example: `"+5548999990000"`. |
+| `whatsapp_phone_number` | string or null | E.164 format; normalized on save. A number written with `+` is read with the country code it names first, and as Brazilian if it isn't valid there; one without `+` is read as a Brazilian area code and number first.
 | `government_id` | string or null | Signer's normalized CPF (11 digits) or CNPJ (14 characters; may be alphanumeric). Example: `"39053344705"`. |
 | `has_accepted_terms` | boolean |  Example: `false`. |
 
@@ -1535,3 +1611,21 @@ A rendered WhatsApp notification sent for an assignment, split into header/body/
 | `buttons[].text` | string | The button label shown to the signer. Example: `"Abrir documento"`. |
 | `phone_number` | string | Recipient phone (E.164). Example: `"+5511999990001"`. |
 | `signer_id` | string |  Example: `"a51edaee68a7"`. |
+
+### ScheduledSend
+
+A **Create assignment** or **Create envelope** request kept until `send_at`, then made as that route makes it, by the member who scheduled it. Available on staging.
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `resource` | string |  |
+| `id` * | string |  |
+| `type` * | string (`"assignment"`, `"envelope"`) | What it creates. |
+| `document_ids` * | Array<string> | The documents it sends: one for an assignment, the envelope's for an envelope. A deleted document is left out. |
+| `status` * | string (`"pending"`, `"processing"`, `"sent"`, `"cancelled"`, `"failed"`) | `pending` until `send_at` (or **Send a scheduled send now**); `processing` while its request is being made; then `sent` (the request was made; its invitations go out right after), `failed` or, if cancelled while pending, `cancelled`. A send whose run was interrupted while `processing` made nothing, and fails within about an hour. |
+| `send_at` * | string (format: date-time) |  |
+| `assignment_id` * | string or null | The assignment it created, once an `assignment` is `sent`. |
+| `envelope_id` * | string or null | The envelope it created, once an `envelope` is `sent`; `null` again once the envelope is deleted. |
+| `failure_reason` * | string or null | Why it was not sent, once `failed`: the refusal the create route answered then (no documents or credits left, a signer removed, the document already sent, the plan without Envelopes), that the workspace is being deleted, or that the member who scheduled it left the workspace. Written in Portuguese. |
+| `created_at` * | string (format: date-time) |  |
+| `processed_at` * | string or null (format: date-time) | When it was sent, failed or cancelled. |

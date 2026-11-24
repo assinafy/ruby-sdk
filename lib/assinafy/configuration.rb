@@ -33,7 +33,7 @@ module Assinafy
     # @!attribute [rw] api_key
     #   @return [String, nil] sent as `X-Api-Key`
     # @!attribute [rw] token
-    #   @return [String, nil] legacy bearer token (used when `api_key` is nil)
+    #   @return [String, nil] session or OAuth bearer token (used when `api_key` is blank)
     # @!attribute [rw] account_id
     #   @return [String, nil] default workspace ID
     # @!attribute [rw] base_url
@@ -48,11 +48,11 @@ module Assinafy
     attr_reader :base_url, :timeout
 
     # Build a configuration directly from keyword arguments. Prefer passing
-    # `api_key` (the documented `X-Api-Key` mechanism); `token` is the legacy
+    # `api_key` (the documented `X-Api-Key` mechanism); `token` is the session/OAuth
     # bearer fallback. `base_url` has its trailing slash stripped on assignment.
     #
     # @param api_key [String, nil] sent as the `X-Api-Key` header
-    # @param token [String, nil] legacy bearer token (used only when `api_key` is nil)
+    # @param token [String, nil] session or OAuth bearer token (used only when `api_key` is blank)
     # @param account_id [String, nil] default workspace account ID
     # @param base_url [String] API base URL (trailing slash is stripped)
     # @param webhook_secret [String, nil] secret for {Support::WebhookVerifier}

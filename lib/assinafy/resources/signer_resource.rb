@@ -142,14 +142,15 @@ module Assinafy
       # `email` or `whatsapp_phone_number` is rejected while that channel is
       # verified on an in-flight document; changing an unverified channel rotates
       # its access and verification codes.
+      # Explicit nil or empty String clears email, WhatsApp number or government ID.
       #
       # @param signer_id           [String]
       # @param payload             [Hash]
       # @option payload [String] :full_name
-      # @option payload [String] :email
-      # @option payload [String] :whatsapp_phone_number E.164; normalized on save
-      # @option payload [String] :phone alias for `:whatsapp_phone_number`
-      # @option payload [String] :government_id CPF (digits) or CNPJ (may be alphanumeric); normalized on save
+      # @option payload [String, nil] :email
+      # @option payload [String, nil] :whatsapp_phone_number E.164; normalized on save
+      # @option payload [String, nil] :phone alias for `:whatsapp_phone_number`
+      # @option payload [String, nil] :government_id CPF (digits) or CNPJ (may be alphanumeric); normalized on save
       # @param account_id_override [String, nil]
       # @return [Hash] updated signer object (envelope `data` unwrapped)
       # @raise [Assinafy::ApiError] on an unsuccessful API response
@@ -391,6 +392,7 @@ module Assinafy
 
       # Confirm the contact used by the assignment and optionally accept terms. Certificate signers
       # must do both before opening GET /sign. Existing additional payload fields are passed through.
+      # Only email, whatsapp_phone_number and has_accepted_terms are read by the API.
       #
       # @param document_id [String]
       # @param payload [Hash] email, whatsapp_phone_number and has_accepted_terms
@@ -555,7 +557,7 @@ module Assinafy
         full_name = signer_full_name(p, require_full_name)
 
         email = p['email']
-        assert_email!(email) unless email.nil?
+        assert_email!(email) unless email.nil? || (!require_full_name && email == '')
 
         phone = signer_phone(p)
 
@@ -566,6 +568,15 @@ module Assinafy
         )
         government_id = signer_government_id(p)
         body['government_id'] = government_id unless government_id.nil?
+        require_full_name ? body : signer_update_payload(p, body)
+      end
+
+      def signer_update_payload(p, body)
+        p['whatsapp_phone_number'] = p['phone'] if !p.key?('whatsapp_phone_number') && p.key?('phone')
+        %w[email whatsapp_phone_number government_id].each do |key|
+          body[key] = nil if p.key?(key) && p[key].nil?
+        end
+        require_string(body['full_name'], 'Full name') if p.key?('full_name') || p.key?('name')
         body
       end
 

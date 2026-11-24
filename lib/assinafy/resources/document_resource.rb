@@ -917,6 +917,77 @@ module Assinafy
         { signed: signed, total: total, pending: pending, percentage: percentage }
       end
 
+      # Read the sender's stated signing capacities. Available on staging; requires documents:read.
+      # @param document_id [String]
+      # @return [Array<Hash>] signer_id and sign_as, or [] before assignment creation
+      # @raise [ValidationError] on an invalid ID
+      # @raise [ApiError, NetworkError] on API or transport failure
+      # @see GET /documents/{documentId}/signer-capacities
+      # @example
+      #   client.documents.signer_capacities('document-id') # GET; no body
+      #   # => [{ 'signer_id' => 'signer-id', 'sign_as' => 'Witness' }]
+      def signer_capacities(document_id)
+        id = require_id(document_id, 'Document ID')
+        call_array('Failed to read signer capacities') { http_get("documents/#{id}/signer-capacities") }
+      end
+
+      # Read invitation delivery/open timestamps. Opens are hints, not proof a person read the message.
+      # Available on staging; requires documents:read.
+      # @param document_id [String]
+      # @return [Array<Hash>] signer_id and notification_history, or [] before assignment creation
+      # @raise [ValidationError] on an invalid ID
+      # @raise [ApiError, NetworkError] on API or transport failure
+      # @see GET /documents/{documentId}/notification-history
+      # @example
+      #   client.documents.notification_history('document-id') # GET; no body
+      #   # => [{ 'signer_id' => 'signer-id', 'notification_history' => [{ 'event' => 'signature_request',
+      #   #      'status' => 'sent', 'error_code' => nil, 'error_message' => nil, 'failed_at' => nil,
+      #   #      'sent_at' => '2026-12-01T12:00:00Z', 'delivered_at' => nil, 'opened_at' => nil }] }]
+      def notification_history(document_id)
+        id = require_id(document_id, 'Document ID')
+        call_array('Failed to read notification history') { http_get("documents/#{id}/notification-history") }
+      end
+
+      # Read contacts following this document without signing. Available on staging; requires documents:read.
+      # @param document_id [String]
+      # @return [Array<Hash>] Signer objects, in configured order, excluding deleted contacts
+      # @raise [ValidationError] on an invalid ID
+      # @raise [ApiError, NetworkError] on API or transport failure
+      # @see GET /documents/{documentId}/watchers
+      # @example
+      #   client.documents.watchers('document-id') # GET; no body
+      #   # => [{ 'id' => 'contact-id', 'full_name' => 'Example Watcher', 'email' => 'watcher@example.com',
+      #   #      'whatsapp_phone_number' => nil, 'government_id' => nil, 'has_accepted_terms' => false }]
+      def watchers(document_id)
+        id = require_id(document_id, 'Document ID')
+        call_array('Failed to read document watchers') { http_get("documents/#{id}/watchers") }
+      end
+
+      # Replace watchers before a document ends. They receive a completion/decline/expiry email without a file/link.
+      # Available on staging; requires documents:write. Workspace notification policy does not suppress these emails.
+      # @param document_id [String]
+      # @param watcher_ids [Array<String>] at most ten workspace contact IDs with email; [] clears all
+      # @return [Array<Hash>] Signer objects, as returned by watchers
+      # @raise [ValidationError] on invalid IDs or list shape
+      # @raise [ApiError, NetworkError] on API or transport failure
+      # @see PUT /documents/{documentId}/watchers
+      # @example
+      #   client.documents.set_watchers('document-id', ['contact-id'])
+      #   # PUT body: { "watcher_ids": ["contact-id"] }
+      #   # => [{ 'id' => 'contact-id', 'full_name' => 'Example Watcher', 'email' => 'watcher@example.com',
+      #   #      'whatsapp_phone_number' => nil, 'government_id' => nil, 'has_accepted_terms' => false }]
+      def set_watchers(document_id, watcher_ids)
+        id = require_id(document_id, 'Document ID')
+        unless watcher_ids.is_a?(Array) && watcher_ids.length <= 10
+          raise ValidationError.new('watcher_ids must be an Array with at most ten contacts')
+        end
+
+        watcher_ids.each { |watcher| require_id(watcher, 'Watcher ID') }
+        call_array('Failed to set document watchers') do
+          http_put("documents/#{id}/watchers", { 'watcher_ids' => watcher_ids })
+        end
+      end
+
       private
 
       def document_expansions(expand)

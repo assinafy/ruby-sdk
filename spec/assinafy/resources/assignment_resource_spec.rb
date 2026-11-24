@@ -490,11 +490,17 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
       ).to have_been_made
     end
 
-    it 'requires at least one assignment item' do
+    it 'signs virtual assignments with an empty array and signer-only authentication' do
       resource = described_class.new(connection, 'acc')
-      expect do
-        resource.sign('doc', 'asg', [], signer_access_code: 'code')
-      end.to raise_error(Assinafy::ValidationError)
+      stub_request(:post, "#{base_url}/documents/doc/assignments/asg")
+        .with(query: { 'signer-access-code' => 'code' }, body: '[]') do |request|
+          !request.headers.key?('X-Api-Key') && !request.headers.key?('Authorization')
+        end.to_return(api_envelope({ id: 'asg' }))
+      expect(resource.sign('doc', 'asg', [], signer_access_code: 'code')).to eq('id' => 'asg')
+      [nil, {}, ''].each do |items|
+        expect { resource.sign('doc', 'asg', items, signer_access_code: 'code') }
+          .to raise_error(Assinafy::ValidationError)
+      end
     end
 
     it 'rejects non-Hash items and blank access codes without making a request' do
@@ -736,6 +742,50 @@ RSpec.describe Assinafy::Resources::AssignmentResource do
         signer_access_code: 'code', expand: ['envelope'], document_id: 'doc'
       )
       expect(result['envelope']).to eq('id' => 'env')
+    end
+  end
+
+  it 'preserves every published signing capacity and refuses unknown capacities' do
+    described_class::SIGNER_CAPACITIES.each do |capacity|
+      body = described_class.build_payload(signers: [{ id: 'signer', sign_as: capacity }])
+      expect(body['signers'].first['sign_as']).to eq(capacity)
+    end
+    expect(described_class.build_payload(signers: [{ id: 'signer', sign_as: nil }])['signers'])
+      .to eq([{ 'id' => 'signer' }])
+    expect { described_class.build_payload(signers: [{ id: 'signer', sign_as: 'witness' }]) }
+      .to raise_error(Assinafy::ValidationError)
+  end
+
+  it 'allows empty strings for image and optional collect item values' do
+    resource = described_class.new(connection, 'acc')
+    item = { itemId: 'item', fieldId: 'field', pageId: 'page', value: '' }
+    stub_request(:post, "#{base_url}/documents/doc/assignments/asg")
+      .with(query: { 'signer-access-code' => 'code' }, body: [item].to_json).to_return(api_envelope({ id: 'asg' }))
+    expect(resource.sign('doc', 'asg', [item], signer_access_code: 'code')).to eq('id' => 'asg')
+  end
+
+  describe '#schedule' do
+    let(:resource) { described_class.new(connection, 'acc') }
+    let(:send_at) { (Time.now + 7200).to_i }
+
+    it 'reuses assignment normalization and sends a Unix schedule with a zoned deadline' do
+      body = { method: 'virtual', signers: [{ id: 'signer', sign_as: 'Witness' }], send_at: send_at,
+               expires_at: Time.at(send_at + 7200).utc.iso8601, max_total_credits: 0 }
+      stub_request(:post, "#{base_url}/documents/doc/scheduled-sends")
+        .with(body: body, headers: { 'X-Api-Key' => 'test-key' }).to_return(api_envelope({ status: 'pending' }))
+      payload = { signers: [{ signer_id: 'signer', sign_as: 'Witness' }],
+                  expires_at: send_at + 7200, max_total_credits: 0 }
+      expect(resource.schedule('doc', payload, send_at: send_at)).to eq('status' => 'pending')
+      expect(payload[:expires_at]).to eq(send_at + 7200)
+    end
+
+    it 'refuses malformed payloads and deadlines too close to delivery before the network' do
+      expect { resource.schedule('doc', { signers: [] }, send_at: send_at) }
+        .to raise_error(Assinafy::ValidationError)
+      expect { resource.schedule('../doc', { signers: ['s'] }, send_at: send_at) }
+        .to raise_error(Assinafy::ValidationError)
+      expect { resource.schedule('doc', { signers: ['s'], expires_at: send_at + 7199 }, send_at: send_at) }
+        .to raise_error(Assinafy::ValidationError)
     end
   end
 end

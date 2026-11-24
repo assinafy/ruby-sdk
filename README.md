@@ -5,7 +5,7 @@
 [![CI](https://github.com/assinafy/ruby-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/assinafy/ruby-sdk/actions/workflows/ci.yml)
 [![Gem Version](https://img.shields.io/gem/v/assinafy.svg)](https://rubygems.org/gems/assinafy)
 
-SDK Ruby 3.2+ para todas as operações publicadas da [API Assinafy v1](https://api.assinafy.com.br/v1/docs).
+SDK Ruby 3.2+ (prefira 4.0.10, 3.4.13 ou 3.3.14) para todas as operações publicadas da [API Assinafy v1](https://api.assinafy.com.br/v1/docs).
 O SDK é para servidores: nunca coloque chave de API, segredo OAuth ou código de signatário em aplicativo móvel,
 navegador, log ou repositório. A referência completa, com payloads de cada operação, está em
 [docs/API_REFERENCE.md](docs/API_REFERENCE.md); a lista detalhada por recurso está em
@@ -113,6 +113,10 @@ Para vários documentos na mesma solicitação, use `client.envelopes.estimate_c
 e artefatos; a criação aceita `idempotency_key:` e `max_total_credits` limita o gasto. A mesma proteção de custo
 existe em assignments e templates. Consulte uso e recursos do plano em `accounts.usage` e `accounts.get`.
 
+No staging, `assignments.schedule` e `envelopes.schedule` recebem `send_at:`; acompanhe, cancele ou antecipe com
+`scheduled_sends`. Também há `documents.signer_capacities`, `watchers`/`set_watchers` e `notification_history`.
+Veja [disponibilidade e fluxo](README.en.md#scheduled-sends-and-document-recipients-staging); produção ainda não publica essas rotas.
+
 ### Verificação e notificação
 
 | `verification_method` | Notificação | Regras |
@@ -135,7 +139,7 @@ inventa os endpoints de handshake ainda não publicados.
 
 Operações do signatário usam `signer_access_code:` sem chave/token da workspace. O fluxo inclui termos,
 confirmação de dados, OTP, identidade, imagem de assinatura, `assignments.sign`/`decline` e operações em lote em
-`signer_documents`.
+`signer_documents`. Para `virtual`, envie `[]` a `assignments.sign`; para `collect`, grave PNGs de assinatura e rubrica.
 
 Assinatura embutida usa `embedded: true` em signatários Email/Whatsapp, origens cadastradas em `accounts` e
 `assignments.create_embed_session` no servidor. Exige recurso Embed e chave/sessão, sem OAuth de terceiros.
@@ -177,7 +181,7 @@ Falhas da API levantam `Assinafy::ApiError`; OAuth usa `OAuthError < ApiError`; 
 `{ data:, meta: }`, listas simples devolvem `Array`, binários devolvem `String` e respostas vazias devolvem `nil`.
 
 Recursos: `accounts`, `auth`, `oauth`, `users`, `documents`, `contracts`, `signers`, `signer_documents`,
-`assignments`, `envelopes`, `templates`, `tags`, `fields`, `webhooks` e `webhook_verifier`. As assinaturas RBS ficam em
+`assignments`, `envelopes`, `scheduled_sends`, `templates`, `tags`, `fields`, `webhooks` e `webhook_verifier`. As assinaturas RBS ficam em
 [`sig/assinafy.rbs`](sig/assinafy.rbs).
 
 ## Desenvolvimento

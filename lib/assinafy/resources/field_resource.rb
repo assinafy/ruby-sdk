@@ -201,7 +201,7 @@ module Assinafy
         end
       end
 
-      # Validate a single value against a field definition.
+      # Validate a single value against a field definition, preserving nil as JSON null.
       #
       # Workspace authorization is used when `signer_access_code:` is omitted.
       # When the keyword is given it must be a non-blank code, and
@@ -230,17 +230,16 @@ module Assinafy
       def validate(field_id, value, account_id_override = nil, signer_access_code: WORKSPACE)
         acc_id      = account_id(account_id_override)
         fid         = require_id(field_id, 'Field ID')
-        raise ValidationError.new('Field value is required') if value.nil?
 
         access_code = field_access_code(signer_access_code)
 
         call('Failed to validate field value') do
-          http_post("accounts/#{acc_id}/fields/#{fid}/validate", body_params(value: value),
+          http_post("accounts/#{acc_id}/fields/#{fid}/validate", { 'value' => value },
                     { signer_access_code: access_code }, workspace_auth: access_code.nil?)
         end
       end
 
-      # Validate many `{ field_id:, value: }` pairs in a single call.
+      # Validate many `{ field_id:, value: }` pairs in a single call. Explicit nil values remain JSON null.
       #
       # As with {#validate}, omitting `signer_access_code:` uses the workspace
       # credentials; giving it requires a non-blank code and sends only the code.
@@ -330,11 +329,11 @@ module Assinafy
         value_key = payload.key?(:value) ? :value : 'value'
 
         require_id(field_id, 'Field ID')
-        unless payload.key?(value_key) && !payload[value_key].nil?
+        unless payload.key?(value_key)
           raise ValidationError.new('Field value is required')
         end
 
-        body_params(payload)
+        body_params(payload).merge('value' => payload[value_key])
       end
     end
   end

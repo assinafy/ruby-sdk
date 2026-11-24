@@ -135,4 +135,37 @@ RSpec.describe Assinafy::Resources::EnvelopeResource do
     stub_request(:post, "#{base_url}/env/documents").with(body: document.to_json).to_return(api_envelope(envelope))
     expect(resource.add_document('env', document)).to eq(envelope)
   end
+
+  it 'estimates the whole envelope reminder without sending one' do
+    cost = { 'total' => 0, 'has_sufficient_credits' => true }
+    request = stub_request(:post, "#{base_url}/env/signers/signer/estimate-resend-cost")
+              .with(headers: { 'X-Api-Key' => 'test-key' }).to_return(api_envelope(cost))
+    expect(resource.estimate_resend_cost('env', 'signer')).to eq(cost)
+    expect(request).to have_been_requested.once
+    expect { resource.estimate_resend_cost('env', '../signer') }.to raise_error(Assinafy::ValidationError)
+  end
+
+  it 'schedules the same envelope payload without an idempotency header' do
+    time = (Time.now + 7200).utc.iso8601
+    request = stub_request(:post, base_url.sub('/envelopes', '/scheduled-sends'))
+              .with(body: payload.merge(send_at: time).to_json) do |req|
+                !req.headers.key?('Idempotency-Key') && req.headers['X-Api-Key'] == 'test-key'
+              end.to_return(api_envelope({ status: 'pending' }))
+    expect(resource.schedule(payload, send_at: time)).to eq('status' => 'pending')
+    expect(request).to have_been_requested.once
+  end
+
+  it 'checks every scheduled document deadline and leaves the input unchanged' do
+    time = (Time.now + 7200).to_i
+    payload[:documents][0][:expires_at] = time + 7200
+    original = Marshal.load(Marshal.dump(payload))
+    body = Marshal.load(Marshal.dump(payload))
+    body[:documents][0][:expires_at] = Time.at(time + 7200).utc.iso8601
+    stub_request(:post, base_url.sub('/envelopes', '/scheduled-sends'))
+      .with(body: body.merge(send_at: time).to_json).to_return(api_envelope({ status: 'pending' }))
+    resource.schedule(payload, send_at: time)
+    expect(payload).to eq(original)
+    payload[:documents][0][:expires_at] = time + 7199
+    expect { resource.schedule(payload, send_at: time) }.to raise_error(Assinafy::ValidationError)
+  end
 end

@@ -43,6 +43,8 @@ module Assinafy
     attr_reader :assignments
     # @return [Resources::EnvelopeResource]
     attr_reader :envelopes
+    # @return [Resources::ScheduledSendResource]
+    attr_reader :scheduled_sends
     # @return [Resources::WebhookResource]
     attr_reader :webhooks
     # @return [Resources::TemplateResource]
@@ -93,6 +95,7 @@ module Assinafy
       @signer_documents = Resources::SignerDocumentResource.new(@connection, nil, @logger)
       @assignments      = Resources::AssignmentResource.new(@connection, account_id, @logger)
       @envelopes        = Resources::EnvelopeResource.new(@connection, account_id, @logger)
+      @scheduled_sends  = Resources::ScheduledSendResource.new(@connection, account_id, @logger)
       @webhooks         = Resources::WebhookResource.new(@connection, account_id, @logger)
       @templates        = Resources::TemplateResource.new(@connection, account_id, @logger)
       @fields           = Resources::FieldResource.new(@connection, account_id, @logger)

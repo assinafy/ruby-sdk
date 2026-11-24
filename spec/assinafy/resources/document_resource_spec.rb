@@ -692,4 +692,34 @@ RSpec.describe Assinafy::Resources::DocumentResource do
       end
     end
   end
+
+  describe 'document recipients and notifications' do
+    let(:resource) { described_class.new(build_test_connection, 'acc') }
+
+    it 'reads capacities, watchers and notification history using workspace authentication' do
+      { signer_capacities: 'signer-capacities', watchers: 'watchers',
+        notification_history: 'notification-history' }.each do |method, path|
+        stub_request(:get, "https://api.assinafy.com.br/v1/documents/doc/#{path}")
+          .with(headers: { 'X-Api-Key' => 'test-key' }).to_return(api_envelope([]))
+        expect(resource.public_send(method, 'doc')).to eq([])
+        expect { resource.public_send(method, '../doc') }.to raise_error(Assinafy::ValidationError)
+      end
+    end
+
+    it 'replaces and clears watchers without dropping an empty list' do
+      [['contact'], []].each do |ids|
+        stub_request(:put, 'https://api.assinafy.com.br/v1/documents/doc/watchers')
+          .with(body: { watcher_ids: ids }.to_json).to_return(api_envelope(ids.map { |id| { id: id } }))
+        expect(resource.set_watchers('doc', ids)).to eq(ids.map { |id| { 'id' => id } })
+      end
+    end
+
+    it 'rejects invalid watcher lists locally and malformed server list responses' do
+      [nil, 'contact', [''], ['../contact'], Array.new(11, 'contact')].each do |ids|
+        expect { resource.set_watchers('doc', ids) }.to raise_error(Assinafy::ValidationError)
+      end
+      stub_request(:get, 'https://api.assinafy.com.br/v1/documents/doc/watchers').to_return(api_envelope({}))
+      expect { resource.watchers('doc') }.to raise_error(Assinafy::Error, /Array/)
+    end
+  end
 end

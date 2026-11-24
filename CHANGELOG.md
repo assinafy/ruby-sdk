@@ -2,6 +2,23 @@
 
 All notable changes to the `assinafy` Ruby gem are documented here.
 
+## [2.3.0] - 2026-11-24
+
+### Added
+
+- Scheduled assignment and envelope creation, listing, cancellation and immediate delivery for environments that publish scheduled sends.
+- Document watchers, signer capacities (`sign_as`), notification delivery/open history, and envelope reminder cost estimates on staging.
+
+### Fixed
+
+- Virtual assignments can be signed with an empty item array; collect items can carry empty String values.
+- Signer updates preserve explicit null or empty contact and government-ID fields so they can be cleared.
+- Single and batch field validation preserve explicit null values for optional fields.
+
+### Changed
+
+- Development uses Ruby 4.0.10, including the latest Ruby security fixes.
+
 ## [2.2.0] - 2026-11-11
 
 ### Added

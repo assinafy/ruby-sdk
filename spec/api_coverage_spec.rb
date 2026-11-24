@@ -9,6 +9,27 @@
 RSpec.describe Assinafy::Client, type: :coverage_matrix do
   let(:endpoints) do
     [
+      ['GET', '/documents/{documentId}/signer-capacities',
+       'DocumentResource#signer_capacities'],
+      ['GET', '/documents/{documentId}/notification-history',
+       'DocumentResource#notification_history'],
+      ['GET', '/documents/{documentId}/watchers',
+       'DocumentResource#watchers'],
+      ['PUT', '/documents/{documentId}/watchers',
+       'DocumentResource#set_watchers'],
+      ['POST', '/documents/{documentId}/scheduled-sends',
+       'AssignmentResource#schedule'],
+      ['POST', '/accounts/{accountId}/scheduled-sends',
+       'EnvelopeResource#schedule'],
+      ['GET', '/accounts/{accountId}/scheduled-sends',
+       'ScheduledSendResource#list'],
+      ['PUT', '/accounts/{accountId}/scheduled-sends/{scheduledSendId}/cancel',
+       'ScheduledSendResource#cancel'],
+      ['PUT', '/accounts/{accountId}/scheduled-sends/{scheduledSendId}/send',
+       'ScheduledSendResource#send_now'],
+      ['POST', '/accounts/{accountId}/envelopes/{envelopeId}/signers/{signerId}/estimate-resend-cost',
+       'EnvelopeResource#estimate_resend_cost'],
+
       # Authentication
       ['POST',   '/login',
        'AuthResource#login'],

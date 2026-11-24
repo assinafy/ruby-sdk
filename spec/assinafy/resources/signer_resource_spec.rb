@@ -78,15 +78,15 @@ RSpec.describe Assinafy::Resources::SignerResource do
       ).to have_been_made
     end
 
-    it 'omits a nil government_id because the update field is not nullable' do
+    it 'sends an explicit nil government_id to clear it' do
       stub_request(:put, "#{base_url}/accounts/test-account/signers/signer-1")
-        .with(body: {})
+        .with(body: { 'government_id' => nil })
         .to_return(api_envelope({ 'id' => 'signer-1' }))
 
       resource.update('signer-1', government_id: nil)
 
       expect(
-        a_request(:put, "#{base_url}/accounts/test-account/signers/signer-1").with(body: {})
+        a_request(:put, "#{base_url}/accounts/test-account/signers/signer-1").with(body: { 'government_id' => nil })
       ).to have_been_made
     end
   end
@@ -563,5 +563,23 @@ RSpec.describe Assinafy::Resources::SignerResource do
       expect { resource.theme(signer_access_code: nil) }.to raise_error(Assinafy::ValidationError)
       expect { resource.download_logo(signer_access_code: '') }.to raise_error(Assinafy::ValidationError)
     end
+  end
+
+  it 'clears the phone alias with an explicit null' do
+    stub_request(:put, "#{base_url}/accounts/test-account/signers/signer-1")
+      .with(body: { 'whatsapp_phone_number' => nil }).to_return(api_envelope({ id: 'signer-1' }))
+
+    expect(resource.update('signer-1', phone: nil)).to eq('id' => 'signer-1')
+  end
+
+  it 'clears contact fields explicitly without changing omitted fields' do
+    [nil, ''].each do |empty|
+      payload = { email: empty, whatsapp_phone_number: empty, government_id: empty }
+      stub_request(:put, "#{base_url}/accounts/test-account/signers/signer-1")
+        .with(body: payload.to_json).to_return(api_envelope({ id: 'signer-1' }))
+      expect(resource.update('signer-1', payload)).to eq('id' => 'signer-1')
+    end
+    expect { resource.update('signer-1', full_name: nil) }.to raise_error(Assinafy::ValidationError)
+    expect { resource.create(full_name: 'Example', email: '') }.to raise_error(Assinafy::ValidationError)
   end
 end

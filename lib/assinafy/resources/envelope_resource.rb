@@ -68,6 +68,39 @@ module Assinafy
         call('Failed to estimate envelope cost') { http_post(path, body) }
       end
 
+      # Schedule an envelope; no invitations or charges occur until it is sent. Requires documents:write.
+      # Available on staging; the environment must publish scheduled sends. No idempotency header is supported.
+      # @param payload [Hash] the same EnvelopeCreateRequest as create
+      # @param account_id_override [String, nil]
+      # @param send_at [String, Integer] from one hour to 90 days ahead; absent offset means UTC
+      # @return [Hash] ScheduledSend; each deadline must be at least two hours after send_at
+      # @raise [ValidationError] on invalid payload, IDs or timing
+      # @raise [ApiError, NetworkError] on API or transport failure
+      # @see POST /accounts/{accountId}/scheduled-sends
+      # @example
+      #   client.envelopes.schedule({ name: 'Contract', signers: [{ id: 'signer-id' }],
+      #     documents: [{ id: 'document-id', signer_ids: ['signer-id'] }] }, send_at: (Time.now + 7200).to_i)
+      #   # POST body: { "name": "Contract", "signers": [{ "id": "signer-id" }],
+      #   #   "documents": [{ "id": "document-id", "signer_ids": ["signer-id"] }], "send_at": 1796126400 }
+      #   # => { 'resource' => 'scheduled_send', 'id' => 'send-id', 'type' => 'envelope',
+      #   #      'document_ids' => ['document-id'], 'status' => 'pending', 'send_at' => '2026-12-01T12:00:00Z',
+      #   #      'assignment_id' => nil, 'envelope_id' => nil, 'failure_reason' => nil,
+      #   #      'created_at' => '2026-12-01T10:00:00Z', 'processed_at' => nil }
+      def schedule(payload, account_id_override = nil, send_at:)
+        time = ScheduledSendResource.require_send_at(send_at)
+        raw = body_params(require_payload(payload))
+        raw['documents'] = require_array(raw['documents'], 'documents').map do |document|
+          entry = require_payload(document, 'Envelope document').dup
+          if entry.key?('expires_at')
+            entry['expires_at'] = ScheduledSendResource.scheduled_expiration(entry['expires_at'], time)
+          end
+          entry
+        end
+        body = create_payload(raw).merge('send_at' => send_at)
+        path = "accounts/#{account_id(account_id_override)}/scheduled-sends"
+        call('Failed to schedule envelope') { http_post(path, body) }
+      end
+
       # @param envelope_id [String]
       # @param account_id_override [String, nil]
       # @return [Hash] DocumentEnvelope (see create for its complete shape)
@@ -185,6 +218,23 @@ module Assinafy
         sid = require_id(signer_id, 'Signer ID')
         path = "#{envelope_path(envelope_id, account_id_override)}/signers/#{sid}/resend"
         call('Failed to resend envelope invitation') { http_put(path) }
+      end
+
+      # Estimate one reminder for the whole envelope without sending or charging. Available on staging.
+      # @param envelope_id [String]
+      # @param signer_id [String]
+      # @param account_id_override [String, nil]
+      # @return [Hash] ResendCostEstimate; does not check reminder timing eligibility
+      # @raise [ValidationError] on invalid IDs
+      # @raise [ApiError, NetworkError] on API or transport failure
+      # @see POST /accounts/{accountId}/envelopes/{envelopeId}/signers/{signerId}/estimate-resend-cost
+      # @example
+      #   client.envelopes.estimate_resend_cost('envelope-id', 'signer-id') # POST; no body
+      #   # => { 'total' => 0, 'breakdown' => [], 'credit_balance' => 100, 'has_sufficient_credits' => true }
+      def estimate_resend_cost(envelope_id, signer_id, account_id_override = nil)
+        sid = require_id(signer_id, 'Signer ID')
+        path = "#{envelope_path(envelope_id, account_id_override)}/signers/#{sid}/estimate-resend-cost"
+        call('Failed to estimate envelope reminder cost') { http_post(path) }
       end
 
       # @param envelope_id [String]

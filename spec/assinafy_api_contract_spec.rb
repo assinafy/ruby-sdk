@@ -34,8 +34,9 @@ RSpec.describe AssinafyApiContract do
   end
 
   describe 'the SDK route matrix' do
-    it 'contains every expected upstream operation plus the five template operations' do
-      expected = JSON.parse(File.binread(described_class::EXPECTED_PATH)).fetch('operations').map do |operation|
+    it 'contains every production and staging operation plus the five template operations' do
+      files = [described_class::EXPECTED_PATH, File.expand_path('fixtures/stage_api_contract.json', __dir__)]
+      expected = files.flat_map { |file| JSON.parse(File.binread(file)).fetch('operations') }.uniq.map do |operation|
         method, path = operation.split(' ', 2)
         normalize_operation.call(method, path)
       end

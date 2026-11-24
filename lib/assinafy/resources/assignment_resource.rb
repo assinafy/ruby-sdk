@@ -40,6 +40,11 @@ module Assinafy
       # subscriptions. When omitted it is inferred from `verification_method`
       # (`Whatsapp` → `["Whatsapp"]`); when both are omitted it is `["Email"]`.
       NOTIFICATION_METHODS = %w[Email Whatsapp].freeze
+      SIGNER_CAPACITIES = %w[
+        Sign Approve Acknowledge Party Witness Intervening Receipt IssuerEndorserGuarantor
+        IssuerEndorserGuarantorSurety Surety PartySurety JointDebtor PartyJointDebtor ContractingParty
+        ContractedParty Landlord Tenant Buyer Seller AttorneyInFact LegalRepresentative Employer Employee
+      ].freeze
 
       SIGN_ITEM_KEY_MAP = {
         'item_id'  => 'itemId',
@@ -53,7 +58,7 @@ module Assinafy
         # shape the API expects. Accepts:
         #
         # - `signers: ['id1', 'id2']` — bare IDs
-        # - `signers: [{ id:, verification_method:, notification_methods:, step: }]`
+        # - `signers: [{ id:, verification_method:, notification_methods:, step:, embedded:, sign_as: }]`
         # - Legacy `signer_ids:`/`signerIds:` arrays of IDs
         #
         # @note Creation requires top-level `signers` for both methods, and `collect` additionally
@@ -252,18 +257,24 @@ module Assinafy
           r  = ref.transform_keys(&:to_sym)
           id = r[:id] || r[:signer_id]
 
-          normalised = {}
-          normalised[:id]                   = id                                  if id
-          normalised[:verification_method]  = verification_method!(r)             unless r[:verification_method].nil?
-          normalised[:notification_methods] = notification_methods!(r)            unless r[:notification_methods].nil?
-          normalised[:step]                 = signer_step!(r[:step])              unless r[:step].nil?
-          normalised[:embedded]             = embedded_signer!(r) if r.key?(:embedded)
-          validate_method_pair!(normalised)
+          normalised = { id: id }.compact.merge(signer_options(r))
 
           return normalised if id.is_a?(String) && !id.strip.empty?
           return normalised if id.nil? && options[:allow_signers_without_id]
 
           raise ValidationError.new('Invalid signer reference', { ref: ref })
+        end
+
+        def signer_options(r)
+          normalised = {}
+          normalised[:verification_method]  = verification_method!(r)             unless r[:verification_method].nil?
+          normalised[:notification_methods] = notification_methods!(r)            unless r[:notification_methods].nil?
+          normalised[:step]                 = signer_step!(r[:step])              unless r[:step].nil?
+          normalised[:embedded]             = embedded_signer!(r) if r.key?(:embedded)
+          normalised[:sign_as]              = signer_capacity!(r[:sign_as]) unless r[:sign_as].nil?
+          validate_method_pair!(normalised)
+
+          normalised
         end
 
         # The API's enums are closed and it reports an unknown value as a 422
@@ -306,6 +317,12 @@ module Assinafy
           return step if step.is_a?(Integer) && step > 0
 
           raise ValidationError.new('step must be a positive Integer', { step: step })
+        end
+
+        def signer_capacity!(value)
+          return value if SIGNER_CAPACITIES.include?(value)
+
+          raise ValidationError.new("sign_as must be one of: #{SIGNER_CAPACITIES.join(', ')}")
         end
 
         def validate_method_pair!(signer)
@@ -442,6 +459,33 @@ module Assinafy
         end
       end
 
+      # Schedule an assignment without creating or charging it now. Requires documents:write.
+      # Available on staging; the environment must publish scheduled sends.
+      # @param document_id [String]
+      # @param payload [Hash] the same assignment payload as create, including sign_as when needed
+      # @param send_at [String, Integer] from one hour to 90 days ahead; absent offset means UTC
+      # @return [Hash] ScheduledSend; its deadline must be at least two hours after send_at
+      # @raise [ValidationError] on invalid IDs, payload or timing
+      # @raise [ApiError, NetworkError] on API or transport failure
+      # @see POST /documents/{documentId}/scheduled-sends
+      # @example
+      #   client.assignments.schedule('document-id', { signers: ['signer-id'] },
+      #     send_at: (Time.now + 7200).iso8601)
+      #   # POST body: { "method": "virtual", "signers": [{ "id": "signer-id" }],
+      #   #   "send_at": "2026-12-01T12:00:00Z" }
+      #   # => { 'resource' => 'scheduled_send', 'id' => 'send-id', 'type' => 'assignment',
+      #   #      'document_ids' => ['document-id'], 'status' => 'pending', 'send_at' => '2026-12-01T12:00:00Z',
+      #   #      'assignment_id' => nil, 'envelope_id' => nil, 'failure_reason' => nil,
+      #   #      'created_at' => '2026-12-01T10:00:00Z', 'processed_at' => nil }
+      def schedule(document_id, payload, send_at:)
+        id = require_id(document_id, 'Document ID')
+        time = ScheduledSendResource.require_send_at(send_at)
+        raw = require_payload(payload).transform_keys(&:to_s)
+        raw['expires_at'] = ScheduledSendResource.scheduled_expiration(raw['expires_at'], time)
+        body = self.class.build_payload(raw).merge('send_at' => send_at)
+        call('Failed to schedule assignment') { http_post("documents/#{id}/scheduled-sends", body) }
+      end
+
       # Estimate the credit cost of a potential assignment, without creating it.
       # Accepts the same payload as {#create}, but signer descriptors may omit
       # `id`. An empty descriptor (`{}`) defaults both methods to `Email`.
@@ -543,6 +587,7 @@ module Assinafy
       end
 
       # Estimate the credit cost of resending the notification to a signer.
+      # Does not check deadline or reminder frequency eligibility.
       #
       # @param document_id   [String]
       # @param assignment_id [String]
@@ -756,6 +801,8 @@ module Assinafy
       end
 
       # Submit signatures for an assignment as a signer.
+      # Virtual assignments send []; collect requires stored signature and initial images.
+      # Omitted read-only/optional collect fields are filled or left empty by the API.
       #
       # The API uses camelCase for this body. Callers may pass snake_case
       # (`item_id`, `field_id`, `page_id`, `value`) — this method maps them
@@ -763,9 +810,10 @@ module Assinafy
       #
       # @param document_id        [String]
       # @param assignment_id      [String]
-      # @param items              [Array<Hash>]
+      # @param items              [Array<Hash>] [] for virtual; the API validates required collect values
       # @param signer_access_code [String]
-      # @return [Hash] empty Hash `{}` on success
+      # @return [Hash] signing result; staging returns the signer's assignment with only their items,
+      #   without signing URLs or other parties' contact details and government IDs
       # @raise [Assinafy::ApiError] on an unsuccessful API response
       # @raise [Assinafy::NetworkError] on transport or TLS failure
       # @raise [Assinafy::ValidationError] on invalid required input
@@ -778,11 +826,14 @@ module Assinafy
       #   # Request body the SDK sends (snake_case keys mapped to camelCase):
       #   # [{ "itemId" => "assignment-item-id", "fieldId" => "field-id",
       #   #    "pageId" => "page-id", "value" => "Signed by Example Signer" }]
-      #   # => {}
+      #   # => { 'resource' => 'assignment', 'id' => 'assignment-id', 'document_id' => 'document-id',
+      #   #      'method' => 'collect', 'items' => [{ 'id' => 'assignment-item-id', 'completed' => true, ... }], ... }
       def sign(document_id, assignment_id, items, signer_access_code:)
         doc_id = require_id(document_id, 'Document ID')
         asg_id = require_id(assignment_id, 'Assignment ID')
-        body   = require_array(items, 'Assignment items').map { |item| normalise_sign_item(item) }
+        raise ValidationError.new('Assignment items must be an Array') unless items.is_a?(Array)
+
+        body = items.map { |item| normalise_sign_item(item) }
         access_code = require_signer_access_code(signer_access_code)
 
         call('Failed to sign assignment') do
@@ -870,7 +921,7 @@ module Assinafy
         %w[itemId fieldId pageId].each do |key|
           require_id(normalised[key], "Assignment item #{key}")
         end
-        value = require_present(normalised['value'], 'Assignment item value')
+        value = normalised['value']
         raise ValidationError.new('Assignment item value must be a String') unless value.is_a?(String)
 
         normalised

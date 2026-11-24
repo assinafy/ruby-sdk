@@ -135,10 +135,10 @@ RSpec.describe Assinafy::Resources::FieldResource do
       expect(a_request(:post, "#{base_url}/accounts/acc/fields/field-1/validate")).not_to have_been_made
     end
 
-    it 'rejects a nil value before making a request' do
-      expect { resource.validate('field-1', nil) }
-        .to raise_error(Assinafy::ValidationError, /Field value/)
-      expect(a_request(:post, "#{base_url}/accounts/acc/fields/field-1/validate")).not_to have_been_made
+    it 'lets the API validate an explicit null for an optional field' do
+      stub_request(:post, "#{base_url}/accounts/acc/fields/field-1/validate")
+        .with(body: '{"value":null}').to_return(api_envelope({ success: true }))
+      expect(resource.validate('field-1', nil)).to eq('success' => true)
     end
   end
 
@@ -183,7 +183,7 @@ RSpec.describe Assinafy::Resources::FieldResource do
       path = "#{base_url}/accounts/acc/fields/validate-multiple"
 
       [{ value: '1' }, { field_id: 2, value: '1' }, { field_id: '../bad', value: '1' },
-       { field_id: 'field-1' }, { field_id: 'field-1', value: nil }].each do |item|
+       { field_id: 'field-1' }].each do |item|
         expect { resource.validate_multiple([item]) }.to raise_error(Assinafy::ValidationError)
       end
       expect(a_request(:post, path)).not_to have_been_made
@@ -238,5 +238,11 @@ RSpec.describe Assinafy::Resources::FieldResource do
 
       expect(a_request(:any, %r{/fields/})).not_to have_been_made
     end
+  end
+
+  it 'keeps explicit null in batch field validation' do
+    stub_request(:post, "#{base_url}/accounts/acc/fields/validate-multiple")
+      .with(body: '[{"field_id":"field-1","value":null}]').to_return(api_envelope([{ success: true }]))
+    expect(resource.validate_multiple([{ field_id: 'field-1', value: nil }])).to eq([{ 'success' => true }])
   end
 end

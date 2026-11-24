@@ -11,7 +11,7 @@ Run this SDK on your server. Mobile and browser clients call your backend; keep 
 refresh tokens and signer access codes out of application bundles, logs and browser storage.
 
 The SDK exposes every Assinafy API v1 operation — including OAuth 2.1, two-factor authentication, webhook
-endpoints with native signatures, and the complete supported template lifecycle. The checked-in
+endpoints with native signatures, envelopes, contracts, embedded signing, and the complete supported template lifecycle. The checked-in
 [`spec/api_coverage_spec.rb`](spec/api_coverage_spec.rb) validates that each route maps uniquely to a public SDK
 method.
 
@@ -27,7 +27,7 @@ This guide follows an integration end to end — [install and configure](#instal
 
 ## Installation and configuration
 
-Requirements: Ruby 3.2+ (maintained support: 3.3+; 3.2 is legacy/EOL compatibility), Bundler, and TLS 1.2 or
+Requirements: Ruby 3.2+ (use patched Ruby 4.0.10, 3.4.13 or 3.3.14; 3.2 is legacy/EOL compatibility), Bundler, and TLS 1.2 or
 newer (the SDK refuses TLS 1.0 and 1.1).
 
 ```ruby
@@ -360,6 +360,9 @@ The document is named after the uploaded file; rename it with `client.documents.
 in-memory data, pass `{ buffer: pdf_bytes, file_name: 'contract.pdf' }`. PDF only, at most 25 MB: the SDK checks
 the extension, size, and `%PDF-` header before sending. `wait_until_ready` raises `Assinafy::ValidationError` for
 invalid interval values and `Assinafy::Error` for a failed terminal status or a timeout.
+The high-level `upload_and_request_signatures` helper waits up to 30 seconds by default. For asynchronous
+processing, pass `wait_for_ready: false` and poll separately with the required timeout. Its errors retain
+the uploaded document and any created signer IDs in `error.context` for recovery without uploading again.
 
 **Or select a template.** A template upload initially contains an `Editor` role. Configure at least one `Signer`
 role and its fields in the Assinafy application before generating a document. Template uploads have the same
@@ -517,14 +520,20 @@ signing.signers.verify_email(                      # the OTP from email or Whats
 )
 signing.signers.upload_signature(File.binread('signature.png'), signer_access_code: access_code, type: 'signature')
 
-signing.signer_documents.sign_multiple([signing_document.fetch('id')], signer_access_code: access_code)
+signing.assignments.sign(
+  signing_document.fetch('id'), signing_document.dig('assignment', 'id'), [], signer_access_code: access_code
+)
+# sign_multiple is also available for batches of virtual documents.
 ```
 
-That signs a virtual assignment. For a collect assignment, submit each positioned item through
-`assignments.sign`; the SDK maps the snake_case item keys to the API's camelCase request keys:
+That signs a virtual assignment. For a collect assignment, upload both the signature and initial images, then
+submit required item values through `assignments.sign`. This example places only signature fields; add values
+matching each field's type for other editable fields. Omit read-only dates, which the server fills:
 
 ```ruby
-collect_items = signing_document.fetch('assignment').fetch('items').map do |item|
+signing.signers.upload_signature(File.binread('initial.png'), signer_access_code: access_code, type: 'initial')
+items = signing_document.fetch('assignment').fetch('items')
+collect_items = items.select { |item| item.dig('field', 'type') == 'signature' }.map do |item|
   { item_id: item.fetch('id'), field_id: item.dig('field', 'id'), page_id: item.dig('page', 'id'), value: 'Accepted' }
 end
 
@@ -878,6 +887,53 @@ signer must appear on a document. A certificate signer signs alone on each virtu
 document; a biometric signer verifies once for the envelope. Preserve the creation idempotency key after an
 ambiguous response. `max_total_credits` prevents creating or charging an envelope above the approved cost.
 
+### Scheduled sends and document recipients (staging)
+
+These calls are published on `https://api.angry-pisco.stage.assinafy.com.br/v1`, ahead of production.
+Use the matching staging credentials and base URL. Production may return 404 until these routes are deployed.
+
+```ruby
+scheduled = client.assignments.schedule(
+  'document-id', { signers: [{ id: 'signer-id', sign_as: 'Witness' }], max_total_credits: 1 },
+  send_at: (Time.now + 7200).iso8601
+)
+# => { 'id' => 'send-id', 'type' => 'assignment', 'document_ids' => ['document-id'],
+#      'status' => 'pending', 'send_at' => '2026-12-01T12:00:00Z', 'assignment_id' => nil,
+#      'envelope_id' => nil, 'failure_reason' => nil, 'created_at' => '2026-12-01T10:00:00Z',
+#      'processed_at' => nil }
+client.scheduled_sends.list(document_id: 'document-id', per_page: 20) # { data:, meta: }
+client.scheduled_sends.cancel(scheduled.fetch('id')) # status: cancelled; no charge
+# Or send a pending request immediately:
+# client.scheduled_sends.send_now(scheduled.fetch('id')) # status: sent; assignment_id/envelope_id populated
+
+client.envelopes.schedule(
+  { name: 'Contract', signers: [{ id: 'signer-id' }],
+    documents: [{ id: 'another-document-id', signer_ids: ['signer-id'] }] },
+  send_at: (Time.now + 7200).to_i
+) # ScheduledSend with type: envelope
+
+client.documents.signer_capacities('document-id') # [{ 'signer_id' => 'signer-id', 'sign_as' => 'Witness' }]
+client.documents.set_watchers('document-id', ['contact-id']) # Array<Signer>; [] clears all
+client.documents.watchers('document-id') # Array<Signer>
+client.documents.notification_history('document-id') # signer_id plus records with delivered_at/opened_at
+client.envelopes.estimate_resend_cost('envelope-id', 'signer-id') # total, breakdown, credit_balance, has_sufficient_credits
+```
+
+Scheduling creates no assignment, invitation or charge until delivery. `send_at` accepts Unix seconds or
+ISO 8601 (no offset means UTC), one hour to 90 days ahead. Each document's deadline must be at least two hours
+later. All schedule operations, including listing, need OAuth `documents:write`. Delivery uses the original
+member's permissions and then-current balance, plan and price; preserve `max_total_credits` to bound charges.
+The worker checks about every five minutes. A failed send records a reason and notifies the original member
+(or active owners if they left). Send-now failures leave the request pending; cancel it to prevent a later attempt.
+Only pending sends can be cancelled or sent now. Scheduling does not accept idempotency keys.
+
+`sign_as` defaults to `Sign`; other exact values are in `AssignmentResource::SIGNER_CAPACITIES`. It records
+the sender's statement on the certificate and is read separately, not from ordinary assignments or webhooks.
+Watchers are up to ten workspace contacts with email, editable until the document ends. They receive a terminal
+status email without a document link/file, independently of workspace notification policy. Delivery/open times
+are nullable; an open is a hint, not proof a human read the invitation. Reminder estimates do not check eligibility;
+staging limits reminders to one per two minutes and ten per 24 hours, shared across an envelope's documents.
+
 ### Embedded signing
 
 Requires the account's Embed feature and an API key or user session; third-party OAuth cannot create sessions.
@@ -945,6 +1001,11 @@ client.signers.update('signer-id', full_name: 'Alice S.', government_id: '000000
 client.signers.delete('signer-id')
 client.signers.find_by_email('alice@example.com')   # case-insensitive; nil when no match
 ```
+
+`signers.update` changes only supplied fields. Explicit `nil` or `''` clears email, WhatsApp number or
+government ID; full_name cannot be cleared. Verified channels on unfinished requests cannot change, and changing
+an unverified channel invalidates old invitation links. `confirm_data` only reads email, WhatsApp number and terms;
+name/government-ID changes belong in workspace signer updates.
 
 ### Signers (self-service, signer-access-code)
 
@@ -1069,6 +1130,9 @@ client.fields.validate_multiple(
   signer_access_code: 'code'
 )
 ```
+
+Single and batch field validation preserve explicit `nil` as JSON null. The API decides whether an empty value
+is allowed by that field; a batch item must still contain its `value` key. Zero is a value.
 
 ### Webhooks
 

@@ -291,11 +291,17 @@ module Assinafy
       def replace_tags: (String document_id, Array[String] tags, ?String? account_id_override) -> Array[api_object]
       def append_tags: (String document_id, Array[String] tags, ?String? account_id_override) -> Array[api_object]
       def detach_tag: (String document_id, String tag_id, ?String? account_id_override) -> api_object
+      def signer_capacities: (String document_id) -> Array[api_object]
+      def notification_history: (String document_id) -> Array[api_object]
+      def watchers: (String document_id) -> Array[api_object]
+      def set_watchers: (String document_id, Array[String] watcher_ids) -> Array[api_object]
       def fully_signed?: (String document_id) -> bool
       def signing_progress: (String document_id) -> signing_progress
     end
 
     class EnvelopeResource < BaseResource
+      def schedule: (params payload, ?String? account_id_override, send_at: String | Integer) -> api_object
+      def estimate_resend_cost: (String envelope_id, String signer_id, ?String? account_id_override) -> api_object
       def list: (?params params, ?String? account_id_override) -> list_result
       def create: (params payload, ?String? account_id_override, ?idempotency_key: String?) -> api_object
       def estimate_cost: (params payload, ?String? account_id_override) -> api_object
@@ -308,6 +314,14 @@ module Assinafy
       def resend_notification: (String envelope_id, String signer_id, ?String? account_id_override) -> api_object
       def add_document: (String envelope_id, params payload, ?String? account_id_override) -> api_object
       def remove_document: (String envelope_id, String document_id, ?String? account_id_override) -> api_object
+    end
+
+    class ScheduledSendResource < BaseResource
+      def self.require_send_at: (String | Integer value) -> Time
+      def self.scheduled_expiration: (String | Integer | nil value, Time send_time) -> String?
+      def list: (?params params, ?String? account_id_override) -> list_result
+      def cancel: (String scheduled_send_id, ?String? account_id_override) -> api_object
+      def send_now: (String scheduled_send_id, ?String? account_id_override) -> api_object
     end
 
     class ContractResource < BaseResource
@@ -381,6 +395,8 @@ module Assinafy
     end
 
     class AssignmentResource < BaseResource
+      SIGNER_CAPACITIES: Array[String]
+      def schedule: (String document_id, params payload, send_at: String | Integer) -> api_object
       OPTIONAL_FIELDS: Array[Symbol]
       METHODS: Array[String]
       VERIFICATION_METHODS: Array[String]
@@ -502,6 +518,7 @@ module Assinafy
     attr_reader accounts: Resources::AccountResource
     attr_reader users: Resources::UserResource
     attr_reader documents: Resources::DocumentResource
+    attr_reader scheduled_sends: Resources::ScheduledSendResource
     attr_reader envelopes: Resources::EnvelopeResource
     attr_reader contracts: Resources::ContractResource
     attr_reader signers: Resources::SignerResource
